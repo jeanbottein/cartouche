@@ -75,50 +75,11 @@ def _build_file_map(root: str) -> dict:
         return files
     for dirpath, dirnames, filenames in os.walk(root):
         for fname in filenames:
-            if fname == SYNC_META_NAME:
-                continue
             full = os.path.join(dirpath, fname)
             rel = os.path.relpath(full, root)
             files[rel] = full
     return files
 
-
-SYNC_META_NAME = ".gamer-sidekick"
-
-
-def _max_mtime(files: dict) -> float:
-    if not files:
-        return 0.0
-    try:
-        return max(os.path.getmtime(p) for p in files.values())
-    except OSError as e:
-        logger.error(f"❌ Error computing directory mtime snapshot: {e}")
-        return 0.0
-
-
-def _read_sync_meta(root: str):
-    meta_path = os.path.join(root, SYNC_META_NAME)
-    if not os.path.isfile(meta_path):
-        return None
-    try:
-        with open(meta_path, "r") as f:
-            data = json.load(f)
-        return float(data.get("last_snapshot_mtime", 0.0))
-    except Exception as e:
-        logger.error(f"❌ Error reading sync metadata {meta_path}: {e}")
-        return None
-
-
-def _write_sync_meta(root: str, snapshot_mtime: float) -> None:
-    if not os.path.isdir(root):
-        return
-    meta_path = os.path.join(root, SYNC_META_NAME)
-    payload = {"last_snapshot_mtime": float(snapshot_mtime)}
-    try:
-        with open(meta_path, "w") as f:
-            json.dump(payload, f)
-    except Exception as e:
-        logger.error(f"❌ Error writing sync metadata {meta_path}: {e}")
 
 
 def _copy_file(src: str, dst: str) -> None:
@@ -154,37 +115,6 @@ def _copy_tree_one_way(src_root: str, dst_root: str) -> None:
         _copy_file(src_path, dst_path)
 
 
-def _bisync_dirs(a_root: str, b_root: str) -> None:
-    a_files = _build_file_map(a_root)
-    b_files = _build_file_map(b_root)
-
-    all_rel = set(a_files) | set(b_files)
-    for rel in sorted(all_rel):
-        a_path = a_files.get(rel)
-        b_path = b_files.get(rel)
-
-        if a_path and not b_path:
-            _copy_file(a_path, os.path.join(b_root, rel))
-            continue
-        if b_path and not a_path:
-            _copy_file(b_path, os.path.join(a_root, rel))
-            continue
-
-        if not a_path or not b_path:
-            continue
-
-        try:
-            a_mtime = os.path.getmtime(a_path)
-            b_mtime = os.path.getmtime(b_path)
-        except OSError as e:
-            logger.error(f"❌ Error getting mtime for {rel}: {e}")
-            continue
-
-        if a_mtime > b_mtime + 1e-6:
-            _copy_file(a_path, b_path)
-        elif b_mtime > a_mtime + 1e-6:
-            _copy_file(b_path, a_path)
-
 
 def _sync_one_manifest(manifest_path: str, saves_root: str, strategy: str) -> None:
     try:
@@ -212,7 +142,9 @@ def _sync_one_manifest(manifest_path: str, saves_root: str, strategy: str) -> No
     src_dir = _resolve_save_path(save_path, manifest_path)
     dst_dir = os.path.join(saves_root, _sanitize_title(title))
 
-    if strategy == "backup":
+    if strategy in ("backup", "sync"):
+        if strategy == "sync":
+            logger.info(f"ℹ️ {title}: 'sync' strategy now behaves like 'backup' (use SAVESLINK_PATH + Syncthing for bidirectional sync)")
         if not os.path.isdir(src_dir):
             logger.info(f"ℹ️ {title}: source save directory {src_dir} not found, skipping backup")
             return
@@ -251,103 +183,152 @@ def _sync_one_manifest(manifest_path: str, saves_root: str, strategy: str) -> No
         logger.info(f"✅ {title}: restore completed")
         return
 
-    # sync (metadata-aware) strategy
-    src_exists = os.path.isdir(src_dir)
-    dst_exists = os.path.isdir(dst_dir)
 
-    if not src_exists and not dst_exists:
-        logger.info(f"ℹ️ {title}: no save directory on either side, skipping")
-        return
-
-    src_files = _build_file_map(src_dir) if src_exists else {}
-    dst_files = _build_file_map(dst_dir) if dst_exists else {}
-
-    src_current = _max_mtime(src_files)
-    dst_current = _max_mtime(dst_files)
-
-    if src_current == 0.0 and dst_current == 0.0:
-        logger.info(f"ℹ️ {title}: both save directories are empty, nothing to sync")
-        return
-
-    src_meta = _read_sync_meta(src_dir) if src_exists else None
-    dst_meta = _read_sync_meta(dst_dir) if dst_exists else None
-
-    use_meta = src_meta is not None and dst_meta is not None
-    direction = None  # "src_to_dst" or "dst_to_src"
-
-    if use_meta:
-        src_changed = src_current > src_meta
-        dst_changed = dst_current > dst_meta
-
-        if src_changed and not dst_changed:
-            direction = "src_to_dst"
-        elif dst_changed and not src_changed:
-            direction = "dst_to_src"
-        elif not src_changed and not dst_changed:
-            logger.info(f"ℹ️ {title}: no changes detected since last sync, skipping")
+def _sync_custom_directory(custom_name: str, source_dir: str, saves_root: str, strategy: str) -> None:
+    """
+    Sync a custom directory to the backup location.
+    
+    Args:
+        custom_name: Name to use for the backup subdirectory
+        source_dir: Source directory path to backup
+        saves_root: Root backup directory path
+        strategy: Backup strategy (backup, sync, or restore)
+    """
+    src_dir = _resolve_base_path(source_dir)
+    dst_dir = os.path.join(saves_root, _sanitize_title(custom_name))
+    
+    if strategy in ("backup", "sync"):
+        if strategy == "sync":
+            logger.info(f"ℹ️ {custom_name}: 'sync' strategy now behaves like 'backup' (use SAVESLINK_PATH + Syncthing for bidirectional sync)")
+        if not os.path.isdir(src_dir):
+            logger.info(f"ℹ️ {custom_name}: source directory {src_dir} not found, skipping backup")
             return
-        else:
-            logger.warning(
-                f"⚠️ {title}: changes detected on both original and backup since last sync; "
-                "preferring original save directory as source"
-            )
-            direction = "src_to_dst"
-    else:
-        # First sync or missing metadata: compare latest modification times
-        if dst_current > src_current:
-            direction = "dst_to_src"
-        else:
-            direction = "src_to_dst"
-
-    if direction == "src_to_dst":
-        if not src_exists:
-            logger.info(f"ℹ️ {title}: original save directory {src_dir} does not exist, skipping sync")
+        src_files = _build_file_map(src_dir)
+        if not src_files:
+            logger.info(f"ℹ️ {custom_name}: source directory {src_dir} is empty, skipping backup")
             return
+        dst_files = _build_file_map(dst_dir) if os.path.isdir(dst_dir) else {}
+
         os.makedirs(dst_dir, exist_ok=True)
-        source_root, target_root = src_dir, dst_dir
-    else:
-        if not dst_exists:
-            logger.info(f"ℹ️ {title}: backup directory {dst_dir} does not exist, skipping sync")
+        logger.info(f"🤖 Backing up custom directory: {custom_name}")
+
+        # Copy/update files from source into backup
+        for rel, src_path in src_files.items():
+            dst_path = os.path.join(dst_dir, rel)
+            _copy_file(src_path, dst_path)
+
+        # Remove files from backup that no longer exist in source
+        for rel, dst_path in dst_files.items():
+            if rel not in src_files:
+                try:
+                    os.remove(dst_path)
+                except OSError as e:
+                    logger.error(f"❌ Error removing obsolete backup file {dst_path}: {e}")
+
+        logger.info(f"✅ {custom_name}: backup updated")
+        return
+
+    if strategy == "restore":
+        if not os.path.isdir(dst_dir):
+            logger.info(f"ℹ️ {custom_name}: backup directory {dst_dir} not found, skipping restore")
             return
         os.makedirs(src_dir, exist_ok=True)
-        source_root, target_root = dst_dir, src_dir
+        logger.warning(f"⚠️ Restoring custom directory: {custom_name} from backup (overwrites existing files)")
+        _copy_tree_one_way(dst_dir, src_dir)
+        logger.info(f"✅ {custom_name}: restore completed")
+        return
 
-    source_files = _build_file_map(source_root)
-    target_files = _build_file_map(target_root) if os.path.isdir(target_root) else {}
 
-    direction_label = "original -> backup" if direction == "src_to_dst" else "backup -> original"
-    logger.info(f"🤖 Syncing saves for {title}: {direction_label}")
+def _create_symlink(link_path: str, target_path: str) -> None:
+    """Create or update a symlink at link_path pointing to target_path."""
+    try:
+        if os.path.islink(link_path):
+            current_target = os.readlink(link_path)
+            if current_target == target_path:
+                return  # Already correct
+            os.remove(link_path)
+        elif os.path.exists(link_path):
+            # Something that isn't a symlink exists here; skip to avoid data loss
+            logger.warning(f"⚠️ {link_path} exists and is not a symlink, skipping")
+            return
+        os.makedirs(os.path.dirname(link_path), exist_ok=True)
+        os.symlink(target_path, link_path)
+    except Exception as e:
+        logger.error(f"❌ Error creating symlink {link_path} -> {target_path}: {e}")
 
-    # Copy/update files from source into target
-    for rel, src_path in source_files.items():
-        dst_path = os.path.join(target_root, rel)
-        _copy_file(src_path, dst_path)
 
-    # Remove files from target that no longer exist in source
-    for rel, dst_path in target_files.items():
-        if rel not in source_files:
-            try:
-                os.remove(dst_path)
-            except OSError as e:
-                logger.error(f"❌ Error removing obsolete synced file {dst_path}: {e}")
+def _build_symlink_tree(symlink_entries: list, link_root: str) -> None:
+    """
+    Build a symlink tree under link_root.
 
-    # Update metadata snapshots on both sides
-    src_snapshot = _max_mtime(_build_file_map(src_dir) if os.path.isdir(src_dir) else {})
-    dst_snapshot = _max_mtime(_build_file_map(dst_dir) if os.path.isdir(dst_dir) else {})
-    _write_sync_meta(src_dir, src_snapshot)
-    _write_sync_meta(dst_dir, dst_snapshot)
+    Args:
+        symlink_entries: list of (sanitized_name, original_source_path) tuples
+        link_root: root directory for the symlink tree
+    """
+    os.makedirs(link_root, exist_ok=True)
 
-    logger.info(f"✅ {title}: saves synchronized (strategy=sync)")
+    created_names = set()
+    for name, source_path in symlink_entries:
+        link_path = os.path.join(link_root, name)
+        if not os.path.isdir(source_path):
+            logger.info(f"ℹ️ {name}: source {source_path} does not exist, skipping symlink")
+            continue
+        _create_symlink(link_path, source_path)
+        created_names.add(name)
+
+    # Clean up stale symlinks (symlinks in link_root that no longer correspond to any entry)
+    try:
+        for entry in os.listdir(link_root):
+            full = os.path.join(link_root, entry)
+            if os.path.islink(full) and entry not in created_names:
+                logger.info(f"🤖 Removing stale symlink: {full}")
+                try:
+                    os.remove(full)
+                except OSError as e:
+                    logger.error(f"❌ Error removing stale symlink {full}: {e}")
+    except OSError as e:
+        logger.error(f"❌ Error listing symlink directory {link_root}: {e}")
+
+    if created_names:
+        logger.info(f"✅ Symlink tree updated at {link_root} ({len(created_names)} entries)")
+
+
+def _resolve_manifest_save_path(manifest_path: str) -> tuple:
+    """Resolve a manifest's title and save path. Returns (title, src_dir) or (None, None)."""
+    try:
+        with open(manifest_path, "r") as f:
+            manifest = json.load(f)
+    except Exception as e:
+        logger.error(f"❌ Error reading manifest {manifest_path}: {e}")
+        return None, None
+
+    title = manifest.get("title") or os.path.basename(os.path.dirname(manifest_path))
+    raw_save = manifest.get("savePath", "")
+    try:
+        if hasattr(manifester, "_pick_save_path"):
+            save_path = manifester._pick_save_path(raw_save)
+        else:
+            save_path = raw_save
+    except Exception as e:
+        logger.error(f"❌ {title}: error resolving savePath {raw_save!r}: {e}")
+        return None, None
+
+    if not save_path:
+        return None, None
+
+    src_dir = _resolve_save_path(save_path, manifest_path)
+    return title, src_dir
 
 
 def run(config: dict) -> None:
     games_dir = config.get("FREEGAMES_PATH")
     saves_root = config.get("SAVESCOPY_PATH")
+    link_root = config.get("SAVESLINK_PATH")
 
     raw_strategy = (config.get("SAVESCOPY_STRATEGY") or "backup").strip().lower()
     if raw_strategy not in {"backup", "sync", "restore"}:
         logger.warning(
-            f" Invalid SAVESCOPY_STRATEGY '{raw_strategy}', falling back to 'backup'"
+            f"\x10 Invalid SAVESCOPY_STRATEGY '{raw_strategy}', falling back to 'backup'"
         )
         strategy = "backup"
     else:
@@ -364,6 +345,17 @@ def run(config: dict) -> None:
     saves_root = _resolve_base_path(saves_root)
     os.makedirs(saves_root, exist_ok=True)
 
+    # Copy config.txt to backup/sync folder prefixed with machine name
+    machine_name = (config.get("MACHINE_NAME") or "").strip()
+    config_path = config.get("_CONFIG_PATH")  # injected by gamer-sidekick.py
+    if machine_name and config_path and os.path.isfile(config_path):
+        config_backup_name = f"{_sanitize_title(machine_name)}_config.txt"
+        config_dst = os.path.join(saves_root, config_backup_name)
+        _copy_file(config_path, config_dst)
+        logger.info(f"✅ Config backed up as {config_backup_name}")
+    elif not machine_name:
+        logger.info("ℹ️ MACHINE_NAME not set, skipping config backup")
+
     manifests = manifester.find_manifests(games_dir)
     if not manifests:
         logger.info("🤖 No launch_manifest.json found, nothing to process")
@@ -372,3 +364,41 @@ def run(config: dict) -> None:
     logger.info(f"🤖 Running saver with strategy='{strategy}' to {saves_root}")
     for manifest_path in manifests:
         _sync_one_manifest(manifest_path, saves_root, strategy)
+
+    # Process custom directory backups
+    custom_backups = {}
+    for key, value in config.items():
+        if key.startswith("BACKUP_"):
+            custom_name = key[len("BACKUP_"):]
+            if custom_name and value:
+                custom_backups[custom_name] = value
+
+    if custom_backups:
+        logger.info(f"🤖 Processing {len(custom_backups)} custom directory backup(s)")
+        for custom_name, source_path in custom_backups.items():
+            _sync_custom_directory(custom_name, source_path, saves_root, strategy)
+
+    # Build symlink tree if SAVESLINK_PATH is configured
+    if link_root:
+        link_root = _resolve_base_path(link_root)
+        logger.info(f"🤖 Building symlink tree at {link_root}")
+
+        symlink_entries = []
+
+        # Add game save directories
+        for manifest_path in manifests:
+            title, src_dir = _resolve_manifest_save_path(manifest_path)
+            if title and src_dir:
+                symlink_entries.append((_sanitize_title(title), src_dir))
+
+        # Add custom directory entries
+        for custom_name, source_path in custom_backups.items():
+            src_dir = _resolve_base_path(source_path)
+            symlink_entries.append((_sanitize_title(custom_name), src_dir))
+
+        _build_symlink_tree(symlink_entries, link_root)
+
+        # Also copy config to symlink folder
+        if machine_name and config_path and os.path.isfile(config_path):
+            config_link_dst = os.path.join(link_root, config_backup_name)
+            _copy_file(config_path, config_link_dst)

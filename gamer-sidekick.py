@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Dict
 import logging
 import shutil
+import subprocess
 
 from lib import manifester
 from lib import patcher
@@ -50,16 +51,50 @@ def ensure_config_file(script_dir: Path) -> Path:
     return config_path
 
 
+def run_post_commands(config: Dict[str, str]) -> None:
+    """Run commands defined by RUN_AFTER_<name>=<command> entries, sorted by key."""
+    commands = sorted(
+        [(k, v) for k, v in config.items() if k.startswith("RUN_AFTER_") and v],
+        key=lambda x: x[0],
+    )
+    if not commands:
+        return
+
+    logger.info(f"🤖 Running {len(commands)} post-command(s)")
+    for key, cmd in commands:
+        label = key[len("RUN_AFTER_"):]
+        
+        # Substitute variables like ${SAVESLINK_PATH} with config values
+        for cfg_key, cfg_val in config.items():
+            cmd = cmd.replace(f"${{{cfg_key}}}", cfg_val)
+            
+        logger.info(f"▶️  {label}: {cmd}")
+        try:
+            result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+            if result.stdout.strip():
+                logger.info(result.stdout.strip())
+            if result.returncode != 0:
+                logger.warning(f"⚠️  {label}: exited with code {result.returncode}")
+                if result.stderr.strip():
+                    logger.warning(f"   {result.stderr.strip()}")
+            else:
+                logger.info(f"✅ {label}: done")
+        except Exception as e:
+            logger.error(f"❌ {label}: failed to execute: {e}")
+
+
 def main():
     logging.basicConfig(level=logging.INFO, format='%(message)s')
     script_dir = Path(__file__).resolve().parent
     config_path = ensure_config_file(script_dir)
     cfg = load_config_map(config_path)
+    cfg["_CONFIG_PATH"] = str(config_path)
 
     manifester.run(cfg)
     saver.run(cfg)
     patcher.run(cfg)
     configurer.run(cfg)
+    run_post_commands(cfg)
 
 
 if __name__ == "__main__":

@@ -72,7 +72,9 @@ def load_apps_config(config_vars):
                         'name': rep.get('name', 'unnamed'),
                         'type': rep.get('type', 'text'),
                         'pattern': resolved_pattern,
-                        'value': resolved_value
+                        'value': resolved_value,
+                        'insert': rep.get('insert', False),
+                        'after': rep.get('after', None)
                     }
                     replacements.append(processed_rep)
             
@@ -85,7 +87,7 @@ def load_apps_config(config_vars):
     return processed
 
 def apply_text_replacements(content, replacements):
-    """Apply text-based regex replacements"""
+    """Apply text-based regex replacements, with optional insert-if-missing"""
     modified = False
     for rep in replacements:
         pattern, value = rep['pattern'], rep['value']
@@ -93,6 +95,32 @@ def apply_text_replacements(content, replacements):
             content = re.sub(pattern, value, content)
             logger.info(f"✅ {rep['name']} -> {value}")
             modified = True
+        elif rep.get('insert', False):
+            after = rep.get('after')
+            if after is not None:
+                # Insert after the marker line
+                lines = content.splitlines(True)
+                inserted = False
+                for i, line in enumerate(lines):
+                    if after in line:
+                        # Insert value right after this line
+                        newline = value + '\n'
+                        lines.insert(i + 1, newline)
+                        inserted = True
+                        break
+                if inserted:
+                    content = ''.join(lines)
+                    logger.info(f"✅ {rep['name']} -> inserted after '{after}'")
+                    modified = True
+                else:
+                    logger.warning(f"⚠️  {rep['name']}: marker '{after}' not found in file, skipping insert")
+            else:
+                # Append at end of file
+                if not content.endswith('\n'):
+                    content += '\n'
+                content += value + '\n'
+                logger.info(f"✅ {rep['name']} -> inserted at end of file")
+                modified = True
     return content, modified
 
 def apply_hex_replacements(content, replacements):

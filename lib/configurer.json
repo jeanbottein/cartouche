@@ -2,7 +2,7 @@
     "Ryujinx": {
         "files": [
             {
-                "paths": [ 
+                "paths": [
                     "${HOME}/.config/Ryujinx/Config.json",
                     "${HOME}/.var/app/net.retrodeck.retrodeck/config/Ryujinx/Config.json",
                     "${APPDATA}/Ryujinx/Config.json",
@@ -44,6 +44,11 @@
                         "name": "Cemu / console language",
                         "pattern": "<console_language>.*</console_language>",
                         "value": "<console_language>${CEMU_CONSOLE_LANGUAGE}</console_language>"
+                    },
+                    {
+                        "name": "Cemu / fullscreen",
+                        "pattern": "<fullscreen>.*</fullscreen>",
+                        "value": "<fullscreen>${CEMU_FULLSCREEN}</fullscreen>"
                     }
                 ]
             }
@@ -83,6 +88,7 @@
         "files": [
             {
                 "paths": [
+                    "${HOME}/.var/app/org.DolphinEmu.dolphin-emu/config/dolphin-emu/Dolphin.ini",
                     "${HOME}/.var/app/org.DolphinEmu.dolphin-emu/data/dolphin-emu/Dolphin.ini",
                     "${HOME}/.var/app/net.retrodeck.retrodeck/config/dolphin-emu/Dolphin.ini",
                     "${USERPROFILE}/Documents/Dolphin Emulator/Config/Dolphin.ini",
@@ -109,6 +115,25 @@
                         "name": "Dolphin / Fullscreen",
                         "pattern": "Fullscreen =.*",
                         "value": "Fullscreen = ${DOLPHIN_FULLSCREEN}"
+                    }
+                ]
+            },
+            {
+                "paths": [
+                    "${HOME}/.var/app/org.DolphinEmu.dolphin-emu/config/dolphin-emu/GFX.ini",
+                    "${HOME}/.var/app/org.DolphinEmu.dolphin-emu/data/dolphin-emu/GFX.ini",
+                    "${HOME}/.var/app/net.retrodeck.retrodeck/config/dolphin-emu/GFX.ini",
+                    "${USERPROFILE}/Documents/Dolphin Emulator/Config/GFX.ini",
+                    "${APPDATA}/Dolphin Emulator/Config/GFX.ini",
+                    "C:/Users/${USER}/Documents/Dolphin Emulator/Config/GFX.ini"
+                ],
+                "replacements": [
+                    {
+                        "name": "Dolphin / Crop",
+                        "pattern": "Crop =.*",
+                        "value": "Crop = ${DOLPHIN_CROP}",
+                        "insert": true,
+                        "after": "[Settings]"
                     }
                 ]
             },

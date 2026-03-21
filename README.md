@@ -39,9 +39,14 @@ The `config.txt` file contains all your settings and paths. Here's an example:
 FREEGAMES_PATH=/run/media/deck/SteamDeck-SD/linux-games
 PATCHES_PATH=/run/media/deck/SteamDeck-SD/mods
 SAVESCOPY_PATH=/run/media/deck/SteamDeck-SD/gamer-sidekick-backup
-SAVESCOPY_STRATEGY=backup  # backup (default), sync, or restore (dangerous)
+SAVESCOPY_STRATEGY=backup  # backup (default), sync (alias for backup), or restore (dangerous)
+SAVESLINK_PATH=/run/media/deck/SteamDeck-SD/gamer-sidekick-sync  # optional, for Syncthing
+
+# Custom directory backups (optional)
+BACKUP_gamescope-shaders=/home/deck/.local/share/gamescope/reshade/Shaders
 
 # Dolphin settings
+
 DOLPHIN_GC_LANGUAGE=2   # 0=eng, 1=ger, 2=fre, 3=spa
 DOLPHIN_WII_LANGUAGE=3  # 0=jap, 1=eng, 2=ger, 3=fre
 DOLPHIN_GC_SKIP_BOOT=False
@@ -214,8 +219,9 @@ Each game manifest can declare a `savePath`. For every manifest with a valid `sa
 - `SAVESCOPY_PATH` – Root directory where per-game save backups are stored.
 - `SAVESCOPY_STRATEGY` – One of:
   - `backup` (default, recommended)
-  - `sync`
+  - `sync` (alias for `backup` – use `SAVESLINK_PATH` + Syncthing for real bidirectional sync)
   - `restore` (dangerous)
+- `SAVESLINK_PATH` – (Optional) Root directory for a symlink tree pointing to original save/custom directories. Use with Syncthing or similar tools for automatic bidirectional sync.
 
 If `SAVESCOPY_STRATEGY` is missing or invalid, the tool automatically falls back to `backup`.
 
@@ -224,25 +230,77 @@ If `SAVESCOPY_STRATEGY` is missing or invalid, the tool automatically falls back
 - **backup (default, recommended)**
   - One-way copy from the original save directory (`savePath`) to the backup directory under `SAVESCOPY_PATH`.
   - Existing files in the backup are overwritten by the originals when they share the same relative path.
+  - Files removed from the original are also removed from the backup to keep it an exact mirror.
   - The original save directory is never modified by this mode.
 
-- **sync**
-  - Metadata-aware one-way mirroring between the original and backup directories.
-  - A hidden `.gamer-sidekick` metadata file is stored in each directory to track the last sync snapshot.
-  - On first sync (no metadata), the side with the most recently modified files is mirrored to the other side.
-  - On later syncs, only the side that changed since the last snapshot is mirrored to the other; if both changed, the original save directory is preferred and a warning is logged.
+- **sync (alias for backup)**
+  - Behaves identically to `backup`. For real bidirectional synchronization, configure `SAVESLINK_PATH` and use a tool like Syncthing.
 
 - **restore (dangerous)**
   - One-way copy from the backup directory under `SAVESCOPY_PATH` back to the original save directory.
   - Existing files in the original directory are overwritten by the backup when they share the same relative path.
   - Intended for recovery after reinstalling or moving games; use with caution.
 
+#### Symlink Folder (SAVESLINK_PATH)
+
+When `SAVESLINK_PATH` is configured, the saver creates a directory of symlinks that point to the **original** save directories. This folder is designed for use with Syncthing or similar sync tools.
+
+**How it works:**
+- For each game with a `savePath`: `SAVESLINK_PATH/<GameTitle>` → symlink to the original save directory
+- For each custom backup entry: `SAVESLINK_PATH/<Name>` → symlink to the source directory
+- Stale symlinks (pointing to entries that no longer exist) are automatically cleaned up
+
+**Example layout:**
+```
+gamer-sidekick-sync/
+├── Undertale -> /home/deck/.config/Undertale/saves
+├── Hollow_Knight -> /home/deck/.config/unity3d/Team Cherry/Hollow Knight
+└── doplhin -> /home/deck/.var/app/org.DolphinEmu.dolphin-emu/data/dolphin-emu
+```
+
+Point Syncthing (or any sync tool) at this folder to automatically sync saves across devices.
+
 #### Safety guidelines
 
 - Start with the `backup` strategy until you have confirmed your manifests and paths.
-- Use `sync` only if you understand that newer files from either side can overwrite older ones.
+- Use `SAVESLINK_PATH` with Syncthing for bidirectional sync across devices.
 - Use `restore` only when you explicitly want to replace current saves with the backup contents.
 - For critical games, keep an additional external backup before changing strategies.
+
+#### Custom Directory Backups
+
+In addition to game saves, you can backup any directory to `SAVESCOPY_PATH` using custom backup entries in `config.txt`.
+
+**Configuration Format:**
+```ini
+BACKUP_<name>=<path>
+```
+
+Where:
+- `<name>` becomes the backup folder name under `SAVESCOPY_PATH`
+- `<path>` is the source directory to backup
+
+**Examples:**
+```ini
+# Backup GameScope ReShade shaders
+BACKUP_gamescope-shaders=/home/deck/.local/share/gamescope/reshade/Shaders
+
+# Backup custom configurations
+BACKUP_my-configs=/home/deck/.config/important-app
+```
+
+**Features:**
+- Custom directories respect the same `SAVESCOPY_STRATEGY` setting as game saves
+- Supports all three strategies: `backup`, `sync`, and `restore`
+- Paths support environment variables and `~` for home directory
+- Multiple custom directories can be defined
+
+**Backup Location:**
+For `BACKUP_gamescope-shaders=/home/deck/.local/share/gamescope/reshade/Shaders`, files will be backed up to:
+```
+SAVESCOPY_PATH/gamescope-shaders/
+```
+
 
 ## Directory Structure
 
