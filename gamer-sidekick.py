@@ -4,11 +4,14 @@ from typing import Dict
 import logging
 import shutil
 import subprocess
+import sys
 
 from lib import manifester
+from lib import steamer
+from lib import saver
 from lib import patcher
 from lib import configurer
-from lib import saver
+from lib import retrofiter
 
 logger = logging.getLogger(__name__)
 
@@ -90,10 +93,18 @@ def main():
     cfg = load_config_map(config_path)
     cfg["_CONFIG_PATH"] = str(config_path)
 
+    # CLI modes
+    args = sys.argv[1:]
+    if len(args) >= 2 and args[0] == "test" and args[1] == "steam":
+        steamer.test_steam(cfg)
+        return
+
     manifester.run(cfg)
+    steamer.run(cfg)
     saver.run(cfg)
     patcher.run(cfg)
     configurer.run(cfg)
+    retrofiter.run(cfg)
     run_post_commands(cfg)
 
 

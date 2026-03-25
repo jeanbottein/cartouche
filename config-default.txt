@@ -14,6 +14,17 @@
 # Default: backup
 #SAVESCOPY_STRATEGY=backup
 
+# Steam Non-Steam Shortcut Integration (optional)
+# Automatically add/remove DRM-free games as non-Steam shortcuts in your Steam library.
+# Shortcuts are tagged with "gamer-sidekick" so they can be managed without affecting
+# your other manually-added non-Steam games.
+#STEAM_EXPOSE=False
+# Optionally target a specific Steam user ID (leave commented to update all users)
+#STEAM_USERID=
+# If you want to automatically download artwork (grids, heroes, logos) from SteamGridDB,
+# you must provide a free API key from https://www.steamgriddb.com/profile/preferences/api
+#STEAMGRIDDB_API_KEY=54e6dab7fbd8663c22931dafa09296d2
+
 # SAVESLINK_PATH (optional)
 # Creates a folder of symlinks pointing to original save directories.
 # Use with Syncthing or similar tools for automatic bidirectional sync.

@@ -319,13 +319,16 @@ def load_and_ajust_manifest(manifest_path):
         target_path = entry.get('target') or ''
         start_in_path = entry.get('startIn') or os.path.dirname(target_path)
         save_spec = manifest.get("savePath", "")
-        return {
+        result = {
             "title": manifest.get("title") or os.path.basename(os.path.dirname(manifest_path)),
             "target": os.path.normpath(os.path.join(subfolder, target_path)),
             "startIn": os.path.normpath(os.path.join(subfolder, start_in_path)),
             "launchOptions": entry.get("launchOptions", ""),
             "savePath": _pick_save_path(save_spec),
         }
+        if "steamgriddb_id" in manifest:
+            result["steamgriddb_id"] = manifest["steamgriddb_id"]
+        return result
 
     if 'target' in manifest:
         manifest['target'] = os.path.normpath(os.path.join(subfolder, manifest['target']))
