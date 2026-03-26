@@ -56,6 +56,10 @@ def ensure_config_file(script_dir: Path) -> Path:
         logger.info("Loaded config from %s", config_path)
         return config_path
 
+    # When frozen by PyInstaller the bundled copy is in sys._MEIPASS, not next to the binary.
+    if not default_path.exists() and getattr(sys, 'frozen', False):
+        default_path = Path(sys._MEIPASS) / 'config-default.txt'
+
     if default_path.exists():
         try:
             shutil.copy2(default_path, config_path)
