@@ -236,9 +236,15 @@ def _collect_targets(game_dir: str) -> list[GameTarget]:
         if not exe or exe in seen:
             continue
         seen.add(exe)
+
+        # FIX: If it's an .EXE file, it's a Windows target even if on Linux
+        target_os = os_tag
+        if exe.lower().endswith(".exe"):
+            target_os = "windows"
+
         arch = _arch_from_filter(arch_filter, exe)
         targets.append(GameTarget(
-            os=os_tag,
+            os=target_os,
             arch=arch,
             target=_format_path(exe, game_dir),
             start_in=_format_path(os.path.dirname(exe), game_dir),
