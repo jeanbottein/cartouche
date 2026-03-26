@@ -1,13 +1,18 @@
 """
 Single source of truth for the application name.
 
-Derived at runtime from the binary stem (frozen) or the main script
-stem (source run), so renaming cartouche → potato propagates everywhere.
+Derived from the binary/script filename: everything before the first
+'-' or '.'. This lets distribution files live in the same folder with
+suffixes (e.g. cartouche-linux-x86_64, cartouche.v2) while still
+resolving to "cartouche". Falls back to "cartouche" if the result is empty.
 """
+import re
 import sys
 from pathlib import Path
 
 if getattr(sys, 'frozen', False):
-    APP_NAME = Path(sys.executable).stem
+    _filename = Path(sys.executable).name
 else:
-    APP_NAME = Path(sys.argv[0]).stem
+    _filename = Path(sys.argv[0]).name
+
+APP_NAME = re.split(r'[-.]', _filename)[0] or "cartouche"
