@@ -50,8 +50,8 @@ def load_config_map(config_path: Path) -> Dict[str, str]:
 
 
 def ensure_config_file(script_dir: Path) -> Path:
-    config_path = script_dir / 'config.txt'
-    default_path = script_dir / 'config-default.txt'
+    config_path = script_dir / f'{APP_NAME}.conf'
+    default_path = script_dir / f'{APP_NAME}-default.conf'
 
     if config_path.exists():
         logger.info("Loaded config from %s", config_path)
@@ -59,16 +59,17 @@ def ensure_config_file(script_dir: Path) -> Path:
 
     # When frozen by PyInstaller the bundled copy is in sys._MEIPASS, not next to the binary.
     if not default_path.exists() and getattr(sys, 'frozen', False):
-        default_path = Path(sys._MEIPASS) / 'config-default.txt'
+        default_path = Path(sys._MEIPASS) / f'{APP_NAME}-default.conf'
 
     if default_path.exists():
         try:
             shutil.copy2(default_path, config_path)
-            logger.info("config.txt missing. Copied defaults from %s", default_path.name)
+            logger.info("%s missing. Copied defaults from %s", config_path.name, default_path.name)
         except OSError as exc:
             logger.error("Failed to copy %s -> %s: %s", default_path, config_path, exc)
     else:
-        logger.warning("config.txt missing and config-default.txt not found. Using empty configuration")
+        logger.warning("%s missing and %s not found. Using empty configuration",
+                       config_path.name, default_path.name)
 
     return config_path
 
