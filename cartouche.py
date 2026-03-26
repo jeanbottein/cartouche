@@ -151,7 +151,12 @@ def test_steam(cfg: dict):
 
 def main():
     logging.basicConfig(level=logging.INFO, format='%(message)s')
-    script_dir = Path(__file__).resolve().parent
+    # When frozen by PyInstaller, use the binary's location so that
+    # config.txt is created next to the executable, not in the temp bundle.
+    if getattr(sys, 'frozen', False):
+        script_dir = Path(sys.executable).resolve().parent
+    else:
+        script_dir = Path(__file__).resolve().parent
     config_path = ensure_config_file(script_dir)
     cfg = load_config_map(config_path)
     cfg["_CONFIG_PATH"] = str(config_path)
