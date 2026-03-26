@@ -27,7 +27,7 @@ cartouche.py main():
 ```
 cartouche.py               # Entry point: loads config, runs pipeline
 lib/
-  models.py                # Game, GameTarget, SavePath, GameImages, GameDatabase
+  models.py                # Game, GameTarget, GameImages, GameDatabase
   scanner.py               # Step 1: parse .cartouche/ folders
   detector.py              # Step 2: exe detection
   enricher.py              # Step 3: SteamGridDB API

@@ -47,7 +47,7 @@ def write(db: GameDatabase, output_path: str):
 
         # Use first resolved save path for backward compat
         if game.resolved_save_paths:
-            entry["savePath"] = game.resolved_save_paths[0][1]
+            entry["savePath"] = game.resolved_save_paths[0]
         else:
             entry["savePath"] = ""
 

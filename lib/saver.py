@@ -148,39 +148,56 @@ def _create_symlink(link_path: str, target_path: str) -> None:
 
 
 def _build_symlink_tree(symlink_entries: list, link_root: str) -> None:
-    os.makedirs(link_root, exist_ok=True)
-    created_names = set()
+    """
+    Build a symlink tree mirroring the backup folder structure.
 
-    for name, source_path in symlink_entries:
-        link_path = os.path.join(link_root, name)
+    symlink_entries is a list of (game_title, sub_name_or_None, source_path).
+    - sub_name is None → LINK_ROOT/game_title → source_path
+    - sub_name is set  → LINK_ROOT/game_title/sub_name → source_path
+    """
+    os.makedirs(link_root, exist_ok=True)
+    created_top_level = set()
+
+    for game_title, sub_name, source_path in symlink_entries:
         if not os.path.isdir(source_path):
             continue
-        _create_symlink(link_path, source_path)
-        created_names.add(name)
+        if sub_name is None:
+            # Single save path: direct symlink
+            link_path = os.path.join(link_root, game_title)
+            _create_symlink(link_path, source_path)
+            created_top_level.add(game_title)
+        else:
+            # Multiple save paths: game subfolder with symlinks inside
+            game_dir = os.path.join(link_root, game_title)
+            os.makedirs(game_dir, exist_ok=True)
+            link_path = os.path.join(game_dir, sub_name)
+            _create_symlink(link_path, source_path)
+            created_top_level.add(game_title)
 
-    # Clean up stale symlinks
+    # Clean up stale entries at top level
     try:
         for entry in os.listdir(link_root):
             full = os.path.join(link_root, entry)
-            if os.path.islink(full) and entry not in created_names:
-                logger.info(f"  Removing stale symlink: {entry}")
-                try:
-                    os.remove(full)
-                except OSError as e:
-                    logger.error(f"  Error removing stale symlink {full}: {e}")
+            if entry not in created_top_level and (os.path.islink(full) or os.path.isdir(full)):
+                if os.path.islink(full):
+                    logger.info(f"  Removing stale symlink: {entry}")
+                    try:
+                        os.remove(full)
+                    except OSError as e:
+                        logger.error(f"  Error removing stale symlink {full}: {e}")
     except OSError:
         pass
 
-    if created_names:
-        logger.info(f"  Symlink tree updated at {link_root} ({len(created_names)} entries)")
+    if created_top_level:
+        logger.info(f"  Symlink tree updated at {link_root} ({len(created_top_level)} entries)")
 
 
 def run(db: GameDatabase, config: dict) -> None:
     """
     Backup/restore game saves using the GameDatabase.
 
-    Each game can have multiple named save paths, backed up to:
-    SAVESCOPY_PATH/<GameTitle>/<save_name>/
+    1 save path  → SAVESCOPY_PATH/<GameTitle>/
+    2+ save paths → SAVESCOPY_PATH/<GameTitle>/<basename>/
     """
     saves_root = config.get("SAVESCOPY_PATH")
     link_root = config.get("SAVESLINK_PATH")
@@ -220,24 +237,20 @@ def run(db: GameDatabase, config: dict) -> None:
             continue
 
         game_title = _sanitize_title(game.title)
+        multi = len(game.resolved_save_paths) > 1
 
-        for save_name, save_path in game.resolved_save_paths:
-            # Backup subfolder: GameTitle/save_name/ (or just GameTitle/ if only one save)
-            if len(game.resolved_save_paths) == 1:
-                dst_dir = os.path.join(saves_root, game_title)
+        for save_path in game.resolved_save_paths:
+            sub_name = _sanitize_title(os.path.basename(save_path))
+
+            if multi:
+                dst_dir = os.path.join(saves_root, game_title, sub_name)
+                label = f"{game.title}/{sub_name}"
             else:
-                dst_dir = os.path.join(saves_root, game_title, _sanitize_title(save_name))
+                dst_dir = os.path.join(saves_root, game_title)
+                label = game.title
 
-            _sync_directory(
-                f"{game.title}/{save_name}",
-                save_path,
-                dst_dir,
-                strategy,
-            )
-
-            # For symlinks, point to the original save directory
-            symlink_name = game_title if len(game.resolved_save_paths) == 1 else f"{game_title}_{_sanitize_title(save_name)}"
-            symlink_entries.append((symlink_name, save_path))
+            _sync_directory(label, save_path, dst_dir, strategy)
+            symlink_entries.append((game_title, sub_name if multi else None, save_path))
 
         games_processed += 1
 

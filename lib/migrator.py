@@ -20,14 +20,14 @@ MIGRATED_SUFFIX = ".migrated"
 
 def _convert_save_path(old_save_path) -> list:
     """
-    Convert old savePath format to new savePaths format.
+    Convert old savePath format to new flat savePaths format.
 
     Old format was either:
       - a string: "~/.local/share/Game/Saves"
       - a list: [{"os": "linux", "path": "..."}, ...]
 
-    New format is:
-      [{"name": "saves", "paths": [{"os": "linux", "path": "..."}]}]
+    New format is a flat list:
+      [{"os": "linux", "path": "..."}, {"os": "", "path": "..."}]
     """
     if not old_save_path:
         return []
@@ -35,10 +35,9 @@ def _convert_save_path(old_save_path) -> list:
     if isinstance(old_save_path, str):
         if not old_save_path.strip():
             return []
-        return [{"name": "saves", "paths": [{"os": "", "path": old_save_path}]}]
+        return [{"os": "", "path": old_save_path}]
 
     if isinstance(old_save_path, list):
-        # Already a list of {os, path} dicts
         paths = []
         for entry in old_save_path:
             if isinstance(entry, dict):
@@ -48,11 +47,7 @@ def _convert_save_path(old_save_path) -> list:
                 })
             elif isinstance(entry, str):
                 paths.append({"os": "", "path": entry})
-        # Filter out empty paths
-        paths = [p for p in paths if p["path"].strip()]
-        if not paths:
-            return []
-        return [{"name": "saves", "paths": paths}]
+        return [p for p in paths if p["path"].strip()]
 
     return []
 

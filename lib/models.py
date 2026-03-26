@@ -7,7 +7,7 @@ and their metadata in memory.
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional, List, Dict, Tuple
+from typing import Optional, List, Dict
 
 
 CARTOUCHE_DIR = ".cartouche"
@@ -40,26 +40,6 @@ class GameTarget:
             target=d.get("target", ""),
             start_in=d.get("startIn", ""),
             launch_options=d.get("launchOptions", ""),
-        )
-
-
-@dataclass
-class SavePath:
-    """A named save directory with OS-specific paths."""
-    name: str                            # "saves", "config", "screenshots", etc.
-    paths: List[Dict[str, str]] = field(default_factory=list)  # [{"os": "linux", "path": "..."}]
-
-    def to_dict(self) -> dict:
-        return {
-            "name": self.name,
-            "paths": list(self.paths),
-        }
-
-    @classmethod
-    def from_dict(cls, d: dict) -> "SavePath":
-        return cls(
-            name=d.get("name", "saves"),
-            paths=d.get("paths", []),
         )
 
 
@@ -106,8 +86,8 @@ class Game:
     # Targets
     targets: List[GameTarget] = field(default_factory=list)
 
-    # Save data - multiple named save directories per game
-    save_paths: List[SavePath] = field(default_factory=list)
+    # Save paths - flat list of {"os": "...", "path": "..."} dicts
+    save_paths: List[Dict[str, str]] = field(default_factory=list)
 
     # SteamGridDB
     steamgriddb_id: Optional[int] = None
@@ -121,7 +101,7 @@ class Game:
     resolved_target: Optional[str] = None     # Absolute path to best exe for current OS/arch
     resolved_start_in: Optional[str] = None   # Absolute working directory
     resolved_launch_options: str = ""
-    resolved_save_paths: List[Tuple[str, str]] = field(default_factory=list)  # [(name, abs_path), ...]
+    resolved_save_paths: List[str] = field(default_factory=list)  # Absolute paths for current OS
 
     def __post_init__(self):
         if isinstance(self.game_dir, str):
@@ -140,7 +120,7 @@ class Game:
         d = {
             "title": self.title,
             "targets": [t.to_dict() for t in self.targets],
-            "savePaths": [sp.to_dict() for sp in self.save_paths],
+            "savePaths": list(self.save_paths),
             "images": self.images.to_dict(),
         }
         if self.steamgriddb_id is not None:

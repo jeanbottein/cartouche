@@ -12,7 +12,7 @@ import sys
 import platform
 
 from .models import (
-    Game, GameTarget, SavePath, GameImages, GameDatabase,
+    Game, GameTarget, GameImages, GameDatabase,
     CARTOUCHE_DIR, GAME_JSON,
 )
 
@@ -60,25 +60,6 @@ def _pick_target_entry(targets: list) -> dict | None:
     return pool[0]
 
 
-def _pick_save_path(save_path_entry: dict) -> str:
-    """Pick the appropriate path from a SavePath entry for the current OS."""
-    paths = save_path_entry.get("paths", [])
-    if not paths:
-        return ""
-
-    os_tag = _os_tag()
-    same_os = [p for p in paths if (p.get("os") or "").lower() == os_tag]
-    if not same_os:
-        same_os = [p for p in paths if not (p.get("os") or "").strip() or (p.get("os") or "").lower() == "any"]
-    pool = same_os or paths
-
-    for entry in pool:
-        path = entry.get("path", "")
-        if path:
-            return path
-    return ""
-
-
 def _resolve_save_path(save_path: str, game_dir: str) -> str:
     """Resolve a save path (expand vars, make absolute)."""
     if not save_path:
@@ -109,10 +90,8 @@ def _load_game_json(game_dir: str) -> Game | None:
     # Parse targets
     targets = [GameTarget.from_dict(t) for t in data.get("targets", [])]
 
-    # Parse save paths (new format)
-    save_paths = []
-    for sp in data.get("savePaths", []):
-        save_paths.append(SavePath.from_dict(sp))
+    # Parse save paths (flat list of {os, path} dicts)
+    save_paths = data.get("savePaths", [])
 
     # Parse images
     images = GameImages.from_dict(data.get("images", {}))
@@ -154,14 +133,18 @@ def _resolve_runtime_fields(game: Game):
             game.resolved_start_in = os.path.normpath(os.path.join(game_dir, start_in_path))
             game.resolved_launch_options = best.get("launchOptions", "")
 
-    # Resolve save paths
+    # Resolve save paths — filter by current OS, expand and absolutize
+    os_tag = _os_tag()
     game.resolved_save_paths = []
     for sp in game.save_paths:
-        path_str = _pick_save_path(sp.to_dict())
+        sp_os = (sp.get("os") or "").lower().strip()
+        if sp_os and sp_os != os_tag and sp_os != "any":
+            continue
+        path_str = sp.get("path", "")
         if path_str:
             abs_path = _resolve_save_path(path_str, game_dir)
             if abs_path:
-                game.resolved_save_paths.append((sp.name, abs_path))
+                game.resolved_save_paths.append(abs_path)
 
 
 def scan(games_dir: str) -> GameDatabase:
