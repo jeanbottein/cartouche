@@ -193,7 +193,7 @@ def fetch_artwork_urls(game_id, api_key):
     Returns dict with keys: grid, hero, logo (URL or None each).
     """
     result = {}
-    for art_type, endpoint in [("grid", "grids"), ("hero", "heroes"), ("logo", "logos")]:
+    for art_type, endpoint in [("grid", "grids"), ("hero", "heroes"), ("logo", "logos"), ("icon", "icons")]:
         data = _steamgriddb_request(f"{endpoint}/game/{game_id}", api_key)
         result[art_type] = data[0]["url"] if data else None
     return result
@@ -242,23 +242,32 @@ def save_sgdb_cache(project_root, cache):
 def get_sgdb_info(name, api_key, cache, manifest_id=None):
     """
     Returns (game_id, urls_dict, official_name). Uses cache to prevent API calls.
-    Updates cache in-place if fresh data is fetched or name is missing.
+    Updates cache in-place if fresh data is fetched or name/icon is missing.
     Returns (None, {}, None) if not found.
     """
     key = name.lower()
     if key in cache:
         cached = cache[key]
-        if "name" in cached:
-            return cached.get("game_id"), cached.get("urls", {}), cached.get("name")
-        # If ID exists but name is missing, we need to fetch it (one-time migration)
+        urls = cached.get("urls", {})
+        if "name" in cached and "icon" in urls:
+            return cached.get("game_id"), urls, cached.get("name")
+        
+        # If ID exists but name or icon is missing, we need to fetch it (migration to newer features)
         game_id = cached.get("game_id")
         if game_id:
-            # We don't have a direct "get game by ID" that returns name efficiently without 
-            # another search, so let's just use search_game_id again.
-            _, official_name = search_game_id(name, api_key)
-            if official_name:
-                cached["name"] = official_name
-                return game_id, cached.get("urls", {}), official_name
+            needs_update = False
+            if "name" not in cached:
+                _, official_name = search_game_id(name, api_key)
+                if official_name:
+                    cached["name"] = official_name
+                    needs_update = True
+            if "icon" not in urls:
+                fresh_urls = fetch_artwork_urls(game_id, api_key)
+                cached["urls"] = fresh_urls
+                needs_update = True
+                
+            if needs_update:
+                return game_id, cached.get("urls", {}), cached.get("name")
         elif cached.get("game_id") is None and "game_id" in cached:
             # Explicitly searched and not found before
             return None, {}, None
@@ -288,6 +297,7 @@ def save_artwork(appid, urls, grid_dir):
         "grid": f"{appid}p",
         "hero": f"{appid}_hero",
         "logo": f"{appid}_logo",
+        "icon": f"{appid}_icon",
     }
 
     for art_type, prefix in name_map.items():
@@ -297,7 +307,7 @@ def save_artwork(appid, urls, grid_dir):
         ext = _get_extension(url)
         dest = os.path.join(grid_dir, f"{prefix}{ext}")
         # Skip if already downloaded
-        if any(os.path.exists(os.path.join(grid_dir, f"{prefix}{e}")) for e in [".png", ".jpg", ".jpeg", ".webp"]):
+        if any(os.path.exists(os.path.join(grid_dir, f"{prefix}{e}")) for e in [".png", ".jpg", ".jpeg", ".webp", ".ico"]):
             continue
         if _download_file(url, dest):
             logger.info(f"  🖼️  {art_type}: {os.path.basename(dest)}")
@@ -349,7 +359,7 @@ def _next_tag_index(tags_dict):
     return str(max(indices) + 1) if indices else "0"
 
 
-def _make_shortcut_entry(app_name, exe_path, start_dir, launch_options=""):
+def _make_shortcut_entry(app_name, exe_path, start_dir, launch_options="", icon_path=""):
     """Build a shortcut dict entry in the format Steam expects."""
     appid = generate_appid(app_name, exe_path)
     tags = {"0": OWNERSHIP_TAG}
@@ -358,7 +368,7 @@ def _make_shortcut_entry(app_name, exe_path, start_dir, launch_options=""):
         "AppName": app_name,
         "Exe": f'"{exe_path}"',
         "StartDir": f'"{start_dir}"',
-        "icon": "",
+        "icon": icon_path,
         "ShortcutPath": "",
         "LaunchOptions": launch_options,
         "IsHidden": 0,
@@ -398,7 +408,7 @@ def _get_appname(shortcut):
     return shortcut.get("AppName") or shortcut.get("appname") or ""
 
 
-def sync_shortcuts(shortcuts_dict, manifests, api_key=None, cache=None):
+def sync_shortcuts(shortcuts_dict, manifests, api_key=None, cache=None, grid_dir=None):
     """
     Synchronise shortcuts with manifests.
     If api_key is provided, uses official names from SteamGridDB.
@@ -470,23 +480,31 @@ def sync_shortcuts(shortcuts_dict, manifests, api_key=None, cache=None):
 
         # Use official name if available
         final_name = name
+        icon_path = ""
         if api_key and cache is not None:
-            _, _, official_name = get_sgdb_info(name, api_key, cache)
+            _, urls, official_name = get_sgdb_info(name, api_key, cache, game.get("steamgriddb_id"))
             if official_name:
                 final_name = official_name
+            if grid_dir and "icon" in urls and urls["icon"]:
+                ext = _get_extension(urls["icon"])
+                appid = generate_appid(final_name, target)
+                icon_path = os.path.join(grid_dir, f"{appid}_icon{ext}")
 
-        # If we already have this EXE, check if the name matches
+        # If we already have this EXE, check if the name matches or icon needs updating
         if target in owned_exes:
             key = owned_exes[target]
             existing_shortcut = shortcuts_dict[key]
-            if _get_appname(existing_shortcut) != final_name:
-                logger.info(f"🔄 Updating shortcut name: {_get_appname(existing_shortcut)} → {final_name}")
-                # We essentially replace it to update AppID if name changed
-                shortcuts_dict[key] = _make_shortcut_entry(final_name, target, start_in, launch_opts)
+            
+            name_changed = _get_appname(existing_shortcut) != final_name
+            icon_changed = existing_shortcut.get("icon", "") != icon_path
+            
+            if name_changed or icon_changed:
+                logger.info(f"🔄 Updating shortcut: {_get_appname(existing_shortcut)} (name: {name_changed}, icon: {icon_changed})")
+                shortcuts_dict[key] = _make_shortcut_entry(final_name, target, start_in, launch_opts, icon_path)
             continue
 
         idx = _next_index(shortcuts_dict)
-        shortcuts_dict[idx] = _make_shortcut_entry(final_name, target, start_in, launch_opts)
+        shortcuts_dict[idx] = _make_shortcut_entry(final_name, target, start_in, launch_opts, icon_path)
         owned_names.add(final_name.lower())
         owned_exes[target] = idx
         logger.info(f"➕ Added shortcut: {final_name} (matching '{name}')")
@@ -597,8 +615,10 @@ def test_steam(config: dict):
                             filename = f"{appid}p{ext}"
                         elif art_type == "hero":
                             filename = f"{appid}_hero{ext}"
-                        else:
+                        elif art_type == "logo":
                             filename = f"{appid}_logo{ext}"
+                        else:
+                            filename = f"{appid}_icon{ext}"
                         logger.info(f"     🖼️  {art_type}: {url}")
                         logger.info(f"        → {filename}")
                     else:
@@ -692,9 +712,10 @@ def run(config: dict):
     total_removed = 0
 
     for config_dir in config_dirs:
+        grid_dir = _get_grid_dir(config_dir)
         shortcuts_path = _get_shortcuts_path(config_dir)
         shortcuts = load_shortcuts(shortcuts_path)
-        shortcuts, added, removed = sync_shortcuts(shortcuts, manifests, api_key, sgdb_cache)
+        shortcuts, added, removed = sync_shortcuts(shortcuts, manifests, api_key, sgdb_cache, grid_dir)
         total_added += added
         total_removed += removed
 
