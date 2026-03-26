@@ -1,95 +1,95 @@
-# AGENTS.md – AI Agent Guide for Gamer Sidekick
+# AGENTS.md – AI Agent Guide for Cartouche
 
 ## Project Overview
 
-Gamer Sidekick is a Python CLI tool for managing DRM-free games on Linux (primarily Steam Deck). It has four independent modules, each invoked sequentially by `gamer-sidekick.py`:
+Cartouche (French for "cartridge") is a Python CLI tool for managing DRM-free games on Linux (primarily Steam Deck). It uses a pipeline architecture with an in-memory GameDatabase as the central data carrier.
 
-| Module | File | Responsibility |
-|---|---|---|
-| Manifester | `lib/manifester.py` | Scans game directories, generates `launch_manifest.json` and `manifests.json` |
-| Saver | `lib/saver.py` | Backs up / restores / symlinks game save directories |
-| Patcher | `lib/patcher.py` | Applies file replacements or BPS patches to game files |
-| Steamer | `lib/steamer.py` | Syncs discovered games as non-Steam shortcuts in Steam (binary VDF) |
-| Configurer | `lib/configurer.py` | Patches emulator config files (text & binary) based on `config.txt` |
+## Pipeline
 
-All modules receive a single `cfg: Dict[str, str]` parsed from `config.txt`.
+```
+cartouche.py main():
+ 0. migrator.migrate()         # One-time: launch_manifest.json -> .cartouche/game.json
+ 1. db = scanner.scan()        # Parse .cartouche/game.json into GameDatabase
+ 2. detector.detect(db)        # Fill missing targets (exe detection)
+ 3. enricher.enrich(db, cfg)   # Fetch SteamGridDB data (if API key)
+ 4. persister.persist(db)      # Write .cartouche/game.json + download images
+ 5. steam_cleaner.clean()      # Remove stale Steam shortcuts
+ 6. steam_exporter.export()    # Insert/update Steam shortcuts
+ 7. manifest_writer.write()    # Create manifests.json (ROM manager compat)
+ 8. patcher.run(cfg)           # Apply patches
+ 9. saver.run(db, cfg)         # Backup/restore saves
+10. configurer.run(cfg)        # Emulator config mutations
+11. run_post_commands(cfg)     # RUN_AFTER_* commands
+```
 
 ## Architecture
 
 ```
-gamer-sidekick.py        # Entry point: loads config, calls each module's run(cfg)
+cartouche.py               # Entry point: loads config, runs pipeline
 lib/
-  __init__.py
-  manifester.py          # Manifest generation
-  steamer.py             # Steam non-Steam shortcut sync
-  saver.py               # Save backup / restore / symlink
-  patcher.py             # BPS patching + file replacement
-  configurer.py          # Emulator config mutations
-  configurer.json        # Declarative emulator config rule definitions
-  games_locations.json   # Known game save path locations
+  models.py                # Game, GameTarget, SavePath, GameImages, GameDatabase
+  scanner.py               # Step 1: parse .cartouche/ folders
+  detector.py              # Step 2: exe detection
+  enricher.py              # Step 3: SteamGridDB API
+  persister.py             # Step 4: write .cartouche/ + download images
+  steam_vdf.py             # Binary VDF reader/writer
+  steam_cleaner.py         # Step 5: remove stale shortcuts
+  steam_exporter.py        # Step 6: create/update shortcuts
+  manifest_writer.py       # Step 7: write manifests.json
+  migrator.py              # Step 0: migrate old format
+  patcher.py               # Step 8: BPS patching + file replacement
+  saver.py                 # Step 9: save backup/restore/symlink
+  configurer.py            # Step 10: emulator config mutations
+  configurer.json          # Declarative emulator config rules
+  games_locations.json     # Known game directory search paths
 scripts/
-  install_bios.sh
-  move_rom_zips.sh
   backup.sh
-config.txt               # User configuration (gitignored)
-config-default.txt       # Template copied to config.txt if missing
+config.txt                 # User configuration (gitignored)
+config-default.txt         # Template copied to config.txt if missing
+```
+
+## Data Structure
+
+Each game folder gets a `.cartouche/` subfolder:
+```
+FREEGAMES_PATH/
+  MyGame/
+    .cartouche/
+      game.json    # Game metadata
+      cover.png    # Artwork images
+      icon.png
+      hero.png
+      logo.png
+    game-executable
 ```
 
 ## Key Conventions
 
-- **No external dependencies.** Only Python standard library. Do not add third-party packages.
-- **`cfg` dict is the sole runtime input.** All modules read settings exclusively from the `cfg: Dict[str, str]` passed to their `run(cfg)` entry point.
-- **Declarative emulator rules live in `configurer.json`**, not in Python code. Prefer adding new emulator rules there instead of hardcoding logic.
-- **`games_locations.json`** maps game titles to their save paths. Expand it for new games rather than hardcoding paths.
-- **Variable substitution** uses `${VARIABLE_NAME}` syntax in config values and in `configurer.json` patterns/values.
-- **Config keys prefixed `BACKUP_`** define custom directory backups (e.g., `BACKUP_shaders=/path`).
-- **Config keys prefixed `RUN_AFTER_`** define post-run shell commands (sorted alphabetically by key).
-- **Strategy values**: `backup` (safe), `sync` (alias for backup), `restore` (dangerous one-way restore).
+- **No external dependencies.** Only Python standard library.
+- **`cfg` dict** parsed from `config.txt` is the runtime config for all modules.
+- **GameDatabase** is the central in-memory data carrier (steps 1-7, 9).
+- **`.cartouche/game.json`** replaces the old `launch_manifest.json`.
+- **Multiple save paths per game** supported (named: "saves", "config", etc.).
+- **Declarative emulator rules** in `configurer.json`, not in Python code.
+- **Variable substitution** uses `${VARIABLE_NAME}` syntax.
+- **`BACKUP_<name>`** config keys define custom directory backups.
+- **`RUN_AFTER_<label>`** config keys define post-run shell commands.
+- **Ownership tag** in Steam shortcuts is `"cartouche"` (also recognizes legacy `"gamer-sidekick"`).
 
 ## Dev Workflow
 
-- Run the tool locally:
-  ```bash
-  python3 gamer-sidekick.py
-  # or
-  ./gamer-sidekick.sh
-  ```
-- Edit `config.txt` (not `config-default.txt`) for local overrides. `config.txt` is gitignored.
-- For binary patching, the `flips` binary must be at `bin/flips` or on `$PATH`.
+```bash
+python3 cartouche.py            # Run full pipeline
+python3 cartouche.py test steam # Dry-run Steam sync
+./cartouche.sh                  # Shell wrapper
+```
 
-## Adding New Features
-
-### New emulator support (Configurer)
-Add entries to `lib/configurer.json`. Each entry supports:
-- `type`: `"text"` (regex replacement) or `"hexadecimal"` (binary search-and-replace)
-- `pattern`: regex (text) or hex string (binary), supporting `${VAR}` substitution
-- `value`: replacement string, supporting `${VAR}` substitution
-- `paths`: list of file paths to try (first match wins); supports `~` and env vars
-
-### New game save path (Saver)
-Add an entry to `lib/games_locations.json` mapping game title → save path.
-
-### New patch (Patcher)
-Add a `patch.json` inside the game's directory under `PATCHES_PATH`. Fields: `file`, `target`, `method` (`replace` or `patch`), and optional `target_crc32` / `patched_crc32`.
-
-### New post-run automation
-Add `RUN_AFTER_<label>=<shell command>` to `config.txt`. Commands are sorted by label and run after all modules complete. `${VAR}` substitution from `cfg` is supported.
-
-## Important Paths (Runtime)
-
-| Config Key | Purpose |
-|---|---|
-| `FREEGAMES_PATH` | Root directory scanned by the Manifester |
-| `PATCHES_PATH` | Root directory containing per-game `patch.json` files |
-| `SAVESCOPY_PATH` | Root for save backups |
-| `SAVESCOPY_STRATEGY` | `backup` / `sync` / `restore` |
-| `SAVESLINK_PATH` | Optional: root for symlink tree (for Syncthing) |
-| `BACKUP_<name>` | Custom directory to include in saver operations |
+Edit `config.txt` (not `config-default.txt`) for local overrides. `config.txt` is gitignored.
 
 ## Testing
 
-There is no automated test suite. Verification is done manually:
-1. Set up a representative `config.txt` with known paths.
-2. Run `python3 gamer-sidekick.py` and inspect log output.
-3. Verify file system outcomes (backups created, configs mutated, manifests generated).
-4. For patching, confirm CRC32 values match expected values in `patch.json`.
+No automated test suite. Verification is done manually:
+1. Set up `config.txt` with known paths.
+2. Run `python3 cartouche.py` and inspect log output.
+3. Verify `.cartouche/game.json` created in game folders.
+4. Verify backups, manifests, Steam shortcuts as expected.

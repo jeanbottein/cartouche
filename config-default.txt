@@ -4,7 +4,7 @@
 # Paths
 #FREEGAMES_PATH=/run/media/deck/SteamDeck-SD/linux-games
 #PATCHES_PATH=/run/media/deck/SteamDeck-SD/mods
-#SAVESCOPY_PATH=/run/media/deck/SteamDeck-SD/gamer-sidekick-backup
+#SAVESCOPY_PATH=/run/media/deck/SteamDeck-SD/cartouche-backup
 
 # SAVESCOPY_STRATEGY
 # backup: Create a backup of save files in the backup location
@@ -16,7 +16,7 @@
 
 # Steam Non-Steam Shortcut Integration (optional)
 # Automatically add/remove DRM-free games as non-Steam shortcuts in your Steam library.
-# Shortcuts are tagged with "gamer-sidekick" so they can be managed without affecting
+# Shortcuts are tagged with "cartouche" so they can be managed without affecting
 # your other manually-added non-Steam games.
 #STEAM_EXPOSE=False
 # Optionally target a specific Steam user ID (leave commented to update all users)
@@ -28,7 +28,17 @@
 # SAVESLINK_PATH (optional)
 # Creates a folder of symlinks pointing to original save directories.
 # Use with Syncthing or similar tools for automatic bidirectional sync.
-#SAVESLINK_PATH=/run/media/deck/SteamDeck-SD/gamer-sidekick-sync
+#SAVESLINK_PATH=/run/media/deck/SteamDeck-SD/cartouche-sync
+
+# Persist game data (optional)
+# Set to False to skip writing .cartouche/ folders in game directories
+#PERSIST_DATA=True
+
+# Manifest export (optional)
+# Set to False to skip writing manifests.json
+#MANIFEST_EXPORT=True
+# Custom path for manifests.json (default: FREEGAMES_PATH/manifests.json)
+#MANIFEST_PATH=
 
 # Custom directory backups (optional)
 # Format: BACKUP_<name>=<path>
@@ -65,4 +75,4 @@
 
 # Example: Sync the symlink folder to a Google Drive remote named "gdrive"
 # Note: The -L flag is required for rclone to follow the symlinks and copy the actual save files.
-#RUN_AFTER_02=rclone sync -L "${SAVESLINK_PATH}" gdrive:gamer-sidekick-saves
+#RUN_AFTER_02=rclone sync -L "${SAVESLINK_PATH}" gdrive:cartouche-saves

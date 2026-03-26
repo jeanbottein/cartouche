@@ -2,7 +2,7 @@ import urllib.request
 import json
 import os
 
-with open('/run/media/deck/SteamDeck-SD/apps/gamer-sidekick/config.txt') as f:
+with open('/run/media/deck/SteamDeck-SD/apps/cartouche/config.txt') as f:
     api_key = next((line.split('=')[1].strip() for line in f if 'STEAMGRIDDB_API_KEY' in line), None)
 
 def req(ep):

@@ -1,4 +1,4 @@
-# Gamer Sidekick - PowerShell Script
+# Cartouche - PowerShell Script
 # Runs the main Python script with proper error handling
 
 # Check if Python is available
@@ -16,8 +16,8 @@ try {
 }
 
 # Run the main script
-Write-Host "Starting Gamer Sidekick..." -ForegroundColor Cyan
-python gamer-sidekick.py
+Write-Host "Starting Cartouche..." -ForegroundColor Cyan
+python cartouche.py $args
 
 if ($LASTEXITCODE -ne 0) {
     Write-Host "`nScript execution failed. Check the output above for errors." -ForegroundColor Red

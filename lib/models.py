@@ -1,0 +1,183 @@
+"""
+Data models for cartouche.
+
+Central dataclasses used throughout the pipeline to represent games
+and their metadata in memory.
+"""
+
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Optional, List, Dict, Tuple
+
+
+CARTOUCHE_DIR = ".cartouche"
+GAME_JSON = "game.json"
+
+
+@dataclass
+class GameTarget:
+    """A platform-specific executable target for a game."""
+    os: str              # "linux", "windows", "macos"
+    arch: str            # "x86_64", "x86", "arm64"
+    target: str          # Relative path to executable from game_dir
+    start_in: str        # Relative path to working directory
+    launch_options: str = ""
+
+    def to_dict(self) -> dict:
+        return {
+            "os": self.os,
+            "arch": self.arch,
+            "target": self.target,
+            "startIn": self.start_in,
+            "launchOptions": self.launch_options,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "GameTarget":
+        return cls(
+            os=d.get("os", ""),
+            arch=d.get("arch", ""),
+            target=d.get("target", ""),
+            start_in=d.get("startIn", ""),
+            launch_options=d.get("launchOptions", ""),
+        )
+
+
+@dataclass
+class SavePath:
+    """A named save directory with OS-specific paths."""
+    name: str                            # "saves", "config", "screenshots", etc.
+    paths: List[Dict[str, str]] = field(default_factory=list)  # [{"os": "linux", "path": "..."}]
+
+    def to_dict(self) -> dict:
+        return {
+            "name": self.name,
+            "paths": list(self.paths),
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "SavePath":
+        return cls(
+            name=d.get("name", "saves"),
+            paths=d.get("paths", []),
+        )
+
+
+@dataclass
+class GameImages:
+    """Filenames for Steam artwork images stored in .cartouche/."""
+    cover: Optional[str] = None    # Grid/poster artwork
+    icon: Optional[str] = None     # Icon
+    hero: Optional[str] = None     # Hero banner
+    logo: Optional[str] = None     # Logo overlay
+
+    def to_dict(self) -> dict:
+        d = {}
+        if self.cover:
+            d["cover"] = self.cover
+        if self.icon:
+            d["icon"] = self.icon
+        if self.hero:
+            d["hero"] = self.hero
+        if self.logo:
+            d["logo"] = self.logo
+        return d
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "GameImages":
+        return cls(
+            cover=d.get("cover"),
+            icon=d.get("icon"),
+            hero=d.get("hero"),
+            logo=d.get("logo"),
+        )
+
+
+@dataclass
+class Game:
+    """In-memory representation of a game."""
+    # Identity
+    folder_name: str                 # The subfolder name under FREEGAMES_PATH
+    game_dir: Path                   # Absolute path to game folder
+
+    # Metadata
+    title: str = ""                  # Display title (may be SGDB official name)
+    original_title: str = ""         # Title as derived from folder name
+
+    # Targets
+    targets: List[GameTarget] = field(default_factory=list)
+
+    # Save data - multiple named save directories per game
+    save_paths: List[SavePath] = field(default_factory=list)
+
+    # SteamGridDB
+    steamgriddb_id: Optional[int] = None
+    images: GameImages = field(default_factory=GameImages)
+
+    # State tracking
+    has_cartouche: bool = False      # True if .cartouche/game.json exists on disk
+    needs_persist: bool = False      # True if in-memory data differs from disk
+
+    # Runtime-resolved (computed, not persisted)
+    resolved_target: Optional[str] = None     # Absolute path to best exe for current OS/arch
+    resolved_start_in: Optional[str] = None   # Absolute working directory
+    resolved_launch_options: str = ""
+    resolved_save_paths: List[Tuple[str, str]] = field(default_factory=list)  # [(name, abs_path), ...]
+
+    @property
+    def cartouche_dir(self) -> Path:
+        return self.game_dir / CARTOUCHE_DIR
+
+    @property
+    def game_json_path(self) -> Path:
+        return self.cartouche_dir / GAME_JSON
+
+    def to_dict(self) -> dict:
+        """Serialize to the game.json schema (only persisted fields)."""
+        d = {
+            "title": self.title,
+            "original_title": self.original_title,
+            "targets": [t.to_dict() for t in self.targets],
+            "savePaths": [sp.to_dict() for sp in self.save_paths],
+            "images": self.images.to_dict(),
+        }
+        if self.steamgriddb_id is not None:
+            d["steamgriddb_id"] = self.steamgriddb_id
+        return d
+
+
+class GameDatabase:
+    """In-memory collection of all discovered games."""
+
+    def __init__(self):
+        self.games: List[Game] = []
+        self._by_folder: Dict[str, Game] = {}
+
+    def add(self, game: Game):
+        self.games.append(game)
+        self._by_folder[game.folder_name] = game
+
+    def get_by_folder(self, folder_name: str) -> Optional[Game]:
+        return self._by_folder.get(folder_name)
+
+    def incomplete_games(self) -> List[Game]:
+        """Games that still need executable detection."""
+        return [g for g in self.games if not g.targets]
+
+    def games_needing_enrichment(self) -> List[Game]:
+        """Games missing SteamGridDB data."""
+        return [g for g in self.games if g.steamgriddb_id is None]
+
+    def dirty_games(self) -> List[Game]:
+        """Games with unsaved changes."""
+        return [g for g in self.games if g.needs_persist]
+
+    def games_with_targets(self) -> List[Game]:
+        """Games that have at least one resolved target."""
+        return [g for g in self.games if g.resolved_target]
+
+    def __len__(self) -> int:
+        return len(self.games)
+
+    def __iter__(self):
+        return iter(self.games)
