@@ -192,9 +192,22 @@ def fetch_artwork_urls(game_id, api_key):
     Fetch artwork URLs for a game from SteamGridDB.
     Returns dict with keys: grid, hero, logo (URL or None each).
     """
+    endpoints = [
+        ("grid", "grids", "dimensions=460x215,920x430"),
+        ("poster", "grids", "dimensions=600x900,342x482"),
+        ("hero", "heroes", ""),
+        ("logo", "logos", ""),
+        ("icon", "icons", "")
+    ]
     result = {}
-    for art_type, endpoint in [("grid", "grids"), ("hero", "heroes"), ("logo", "logos"), ("icon", "icons")]:
-        data = _steamgriddb_request(f"{endpoint}/game/{game_id}", api_key)
+    for art_type, endpoint, query in endpoints:
+        q = f"?{query}" if query else ""
+        data = _steamgriddb_request(f"{endpoint}/game/{game_id}{q}", api_key)
+        
+        # fallback to any dimension if specific one not found
+        if not data and query:
+            data = _steamgriddb_request(f"{endpoint}/game/{game_id}", api_key)
+            
         result[art_type] = data[0]["url"] if data else None
     return result
 
@@ -249,10 +262,10 @@ def get_sgdb_info(name, api_key, cache, manifest_id=None):
     if key in cache:
         cached = cache[key]
         urls = cached.get("urls", {})
-        if "name" in cached and "icon" in urls:
+        if "name" in cached and "icon" in urls and "poster" in urls:
             return cached.get("game_id"), urls, cached.get("name")
         
-        # If ID exists but name or icon is missing, we need to fetch it (migration to newer features)
+        # If ID exists but name, icon, or poster is missing, we need to fetch it
         game_id = cached.get("game_id")
         if game_id:
             needs_update = False
@@ -261,7 +274,7 @@ def get_sgdb_info(name, api_key, cache, manifest_id=None):
                 if official_name:
                     cached["name"] = official_name
                     needs_update = True
-            if "icon" not in urls:
+            if "icon" not in urls or "poster" not in urls:
                 fresh_urls = fetch_artwork_urls(game_id, api_key)
                 cached["urls"] = fresh_urls
                 needs_update = True
@@ -294,7 +307,8 @@ def save_artwork(appid, urls, grid_dir):
     """
     os.makedirs(grid_dir, exist_ok=True)
     name_map = {
-        "grid": f"{appid}p",
+        "grid": f"{appid}",
+        "poster": f"{appid}p",
         "hero": f"{appid}_hero",
         "logo": f"{appid}_logo",
         "icon": f"{appid}_icon",
@@ -612,6 +626,8 @@ def test_steam(config: dict):
                     if url:
                         ext = _get_extension(url)
                         if art_type == "grid":
+                            filename = f"{appid}{ext}"
+                        elif art_type == "poster":
                             filename = f"{appid}p{ext}"
                         elif art_type == "hero":
                             filename = f"{appid}_hero{ext}"
