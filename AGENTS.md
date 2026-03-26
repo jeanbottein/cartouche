@@ -35,6 +35,7 @@ lib/
   steam_vdf.py             # Binary VDF reader/writer
   steam_cleaner.py         # Step 5: remove stale shortcuts
   steam_exporter.py        # Step 6: create/update shortcuts
+  steam_compat.py          # Step 6b: set Proton compat for Windows games
   manifest_writer.py       # Step 7: write manifests.json
   migrator.py              # Step 0: migrate old format
   patcher.py               # Step 8: BPS patching + file replacement

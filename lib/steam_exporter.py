@@ -12,6 +12,7 @@ import zlib
 
 from .models import GameDatabase
 from . import steam_vdf
+from . import steam_compat
 from .steam_cleaner import (
     find_steam_userdata_dirs, load_shortcuts, save_shortcuts,
     _has_ownership_tag, _get_appname,
@@ -209,3 +210,13 @@ def export(db: GameDatabase, cfg: dict):
         logger.info(f"Steam export complete: {total_added} added, {total_updated} updated")
     else:
         logger.info("Steam shortcuts already up to date")
+
+    # Set Proton compat tools for Windows games
+    compat_tool = cfg.get("PROTON_VERSION", "proton_experimental").strip()
+    windows_appids = [
+        generate_appid(g.title, g.resolved_target)
+        for g in games if g.resolved_target_os == "windows"
+    ]
+    if windows_appids:
+        for config_dir in config_dirs:
+            steam_compat.set_compat_tools(windows_appids, compat_tool, config_dir)

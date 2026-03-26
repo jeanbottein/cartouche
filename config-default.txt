@@ -59,6 +59,10 @@
 # Optionally target a specific Steam user ID (leave commented to update all users)
 #STEAM_USERID=
 
+# Proton compatibility tool for Windows games added as non-Steam shortcuts
+# Common values: proton_experimental, proton_9-0-4, proton_8-0
+#PROTON_VERSION=proton_experimental
+
 # If you want to automatically download artwork (grids, heroes, logos) from SteamGridDB,
 # you must provide a free API key from https://www.steamgriddb.com/profile/preferences/api
 #STEAMGRIDDB_API_KEY=

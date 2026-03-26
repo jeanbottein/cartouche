@@ -132,6 +132,7 @@ def _resolve_runtime_fields(game: Game):
             game.resolved_target = os.path.normpath(os.path.join(game_dir, target_path))
             game.resolved_start_in = os.path.normpath(os.path.join(game_dir, start_in_path))
             game.resolved_launch_options = best.get("launchOptions", "")
+            game.resolved_target_os = (best.get("os") or "").lower()
 
     # Resolve save paths — filter by current OS, expand and absolutize
     os_tag = _os_tag()

@@ -101,6 +101,7 @@ class Game:
     resolved_target: Optional[str] = None     # Absolute path to best exe for current OS/arch
     resolved_start_in: Optional[str] = None   # Absolute working directory
     resolved_launch_options: str = ""
+    resolved_target_os: str = ""                                  # OS of the picked target
     resolved_save_paths: List[str] = field(default_factory=list)  # Absolute paths for current OS
 
     def __post_init__(self):
