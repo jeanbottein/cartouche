@@ -39,6 +39,12 @@
 # (Removing a game from the freegames folder will not remove the symlink)
 #SAVESLINK_PATH=/run/media/deck/SteamDeck-SD/cartouche-sync
 
+# Custom directory backups (optional)
+# Format: BACKUP_<name>=<path>
+# The <name> becomes the backup folder name under SAVESCOPY_PATH
+# Example: BACKUP_gamescope-shaders=/home/deck/.local/share/gamescope/reshade/Shaders
+#BACKUP_gamescope-shaders=/home/deck/.local/share/gamescope/reshade/Shaders
+
 
 # ==========================================
 # 4. GAME LAUNCHERS & INTEGRATION
@@ -93,14 +99,8 @@
 
 
 # ==========================================
-# 6. ADVANCED & CUSTOM TASKS
+# 6. CUSTOM TASKS
 # ==========================================
-
-# Custom directory backups (optional)
-# Format: BACKUP_<name>=<path>
-# The <name> becomes the backup folder name under SAVESCOPY_PATH
-# Example: BACKUP_gamescope-shaders=/home/deck/.local/share/gamescope/reshade/Shaders
-#BACKUP_gamescope-shaders=/home/deck/.local/share/gamescope/reshade/Shaders
 
 # Post-run commands (optional)
 # Format: RUN_AFTER_<number>=<command>

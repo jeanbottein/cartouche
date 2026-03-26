@@ -136,15 +136,27 @@ def _resolve_runtime_fields(game: Game):
     # Resolve save paths — filter by current OS, expand and absolutize
     os_tag = _os_tag()
     game.resolved_save_paths = []
-    for sp in game.save_paths:
-        sp_os = (sp.get("os") or "").lower().strip()
-        if sp_os and sp_os != os_tag and sp_os != "any":
-            continue
-        path_str = sp.get("path", "")
-        if path_str:
-            abs_path = _resolve_save_path(path_str, game_dir)
-            if abs_path:
-                game.resolved_save_paths.append(abs_path)
+
+    def _process_sp_list(sp_list):
+        for sp in sp_list:
+            if not isinstance(sp, dict):
+                continue
+            # Handle nested "paths" list (new schema)
+            if "paths" in sp and isinstance(sp["paths"], list):
+                _process_sp_list(sp["paths"])
+                continue
+
+            # Handle individual path entry (flat schema or leaf node)
+            sp_os = (sp.get("os") or "").lower().strip()
+            if sp_os and sp_os != os_tag and sp_os != "any":
+                continue
+            path_str = sp.get("path", "")
+            if path_str:
+                abs_path = _resolve_save_path(path_str, game_dir)
+                if abs_path:
+                    game.resolved_save_paths.append(abs_path)
+
+    _process_sp_list(game.save_paths)
 
 
 def scan(games_dir: str) -> GameDatabase:

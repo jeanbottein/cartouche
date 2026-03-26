@@ -271,7 +271,7 @@ def run(db: GameDatabase, config: dict) -> None:
             src_dir = _resolve_base_path(source_path)
             dst_dir = os.path.join(saves_root, _sanitize_title(custom_name))
             _sync_directory(custom_name, src_dir, dst_dir, strategy)
-            symlink_entries.append((_sanitize_title(custom_name), src_dir))
+            symlink_entries.append((_sanitize_title(custom_name), None, src_dir))
 
     # Build symlink tree
     if link_root and symlink_entries:
