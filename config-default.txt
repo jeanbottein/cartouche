@@ -1,9 +1,27 @@
+# ==========================================
+# 1. GENERAL SETTINGS
+# ==========================================
+
 # Machine name (used to prefix config backup in SAVESCOPY_PATH)
 #MACHINE_NAME=my-device
 
-# Paths
+# Persist game data (optional)
+# Set to False to skip writing .cartouche/ folders in game directories
+#PERSIST_DATA=True
+
+
+# ==========================================
+# 2. PATHS & DIRECTORIES
+# ==========================================
+
 #FREEGAMES_PATH=/run/media/deck/SteamDeck-SD/linux-games
 #PATCHES_PATH=/run/media/deck/SteamDeck-SD/mods
+
+
+# ==========================================
+# 3. SAVE BACKUP & SYNC
+# ==========================================
+
 #SAVESCOPY_PATH=/run/media/deck/SteamDeck-SD/cartouche-backup
 
 # SAVESCOPY_STRATEGY
@@ -14,31 +32,67 @@
 # Default: backup
 #SAVESCOPY_STRATEGY=backup
 
-# Steam Non-Steam Shortcut Integration (optional)
-# Automatically add/remove DRM-free games as non-Steam shortcuts in your Steam library.
-# Shortcuts are tagged with "cartouche" so they can be managed without affecting
-# your other manually-added non-Steam games.
-#STEAM_EXPOSE=False
-# Optionally target a specific Steam user ID (leave commented to update all users)
-#STEAM_USERID=
-# If you want to automatically download artwork (grids, heroes, logos) from SteamGridDB,
-# you must provide a free API key from https://www.steamgriddb.com/profile/preferences/api
-#STEAMGRIDDB_API_KEY=54e6dab7fbd8663c22931dafa09296d2
-
 # SAVESLINK_PATH (optional)
 # Creates a folder of symlinks pointing to original save directories.
 # Use with Syncthing or similar tools for automatic bidirectional sync.
 #SAVESLINK_PATH=/run/media/deck/SteamDeck-SD/cartouche-sync
 
-# Persist game data (optional)
-# Set to False to skip writing .cartouche/ folders in game directories
-#PERSIST_DATA=True
+
+# ==========================================
+# 4. GAME LAUNCHERS & INTEGRATION
+# ==========================================
+
+# Steam Non-Steam Shortcut Integration (optional)
+# Automatically add/remove DRM-free games as non-Steam shortcuts in your Steam library.
+# Shortcuts are tagged with "cartouche" so they can be managed without affecting
+# your other manually-added non-Steam games.
+#STEAM_EXPOSE=False
+
+# Optionally target a specific Steam user ID (leave commented to update all users)
+#STEAM_USERID=
+
+# If you want to automatically download artwork (grids, heroes, logos) from SteamGridDB,
+# you must provide a free API key from https://www.steamgriddb.com/profile/preferences/api
+#STEAMGRIDDB_API_KEY=
 
 # Manifest export (optional)
 # Set to False to skip writing manifests.json
 #MANIFEST_EXPORT=True
+
 # Custom path for manifests.json (default: FREEGAMES_PATH/manifests.json)
 #MANIFEST_PATH=
+
+
+# ==========================================
+# 5. EMULATOR SETTINGS
+# ==========================================
+
+# --- Dolphin ---
+#DOLPHIN_GC_LANGUAGE=2       # 0=eng, 1=ger, 2=fre, 3=spa
+#DOLPHIN_WII_LANGUAGE=3      # 0=jap, 1=eng, 2=ger, 3=fre
+#DOLPHIN_GFX_BACKEND=OGL     # OpenGL=OGL, Vulkan=Vulkan
+#DOLPHIN_GC_SKIP_BOOT=False
+#DOLPHIN_FULLSCREEN=True
+
+# --- RyuJinx ---
+#RYUJINX_LANGUAGE_CODE=fr_FR
+#RYUJINX_SYSTEM_LANGUAGE=French
+#RYUJINX_SYSTEM_REGION=Europe
+
+# --- Cemu --- 
+# (1=eng, 2=fre)
+#CEMU_CONSOLE_LANGUAGE=2
+
+# --- RetroArch ---
+# (1=eng, 2=fre)
+#RETROARCH_USER_LANGUAGE=2
+#RETROARCH_VIDEO_DRIVER=glcore
+#RETROARCH_NETPLAY_NICKNAME=Jean
+
+
+# ==========================================
+# 6. ADVANCED & CUSTOM TASKS
+# ==========================================
 
 # Custom directory backups (optional)
 # Format: BACKUP_<name>=<path>
@@ -46,33 +100,12 @@
 # Example: BACKUP_gamescope-shaders=/home/deck/.local/share/gamescope/reshade/Shaders
 #BACKUP_gamescope-shaders=/home/deck/.local/share/gamescope/reshade/Shaders
 
-# Dolphin settings
-
-#DOLPHIN_GC_LANGUAGE=2       # 0=eng, 1=ger, 2=fre, 3=spa
-#DOLPHIN_WII_LANGUAGE=3      # 0=jap, 1=eng, 2=ger, 3=fre
-#DOLPHIN_GFX_BACKEND=OGL     # OpenGL=OGL, Vulkan=Vulkan
-#DOLPHIN_GC_SKIP_BOOT=False
-#DOLPHIN_FULLSCREEN=True
-
-# RyuJinx settings
-#RYUJINX_LANGUAGE_CODE=fr_FR
-#RYUJINX_SYSTEM_LANGUAGE=French
-#RYUJINX_SYSTEM_REGION=Europe
-
-# Cemu settings (1=eng, 2=fre)
-#CEMU_CONSOLE_LANGUAGE=2
-
-# RetroArch settings (1=eng, 2=fre)
-#RETROARCH_USER_LANGUAGE=2
-#RETROARCH_VIDEO_DRIVER=glcore
-#RETROARCH_NETPLAY_NICKNAME=Jean
-
 # Post-run commands (optional)
 # Format: RUN_AFTER_<number>=<command>
 # Commands are executed in alphabetical order by name after all modules finish.
 # Variables from this config can be used with ${VARIABLE_NAME}
 # Example: RUN_AFTER_01=echo "Syncing ${SAVESLINK_PATH}"
-
+#
 # Example: Sync the symlink folder to a Google Drive remote named "gdrive"
 # Note: The -L flag is required for rclone to follow the symlinks and copy the actual save files.
 #RUN_AFTER_02=rclone sync -L "${SAVESLINK_PATH}" gdrive:cartouche-saves

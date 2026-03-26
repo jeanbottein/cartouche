@@ -124,6 +124,10 @@ class Game:
     resolved_launch_options: str = ""
     resolved_save_paths: List[Tuple[str, str]] = field(default_factory=list)  # [(name, abs_path), ...]
 
+    def __post_init__(self):
+        if isinstance(self.game_dir, str):
+            self.game_dir = Path(self.game_dir)
+
     @property
     def cartouche_dir(self) -> Path:
         return self.game_dir / CARTOUCHE_DIR

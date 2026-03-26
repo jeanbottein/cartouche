@@ -42,7 +42,9 @@ def load_config_map(config_path: Path) -> Dict[str, str]:
         if k:
             if '#' in v:
                 v = v.split('#')[0]
-            config_map[k] = v.strip()
+            val = v.strip()
+            if val:
+                config_map[k] = val
     return config_map
 
 
@@ -100,7 +102,7 @@ def test_steam(cfg: dict):
     """Dry-run mode: show what would be synced to Steam."""
     games_dir = cfg.get("FREEGAMES_PATH")
     if not games_dir or not os.path.isdir(games_dir):
-        logger.warning("FREEGAMES_PATH not configured or invalid")
+        logger.error("FREEGAMES_PATH not configured or invalid. Stopping the app.")
         return
 
     # Run pipeline up to enrichment
@@ -167,7 +169,7 @@ def main():
 
     games_dir = cfg.get("FREEGAMES_PATH")
     if not games_dir or not os.path.isdir(games_dir):
-        logger.warning("FREEGAMES_PATH not configured or invalid")
+        logger.error("FREEGAMES_PATH not configured or invalid. Stopping the app.")
         return
 
     # Step 0: Migration (one-time)
