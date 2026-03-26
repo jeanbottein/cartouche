@@ -29,12 +29,14 @@
 # sync: Synchronize save files between the original and backup locations
 # restore: Restore save files from the backup location to the original location
 # (Dangerous, use with caution, will replace save files with backup files, each time the script is run)
+# (Removing a game from the freegames folder will not remove the backup)
 # Default: backup
 #SAVESCOPY_STRATEGY=backup
 
 # SAVESLINK_PATH (optional)
 # Creates a folder of symlinks pointing to original save directories.
 # Use with Syncthing or similar tools for automatic bidirectional sync.
+# (Removing a game from the freegames folder will not remove the symlink)
 #SAVESLINK_PATH=/run/media/deck/SteamDeck-SD/cartouche-sync
 
 

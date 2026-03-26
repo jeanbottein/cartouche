@@ -122,11 +122,7 @@ def test_steam(cfg: dict):
         appid = steam_exporter.generate_appid(game.title, game.resolved_target)
         signed = steam_exporter._signed32(appid)
 
-        label = game.title
-        if game.title != game.original_title:
-            label = f"{game.original_title} -> {game.title}"
-
-        logger.info("  %s", label)
+        logger.info("  %s", game.title)
         logger.info("     AppID:    %d (signed: %d)", appid, signed)
         logger.info("     Exe:      %s", game.resolved_target)
         logger.info("     StartDir: %s", game.resolved_start_in)
@@ -173,42 +169,54 @@ def main():
         return
 
     # Step 0: Migration (one-time)
+    logger.info("\n--- MIGRATION ---")
     migrator.migrate(games_dir)
 
     # Step 1: Parse games into in-memory database
+    logger.info("\n--- SCANNING ---")
     db = scanner.scan(games_dir)
 
     # Step 2: Calculate missing data (exe detection)
+    logger.info("\n--- DETECTION ---")
     detector.detect(db)
 
     # Step 3: Fetch from SteamGridDB (if API key available)
+    logger.info("\n--- ENRICHMENT ---")
     enricher.enrich(db, cfg)
 
     # Step 4: Persist .cartouche/game.json + images
+    logger.info("\n--- PERSISTENCE ---")
     if cfg.get("PERSIST_DATA", "True").lower() != "false":
         persister.persist(db)
 
     # Step 5: Clean old Steam shortcuts
+    logger.info("\n--- STEAM CLEANUP ---")
     steam_cleaner.clean(db, cfg)
 
     # Step 6: Export to Steam
+    logger.info("\n--- STEAM EXPORT ---")
     steam_exporter.export(db, cfg)
 
     # Step 7: ROM manager manifest
+    logger.info("\n--- MANIFEST ---")
     if cfg.get("MANIFEST_EXPORT", "True").lower() != "false":
         manifest_path = cfg.get("MANIFEST_PATH", os.path.join(games_dir, "manifests.json"))
         manifest_writer.write(db, manifest_path)
 
     # Step 8: Patcher
+    logger.info("\n--- PATCHER ---")
     patcher.run(cfg)
 
     # Step 9: Saver (backup/restore)
+    logger.info("\n--- SAVER ---")
     saver.run(db, cfg)
 
     # Step 10: Configurer (emulator config mutations)
+    logger.info("\n--- CONFIGURER ---")
     configurer.run(cfg)
 
     # Step 11: Post commands
+    logger.info("\n--- POST COMMANDS ---")
     run_post_commands(cfg)
 
 

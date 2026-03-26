@@ -40,13 +40,17 @@ def find_steam_userdata_dirs():
         os.path.expanduser("~/.local/share/Steam/userdata"),
     ]
     results = []
+    seen = set()
     for base in candidates:
         if not os.path.isdir(base):
             continue
         for uid in os.listdir(base):
             config_dir = os.path.join(base, uid, "config")
             if os.path.isdir(config_dir):
-                results.append(config_dir)
+                real_dir = os.path.realpath(config_dir)
+                if real_dir not in seen:
+                    seen.add(real_dir)
+                    results.append(config_dir)
     return results
 
 

@@ -88,7 +88,6 @@ def _migrate_one(game_dir: str) -> bool:
     title = old_manifest.get("title", os.path.basename(game_dir))
     new_game = {
         "title": title,
-        "original_title": title,
         "targets": old_manifest.get("targets", []),
         "savePaths": _convert_save_path(old_manifest.get("savePath", "")),
         "images": {},

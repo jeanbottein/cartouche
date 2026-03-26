@@ -222,6 +222,7 @@ def enrich(db: GameDatabase, cfg: dict):
         )
 
         if not game_id:
+            logger.info(f"  Not found: {game.title}")
             continue
 
         changed = False
@@ -256,6 +257,9 @@ def enrich(db: GameDatabase, cfg: dict):
         if changed:
             game.needs_persist = True
             logger.info(f"  Enriched: {game.folder_name} -> {game.title} (SGDB #{game_id})")
+        else:
+            if not game.images.cover:
+                logger.info(f"  No artwork found on SteamGridDB for: {game.title}")
 
     # Save cache if it changed
     cache_json = json.dumps(sgdb_cache)

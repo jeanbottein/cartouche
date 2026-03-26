@@ -290,7 +290,6 @@ def detect(db: GameDatabase):
 
         game.targets = targets
         game.title = _get_title(game_dir)
-        game.original_title = game.title
         game.needs_persist = True
 
         # Resolve best target for current platform

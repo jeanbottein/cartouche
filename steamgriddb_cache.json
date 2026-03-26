@@ -2,7 +2,8 @@
   "star fox 64": {
     "game_id": 36615,
     "urls": {
-      "grid": "https://cdn2.steamgriddb.com/grid/9122b7acc2588eff1d20211ce8fb8798.png",
+      "grid": "https://cdn2.steamgriddb.com/grid/708985cc1d6977124e38b27ee7cba1f2.png",
+      "poster": "https://cdn2.steamgriddb.com/grid/9122b7acc2588eff1d20211ce8fb8798.png",
       "hero": "https://cdn2.steamgriddb.com/hero/44adaadb095f40b587f4b409ac55799b.png",
       "logo": "https://cdn2.steamgriddb.com/logo/ad3019b856147c17e82a5bead782d2a8.png",
       "icon": "https://cdn2.steamgriddb.com/icon/5fc7c9bd1fcb12799f02da8adfa4954f.png"
@@ -13,6 +14,7 @@
     "game_id": 23044,
     "urls": {
       "grid": "https://cdn2.steamgriddb.com/grid/3180893a1894b75906eeaa0163f541ff.jpg",
+      "poster": "https://cdn2.steamgriddb.com/grid/13f548d7a74bfb278f51d074501eb2db.jpg",
       "hero": "https://cdn2.steamgriddb.com/hero/560186b4016c840a7b9515a55b1df47a.jpg",
       "logo": "https://cdn2.steamgriddb.com/logo/7c21d63129b28ce70725c2b76b3301d9.png",
       "icon": "https://cdn2.steamgriddb.com/icon/d890f33e2b71506322bde37f3abafb71.ico"
@@ -22,7 +24,8 @@
   "omeganaut": {
     "game_id": 5284591,
     "urls": {
-      "grid": "https://cdn2.steamgriddb.com/grid/2a032631662445ec2cd6f28d23b6d93c.jpg",
+      "grid": "https://cdn2.steamgriddb.com/grid/8640a30f2b59940b9ca60c07e20c9404.png",
+      "poster": "https://cdn2.steamgriddb.com/grid/2a032631662445ec2cd6f28d23b6d93c.jpg",
       "hero": null,
       "logo": "https://cdn2.steamgriddb.com/logo/372fd987ae6e6c94ea921ffefe33668f.png",
       "icon": "https://cdn2.steamgriddb.com/icon/10ebdd866f01fcebc9d0661a8eb34a9f.ico"
@@ -33,6 +36,7 @@
     "game_id": 13253,
     "urls": {
       "grid": "https://cdn2.steamgriddb.com/grid/ae007bc6f374d9ce3a7e2c98940a1d01.jpg",
+      "poster": "https://cdn2.steamgriddb.com/grid/ae007bc6f374d9ce3a7e2c98940a1d01.jpg",
       "hero": "https://cdn2.steamgriddb.com/hero/4e9682671e5f02af659a48d15ee19ab2.png",
       "logo": "https://cdn2.steamgriddb.com/logo/1474b89337c66907c36ed7c6c82c592f.png",
       "icon": null
@@ -42,7 +46,8 @@
   "night in the woods": {
     "game_id": 12149,
     "urls": {
-      "grid": "https://cdn2.steamgriddb.com/grid/5b442bd663e968acb02d65c31047b25d.png",
+      "grid": "https://cdn2.steamgriddb.com/grid/e31d9dbfafc553648c9fe74297db627b.png",
+      "poster": "https://cdn2.steamgriddb.com/grid/5b442bd663e968acb02d65c31047b25d.png",
       "hero": "https://cdn2.steamgriddb.com/hero/9c781c3c488249b999f88747ce8e5737.png",
       "logo": "https://cdn2.steamgriddb.com/logo/64e05037a21f2e2a33adc1b393f67d10.png",
       "icon": "https://cdn2.steamgriddb.com/icon/d8c24ca8f23c562a5600876ca2a550ce.png"
@@ -52,7 +57,8 @@
   "strange flesh": {
     "game_id": 5258017,
     "urls": {
-      "grid": "https://cdn2.steamgriddb.com/grid/fccc1b57686a6f60a13900c645aac4c1.png",
+      "grid": "https://cdn2.steamgriddb.com/grid/e798c5a2fdb044f3be4e6204eb13abcc.png",
+      "poster": "https://cdn2.steamgriddb.com/grid/fccc1b57686a6f60a13900c645aac4c1.png",
       "hero": "https://cdn2.steamgriddb.com/hero/c9eb4f731030f8ba5f7bbf6dfdac7948.png",
       "logo": "https://cdn2.steamgriddb.com/logo/fc60305c9e5e6f19c6be173b9dd7b448.png",
       "icon": "https://cdn2.steamgriddb.com/icon/8e0421004941cba9a3a903e2443cae69.png"
@@ -62,7 +68,8 @@
   "the legend of zelda: majora's mask": {
     "game_id": 34302,
     "urls": {
-      "grid": "https://cdn2.steamgriddb.com/grid/958c6e525626a72dc5722a63f638a80b.png",
+      "grid": "https://cdn2.steamgriddb.com/grid/3d6b02b940b8ae35eeb7fccb4b983084.png",
+      "poster": "https://cdn2.steamgriddb.com/grid/958c6e525626a72dc5722a63f638a80b.png",
       "hero": "https://cdn2.steamgriddb.com/hero/6962448d565dc65ce98caf5e51e1dfec.png",
       "logo": "https://cdn2.steamgriddb.com/logo/fe8c15fed5f808006ce95eddb7366e35.png",
       "icon": "https://cdn2.steamgriddb.com/icon/30b4f25f536778f198568a0030e8a586.ico"
@@ -73,6 +80,7 @@
     "game_id": 5274855,
     "urls": {
       "grid": null,
+      "poster": null,
       "hero": null,
       "logo": null,
       "icon": null
@@ -82,7 +90,8 @@
   "lenna's inception": {
     "game_id": 5248176,
     "urls": {
-      "grid": "https://cdn2.steamgriddb.com/grid/60bdcdd43151490e7e38346c53cb0173.png",
+      "grid": "https://cdn2.steamgriddb.com/grid/25b5f38336b484d555ba2d48ac81a200.jpg",
+      "poster": "https://cdn2.steamgriddb.com/grid/60bdcdd43151490e7e38346c53cb0173.png",
       "hero": "https://cdn2.steamgriddb.com/hero/f2eb7494b7497dc52cae71b110f83a07.png",
       "logo": "https://cdn2.steamgriddb.com/logo/b67738f39fbf9cfcd0ec173f0c11253c.png",
       "icon": "https://cdn2.steamgriddb.com/icon/440479c4c4975f7e4ce0f9672d91935b.ico"
@@ -92,7 +101,8 @@
   "banjo-kazooie": {
     "game_id": 35564,
     "urls": {
-      "grid": "https://cdn2.steamgriddb.com/grid/a154a70f923c579313aa9c47ed7c34e2.png",
+      "grid": "https://cdn2.steamgriddb.com/grid/2f966883d44c88b9059c90bea7eda7d5.png",
+      "poster": "https://cdn2.steamgriddb.com/grid/a154a70f923c579313aa9c47ed7c34e2.png",
       "hero": "https://cdn2.steamgriddb.com/hero/17326d10d511828f6b34fa6d751739e2.png",
       "logo": "https://cdn2.steamgriddb.com/logo/ce5193a069bea027a60e06c57a106eb6.png",
       "icon": "https://cdn2.steamgriddb.com/icon/c133fb1bb634af68c5088f3438848bfd.png"
@@ -102,7 +112,8 @@
   "the legend of zelda: ocarina of time": {
     "game_id": 21202,
     "urls": {
-      "grid": "https://cdn2.steamgriddb.com/grid/ed89e6477ff6a465891a5f17f77948ae.png",
+      "grid": "https://cdn2.steamgriddb.com/grid/feb4a4c17f693c4368d7ce83ea192c95.png",
+      "poster": "https://cdn2.steamgriddb.com/grid/ed89e6477ff6a465891a5f17f77948ae.png",
       "hero": "https://cdn2.steamgriddb.com/hero/6597e35504c82e2f89f20837fb631376.png",
       "logo": "https://cdn2.steamgriddb.com/logo/e440113dde9d989caff2c0f405ad1334.png",
       "icon": "https://cdn2.steamgriddb.com/icon/a896144046a1b5bd6e3e034d00b4f73a.png"
@@ -112,7 +123,8 @@
   "a short hike": {
     "game_id": 2978157,
     "urls": {
-      "grid": "https://cdn2.steamgriddb.com/grid/7b815f14374af57daa6505c20ae445d2.png",
+      "grid": "https://cdn2.steamgriddb.com/grid/7ebde5f458f97ff5d12c6b7ba6d3a427.png",
+      "poster": "https://cdn2.steamgriddb.com/grid/7b815f14374af57daa6505c20ae445d2.png",
       "hero": "https://cdn2.steamgriddb.com/hero/bd9180dc164d6192cb6ab9b206fc8f6f.png",
       "logo": "https://cdn2.steamgriddb.com/logo/c9341b89fc3eb7a699f07a09ca2a84d8.png",
       "icon": "https://cdn2.steamgriddb.com/icon/dfe7a65a1960ba20d9dd8df69acf4094.ico"
@@ -122,7 +134,8 @@
   "sky rogue": {
     "game_id": 8157,
     "urls": {
-      "grid": "https://cdn2.steamgriddb.com/grid/8d914ad5f81d8127ea3abdde02ffdbac.png",
+      "grid": "https://cdn2.steamgriddb.com/grid/46e951b4afac82bcc49cc3fa8065f65b.png",
+      "poster": "https://cdn2.steamgriddb.com/grid/8d914ad5f81d8127ea3abdde02ffdbac.png",
       "hero": "https://cdn2.steamgriddb.com/hero/02ff9da844ffbab5c01c0cd06386b958.jpg",
       "logo": "https://cdn2.steamgriddb.com/logo/8679f602427cd083a6e6dc3a3e72d528.png",
       "icon": "https://cdn2.steamgriddb.com/icon/e7be8d8e2b9e28afea9bd38a675cd65b.ico"
@@ -132,7 +145,8 @@
   "jotun: valhalla edition": {
     "game_id": 5481,
     "urls": {
-      "grid": "https://cdn2.steamgriddb.com/grid/bfe1049f00d859d9ac317c5e72320868.png",
+      "grid": "https://cdn2.steamgriddb.com/grid/b832515337ecdcca313bccdc1b6f29b3.png",
+      "poster": "https://cdn2.steamgriddb.com/grid/bfe1049f00d859d9ac317c5e72320868.png",
       "hero": "https://cdn2.steamgriddb.com/hero/28a74b8d7de3373b4bed858fc10b6bf5.png",
       "logo": "https://cdn2.steamgriddb.com/logo/819e3d6c1381eac87c17617e5165f38c.png",
       "icon": "https://cdn2.steamgriddb.com/icon/1b7085a362e5221160b6a4e40da9cf4e.ico"
@@ -142,7 +156,8 @@
   "baba is you": {
     "game_id": 22797,
     "urls": {
-      "grid": "https://cdn2.steamgriddb.com/grid/23001e3a611e9d9ffc05cfb06c4dfc3f.png",
+      "grid": "https://cdn2.steamgriddb.com/grid/24aa6f68ceb0a25bf65b412337699a34.png",
+      "poster": "https://cdn2.steamgriddb.com/grid/23001e3a611e9d9ffc05cfb06c4dfc3f.png",
       "hero": "https://cdn2.steamgriddb.com/hero/e982e209dbe04a35a3a0cdd444cd2a49.png",
       "logo": "https://cdn2.steamgriddb.com/logo/070c425fd005e11aec1a90706dda66f5.png",
       "icon": "https://cdn2.steamgriddb.com/icon/81616e9ab54cc3e36260f80593a4cc33.png"
@@ -153,6 +168,7 @@
     "game_id": 16397,
     "urls": {
       "grid": "https://cdn2.steamgriddb.com/grid/56f1b3b8e9b400136cbb00f51bca5785.png",
+      "poster": "https://cdn2.steamgriddb.com/grid/11c5587af2863955b7c04c59a8732ccc.png",
       "hero": "https://cdn2.steamgriddb.com/hero/cc7480c6c9ec68feeecfb06f99a87671.png",
       "logo": "https://cdn2.steamgriddb.com/logo/77e9fbed6e6db00669ad22ac2ac48600.png",
       "icon": "https://cdn2.steamgriddb.com/icon/5dfd38837dc134b2fc764c102b29fc46.png"
@@ -163,6 +179,7 @@
     "game_id": 5295002,
     "urls": {
       "grid": null,
+      "poster": null,
       "hero": null,
       "logo": null,
       "icon": null
@@ -172,7 +189,8 @@
   "celeste": {
     "game_id": 13136,
     "urls": {
-      "grid": "https://cdn2.steamgriddb.com/grid/074aed57c243ae7020971ca7c9fe0f29.png",
+      "grid": "https://cdn2.steamgriddb.com/grid/6ab08dc077e86baa9a62d05ec66a9026.png",
+      "poster": "https://cdn2.steamgriddb.com/grid/074aed57c243ae7020971ca7c9fe0f29.png",
       "hero": "https://cdn2.steamgriddb.com/hero/c66e591693fd6e7b26fc5a60efb68817.png",
       "logo": "https://cdn2.steamgriddb.com/logo/2eace51d8f796d04991c831a07059758.png",
       "icon": "https://cdn2.steamgriddb.com/icon/f7e6c85504ce6e82442c770f7c8606f0.ico"

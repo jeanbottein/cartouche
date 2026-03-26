@@ -129,7 +129,6 @@ def _load_game_json(game_dir: str) -> Game | None:
         folder_name=folder_name,
         game_dir=game_dir,
         title=data.get("title", folder_name),
-        original_title=data.get("original_title", folder_name),
         targets=targets,
         save_paths=save_paths,
         steamgriddb_id=data.get("steamgriddb_id"),
@@ -199,7 +198,6 @@ def scan(games_dir: str) -> GameDatabase:
                 folder_name=item,
                 game_dir=item_path,
                 title=item,
-                original_title=item,
             )
             db.add(game)
             logger.info(f"  Discovered: {item} (needs detection)")

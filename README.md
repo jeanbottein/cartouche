@@ -60,7 +60,6 @@ FREEGAMES_PATH/
 ```json
 {
     "title": "Official Game Name",
-    "original_title": "MyGame",
     "steamgriddb_id": 13136,
     "targets": [
         {

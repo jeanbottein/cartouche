@@ -102,7 +102,6 @@ class Game:
 
     # Metadata
     title: str = ""                  # Display title (may be SGDB official name)
-    original_title: str = ""         # Title as derived from folder name
 
     # Targets
     targets: List[GameTarget] = field(default_factory=list)
@@ -140,7 +139,6 @@ class Game:
         """Serialize to the game.json schema (only persisted fields)."""
         d = {
             "title": self.title,
-            "original_title": self.original_title,
             "targets": [t.to_dict() for t in self.targets],
             "savePaths": [sp.to_dict() for sp in self.save_paths],
             "images": self.images.to_dict(),

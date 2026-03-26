@@ -102,7 +102,6 @@ def _copy_artwork_to_grid(game, grid_dir, appid):
             continue
         try:
             shutil.copy2(src, dest)
-            logger.info(f"    Artwork: {os.path.basename(dest)}")
         except OSError as e:
             logger.warning(f"    Failed to copy artwork {src} -> {dest}: {e}")
 
@@ -186,14 +185,12 @@ def export(db: GameDatabase, cfg: dict):
 
                 if name_changed or icon_changed:
                     shortcuts[key] = _make_shortcut_entry(name, target, start_in, launch_opts, icon_path)
-                    logger.info(f"  Updated: {name}")
                     updated += 1
             else:
                 # Add new shortcut
                 idx = _next_index(shortcuts)
                 shortcuts[idx] = _make_shortcut_entry(name, target, start_in, launch_opts, icon_path)
                 owned_exes[target] = idx
-                logger.info(f"  Added: {name}")
                 added += 1
 
             # Copy artwork
