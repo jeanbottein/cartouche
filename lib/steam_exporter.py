@@ -18,9 +18,11 @@ from .steam_cleaner import (
     _has_ownership_tag, _get_appname,
 )
 
-logger = logging.getLogger("cartouche.steam_exporter")
+from .app import APP_NAME
 
-OWNERSHIP_TAG = "cartouche"
+logger = logging.getLogger(f"{APP_NAME}.steam_exporter")
+
+OWNERSHIP_TAG = APP_NAME
 
 
 # ── AppID generation ─────────────────────────────────────────────────────

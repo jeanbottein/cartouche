@@ -13,10 +13,11 @@ import urllib.request
 import urllib.error
 
 from .models import GameDatabase, GameImages
+from .app import APP_NAME
 
-logger = logging.getLogger("cartouche.enricher")
+logger = logging.getLogger(f"{APP_NAME}.enricher")
 
-USER_AGENT = "cartouche/1.0"
+USER_AGENT = f"{APP_NAME}/1.0"
 
 
 # ── SteamGridDB API ─────────────────────────────────────────────────────

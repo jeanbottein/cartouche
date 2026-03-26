@@ -15,8 +15,9 @@ from .models import (
     Game, GameTarget, GameImages, GameDatabase,
     CARTOUCHE_DIR, GAME_JSON,
 )
+from .app import APP_NAME
 
-logger = logging.getLogger("cartouche.scanner")
+logger = logging.getLogger(f"{APP_NAME}.scanner")
 
 
 def _os_tag():

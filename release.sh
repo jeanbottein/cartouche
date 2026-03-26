@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
-# Build a self-contained cartouche binary for the current platform.
+# Build a self-contained binary for the current platform.
+#
+# The binary name is derived from the main Python entry-point script.
+# Rename cartouche.py → potato.py and the output binary will be "potato".
 #
 # Usage:
 #   ./release.sh                  # build for current arch
 #   ./release.sh --no-venv        # skip venv creation, use active env
 #
-# Output: dist/cartouche-<os>-<arch>
+# Output: dist/<os>-<arch>/<appname>
 #
 # Cross-arch builds: run this script natively on each target machine
 # (e.g. x86_64 and aarch64), or inside QEMU / a Docker cross-build container.
@@ -17,14 +20,19 @@ BUILD_DIR="$REPO_ROOT/.build"
 
 OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
 ARCH="$(uname -m)"
-BINARY_NAME="cartouche-${OS}-${ARCH}"
+
+# Derive app name from the entry-point script (rename the .py file to rebrand)
+ENTRY_SCRIPT="$(ls "$REPO_ROOT"/*.py 2>/dev/null | head -1)"
+APP_NAME="$(basename "$ENTRY_SCRIPT" .py)"
+
+OUTPUT_DIR="$DIST_DIR/${OS}-${ARCH}"
 
 USE_VENV=true
 for arg in "$@"; do
   [[ "$arg" == "--no-venv" ]] && USE_VENV=false
 done
 
-mkdir -p "$DIST_DIR" "$BUILD_DIR"
+mkdir -p "$OUTPUT_DIR" "$BUILD_DIR"
 
 # ── Virtualenv ────────────────────────────────────────────────────────────────
 VENV_DIR="$BUILD_DIR/venv"
@@ -46,12 +54,12 @@ if [[ -f "$REPO_ROOT/requirements.txt" ]]; then
 fi
 
 # ── PyInstaller ───────────────────────────────────────────────────────────────
-echo "Building $BINARY_NAME..."
+echo "Building ${OS}-${ARCH}/${APP_NAME}..."
 
 pyinstaller \
   --onefile \
-  --name "$BINARY_NAME" \
-  --distpath "$DIST_DIR" \
+  --name "$APP_NAME" \
+  --distpath "$OUTPUT_DIR" \
   --workpath "$BUILD_DIR/pyinstaller-work" \
   --specpath "$BUILD_DIR" \
   --add-data "$REPO_ROOT/config-default.txt:." \
@@ -60,12 +68,9 @@ pyinstaller \
   --collect-all vdf \
   --clean \
   --noconfirm \
-  "$REPO_ROOT/cartouche.py"
+  "$ENTRY_SCRIPT"
 
 # ── Done ──────────────────────────────────────────────────────────────────────
-SIZE=$(du -sh "$DIST_DIR/$BINARY_NAME" | cut -f1)
+SIZE=$(du -sh "$OUTPUT_DIR/$APP_NAME" | cut -f1)
 echo ""
-echo "Done: dist/$BINARY_NAME  ($SIZE)"
-echo ""
-echo "Note: copy config-default.txt alongside the binary — on first run it"
-echo "      will be used as a template to create config.txt in the same dir."
+echo "Done: dist/${OS}-${ARCH}/${APP_NAME}  ($SIZE)"

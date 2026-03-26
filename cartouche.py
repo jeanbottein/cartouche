@@ -26,6 +26,7 @@ from lib import manifest_writer
 from lib import patcher
 from lib import saver
 from lib import configurer
+from lib.app import APP_NAME
 
 logger = logging.getLogger(__name__)
 
@@ -146,11 +147,11 @@ def test_steam(cfg: dict):
         owned = [(k, steam_cleaner._get_appname(s)) for k, s in shortcuts.items() if steam_cleaner._has_ownership_tag(s)]
         uid = os.path.basename(os.path.dirname(config_dir))
         if owned:
-            logger.info("  Steam user %s: %d existing cartouche shortcuts", uid, len(owned))
+            logger.info("  Steam user %s: %d existing %s shortcuts", uid, len(owned), APP_NAME)
             for _, appname in owned:
                 logger.info("     - %s", appname)
         else:
-            logger.info("  Steam user %s: no cartouche shortcuts yet", uid)
+            logger.info("  Steam user %s: no %s shortcuts yet", uid, APP_NAME)
 
 
 def main():

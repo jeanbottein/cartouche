@@ -10,8 +10,9 @@ import logging
 import os
 
 from .models import GameDatabase
+from .app import APP_NAME
 
-logger = logging.getLogger("cartouche.manifest_writer")
+logger = logging.getLogger(f"{APP_NAME}.manifest_writer")
 
 
 def write(db: GameDatabase, output_path: str):

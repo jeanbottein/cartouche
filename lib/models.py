@@ -9,8 +9,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, List, Dict
 
+from .app import APP_NAME
 
-CARTOUCHE_DIR = ".cartouche"
+CARTOUCHE_DIR = f".{APP_NAME}"
 GAME_JSON = "game.json"
 
 

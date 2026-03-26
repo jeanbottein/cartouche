@@ -14,7 +14,9 @@ try:
 except ImportError:
     vdf = None
 
-logger = logging.getLogger("cartouche.steam_compat")
+from .app import APP_NAME
+
+logger = logging.getLogger(f"{APP_NAME}.steam_compat")
 
 
 def _find_config_vdf(steam_root: str) -> str | None:
