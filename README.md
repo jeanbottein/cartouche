@@ -208,3 +208,5 @@ cartouche/
 ## Credits
 
 - **Icon**: <a href="https://www.flaticon.com/free-icons/game-cartridge" title="game cartridge icons">Game cartridge icons created by Freepik - Flaticon</a>
+- **vdf** (Python library): [ValvePython/vdf](https://github.com/ValvePython/vdf) by Rossen Georgiev — MIT License. Used for reading/writing Steam's text-format VDF configuration files.
+- **Binary VDF format reference**: [GameSync](https://github.com/Maikeru86/GameSync) by Maikeru86 — MIT License. The binary `shortcuts.vdf` reader/writer (`lib/steam_vdf.py`) was adapted from this project.
