@@ -204,3 +204,7 @@ cartouche/
 2. Run cartouche to generate manifests
 3. Configure a parser to use the generated `manifests.json`
 4. Parse and add games to Steam
+
+## Credits
+
+- **Icon**: <a href="https://www.flaticon.com/free-icons/game-cartridge" title="game cartridge icons">Game cartridge icons created by Freepik - Flaticon</a>

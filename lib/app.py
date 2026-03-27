@@ -48,3 +48,13 @@ def find_app_dir(cli_dir: Path | None = None) -> Path | None:
     candidates.append(get_script_dir() / f".{APP_NAME}")
     candidates.append(Path.cwd() / f".{APP_NAME}")
     return next((p for p in candidates if _is_app_dir(p)), None)
+
+
+def get_icon_path() -> Path | None:
+    """Return the path to the bundled app-icon.png (MEIPASS then lib)."""
+    script_dir = get_script_dir()
+    if getattr(sys, 'frozen', False):
+        candidate = Path(sys._MEIPASS) / 'lib' / 'app-icon.png'
+    else:
+        candidate = script_dir / 'lib' / 'app-icon.png'
+    return candidate if candidate.exists() else None

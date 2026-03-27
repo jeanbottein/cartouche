@@ -15,7 +15,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from .app import APP_NAME, get_script_dir
+from .app import APP_NAME, get_script_dir, get_icon_path
 
 
 # ── Default config template ───────────────────────────────────────────────────
@@ -61,14 +61,40 @@ def _run_gui(script_dir: Path, cwd: Path) -> Path:
     root.title(f"Initialize {APP_NAME}")
     root.resizable(False, False)
 
+    icon_path = get_icon_path()
+    if icon_path:
+        try:
+            full_img = tk.PhotoImage(file=str(icon_path))
+            # 512 / 8 = 64px, much better for a dialog
+            icon_img = full_img.subsample(8)
+            root.iconphoto(True, icon_img)
+        except Exception:
+            icon_img = None
+    else:
+        icon_img = None
+
     frame = ttk.Frame(root, padding=16)
     frame.grid(sticky="nsew")
+
+    if icon_img:
+        # Display icon at the top
+        icon_label = ttk.Label(frame, image=icon_img)
+        icon_label.grid(row=0, column=0, columnspan=2, pady=(0, 12))
+        
+        # Attribution
+        attr_label = ttk.Label(
+            frame, 
+            text="Game cartridge icons created by Freepik - Flaticon",
+            font=("TkDefaultFont", 8),
+            foreground="gray"
+        )
+        attr_label.grid(row=5, column=0, columnspan=2, pady=(8, 0))
 
     ttk.Label(
         frame,
         text=f"No .{APP_NAME}/ directory found.\nWhere should it be initialized?",
         justify="left",
-    ).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 12))
+    ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(0, 12))
 
     var = tk.IntVar(value=0)
     for i, (label, _) in enumerate(choices):
