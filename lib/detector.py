@@ -305,5 +305,6 @@ def detect(db: GameDatabase):
             game.resolved_target = os.path.normpath(os.path.join(game_dir, best.target))
             game.resolved_start_in = os.path.normpath(os.path.join(game_dir, best.start_in))
             game.resolved_launch_options = best.launch_options
+            game.resolved_target_os = best.os
 
         logger.info(f"  Detected: {game.title} ({len(targets)} target(s))")
