@@ -80,9 +80,9 @@ def parse_args(argv: list) -> tuple:
 
 def _seed_conf(app_dir: Path, conf_path: Path) -> None:
     script_dir = get_script_dir()
-    default = script_dir / 'lib' / f'{APP_NAME}-default.conf'
+    default = script_dir / 'lib' / 'config-default.txt'
     if not default.exists() and getattr(sys, 'frozen', False):
-        default = Path(sys._MEIPASS) / 'lib' / f'{APP_NAME}-default.conf'
+        default = Path(sys._MEIPASS) / 'lib' / 'config-default.txt'
     if default.exists():
         try:
             shutil.copy2(default, conf_path)
@@ -99,7 +99,7 @@ def resolve_config_path(cli_dir: Path | None) -> Path:
     app_dir = find_app_dir(cli_dir)
     if app_dir is None:
         app_dir = run_init_dialog(get_script_dir(), Path.cwd())
-    conf_path = app_dir / f'{APP_NAME}.conf'
+    conf_path = app_dir / 'config.txt'
     if not conf_path.exists():
         _seed_conf(app_dir, conf_path)
     else:
