@@ -1,209 +1,58 @@
 # Cartouche
 
-A comprehensive tool for managing DRM-free games, emulator configurations, and game patches on Linux gaming systems like Steam Deck.
+> *French for "cartridge" — because nothing beats the nostalgia of blowing into a plastic slot and praying your game boots.*
 
-> **Note**: This project was developed using vibe coding techniques with extensive curation work. While primarily tested on Linux (Steam Deck), Windows compatibility is included but untested - it may work but hasn't been verified.
+A no-nonsense tool for managing DRM-free games, emulator configs, patches, and save backups on Linux (and especially Steam Deck).
 
-## Overview
+---
 
-Cartouche (French for "cartridge") uses a pipeline architecture with an in-memory game database:
+Don't like the name? **Change it.** Renaming things is literally what Cartouche does best — it'll happily override any game title with whatever you put in `game.json`. Fork it, rename it "GamingBlob", the tool won't judge you. It already survived being called *gamer-sidekick*.
 
-1. **Scanner** - Discovers games and loads existing `.cartouche/game.json` metadata
-2. **Detector** - Automatically detects executables for games missing metadata
-3. **Enricher** - Fetches official names and artwork from SteamGridDB
-4. **Persister** - Saves game metadata and artwork to `.cartouche/` folders
-5. **Steam Exporter** - Syncs games as non-Steam shortcuts in your Steam library
-6. **Manifest Writer** - Generates `manifests.json` for ROM manager compatibility
-7. **Patcher** - Applies patches and file replacements to games
-8. **Saver** - Manages save backups with multiple save paths per game
-9. **Configurer** - Automatically configures emulator settings
+---
 
-## Installation & Usage
+## Features
 
-1. Clone or download this repository
-2. Edit `config.txt` with your paths and preferences
-3. Run the main script:
+- **Scan** — discovers game folders and loads existing metadata
+- **Detect** — auto-detects executables when metadata is missing
+- **Enrich** — fetches official names and artwork from [SteamGridDB](https://www.steamgriddb.com/)
+- **Steam sync** — adds games to Steam as non-Steam shortcuts, complete with artwork
+- **Patch** — applies BPS patches or file replacements via `patch.json`
+- **Save backup** — backs up (or restores) save files, with multiple save paths per game
+- **Emulator config** — auto-configures Dolphin, Ryujinx, Cemu, and RetroArch from `config.txt`
+- **Manifest export** — generates `manifests.json` for [Steam ROM Manager](https://github.com/SteamGridDB/steam-rom-manager)
+
+Metadata and artwork are stored in a `.cartouche/` subfolder inside each game's directory — no central database, no magic, just files.
+
+## Getting started
+
+1. Clone this repo
+2. Copy `config-default.txt` to `config.txt` and fill in your paths
+3. Run:
    ```bash
-   # Linux/macOS
-   ./cartouche.sh
-   # or
-   python3 cartouche.py
+   ./cartouche.sh          # Linux / macOS
+   python3 cartouche.py    # anywhere
 
-   # Windows
-   cartouche.bat
-   # or
-   python cartouche.py
+   cartouche.bat           # Windows (untested, godspeed)
    ```
-4. Dry-run Steam sync:
+4. Dry-run Steam sync before committing:
    ```bash
    python3 cartouche.py test steam
    ```
 
-## Per-Game Data Structure
-
-Each game folder gets a `.cartouche/` subfolder containing all metadata and artwork:
-
-```
-FREEGAMES_PATH/
-  MyGame/
-    .cartouche/
-      game.json    # Game metadata (title, targets, save paths, SGDB info)
-      cover.png    # Grid/poster artwork
-      icon.png     # Icon
-      hero.png     # Hero banner
-      logo.png     # Logo overlay
-    game-executable
-```
-
-### game.json Schema
-
-```json
-{
-    "title": "Official Game Name",
-    "steamgriddb_id": 13136,
-    "targets": [
-        {
-            "os": "linux",
-            "arch": "x86_64",
-            "target": "game.bin",
-            "startIn": ".",
-            "launchOptions": ""
-        }
-    ],
-    "savePaths": [
-        {
-            "name": "saves",
-            "paths": [
-                { "os": "linux", "path": "~/.local/share/MyGame/Saves" }
-            ]
-        },
-        {
-            "name": "config",
-            "paths": [
-                { "os": "linux", "path": "~/.config/MyGame" }
-            ]
-        }
-    ],
-    "images": {
-        "cover": "cover.png",
-        "icon": "icon.png",
-        "hero": "hero.png",
-        "logo": "logo.png"
-    }
-}
-```
-
-## Configuration File (config.txt)
-
-```ini
-# Paths
-FREEGAMES_PATH=/run/media/deck/SteamDeck-SD/linux-games
-PATCHES_PATH=/run/media/deck/SteamDeck-SD/mods
-SAVESCOPY_PATH=/run/media/deck/SteamDeck-SD/cartouche-backup
-SAVESCOPY_STRATEGY=backup  # backup (default), sync (alias for backup), or restore (dangerous)
-SAVESLINK_PATH=/run/media/deck/SteamDeck-SD/cartouche-sync  # optional, for Syncthing
-
-# Steam integration
-STEAM_EXPOSE=True
-STEAMGRIDDB_API_KEY=your_api_key_here
-
-# Persistence control
-PERSIST_DATA=True          # Set to False to skip writing .cartouche/ folders
-MANIFEST_EXPORT=True       # Set to False to skip writing manifests.json
-MANIFEST_PATH=             # Custom path for manifests.json (default: FREEGAMES_PATH/manifests.json)
-
-# Custom directory backups
-BACKUP_gamescope-shaders=/home/deck/.local/share/gamescope/reshade/Shaders
-
-# Emulator settings
-DOLPHIN_GC_LANGUAGE=2
-RYUJINX_LANGUAGE_CODE=fr_FR
-CEMU_CONSOLE_LANGUAGE=2
-RETROARCH_USER_LANGUAGE=2
-```
-
-## Modules
-
-### Configurer
-
-Automatically modifies emulator configuration files (Dolphin, Ryujinx, Cemu, RetroArch) based on preferences in `config.txt`. Supports text-based and binary modifications with `${VARIABLE}` substitution.
-
-### Patcher
-
-Applies file patches and replacements using `patch.json` configuration files placed in `PATCHES_PATH`.
-
-```json
-[
-    { "file": "patch.bps", "target": "Game/data.win", "method": "patch", "target_crc32": "D3D27C56", "patched_crc32": "1655BF6C" },
-    { "file": "replacement.ogg", "target": "Game/music.ogg", "method": "replace" }
-]
-```
-
-### Saver
-
-Manages per-game save backups with support for **multiple save paths per game**. Each game can declare separate save directories (e.g., saves, config, screenshots) that are backed up independently.
-
-**Strategies:**
-- `backup` (default) - One-way mirror from original to backup
-- `sync` - Alias for backup (use `SAVESLINK_PATH` + Syncthing for bidirectional)
-- `restore` - One-way restore from backup to original (dangerous)
-
-**Symlink Tree** (`SAVESLINK_PATH`): Creates symlinks to original save directories for use with Syncthing.
-
-**Custom Directory Backups**: `BACKUP_<name>=<path>` entries in config.
-
-### Migration from gamer-sidekick
-
-Cartouche automatically migrates old `launch_manifest.json` files to the new `.cartouche/game.json` format on first run. Existing Steam shortcuts tagged with `"gamer-sidekick"` are recognized and managed.
-
-## Directory Structure
-
-```
-cartouche/
-  cartouche.py               # Main script
-  cartouche.sh               # Shell wrapper (Linux/macOS)
-  cartouche.bat              # Batch script (Windows)
-  cartouche.ps1              # PowerShell script (Windows)
-  config.txt                 # Configuration file (gitignored)
-  config-default.txt         # Template
-  lib/
-    models.py                # Data models (Game, GameDatabase, etc.)
-    scanner.py               # Game discovery
-    detector.py              # Executable detection
-    enricher.py              # SteamGridDB integration
-    persister.py             # .cartouche/ writer
-    steam_vdf.py             # Binary VDF reader/writer
-    steam_cleaner.py         # Stale shortcut removal
-    steam_exporter.py        # Steam shortcut creation
-    manifest_writer.py       # manifests.json generator
-    migrator.py              # Old format migration
-    patcher.py               # Game patching
-    saver.py                 # Save backup/restore
-    configurer.py            # Emulator config mutations
-    configurer.json          # Emulator config rules
-    games_locations.json     # Game directory search paths
-  scripts/
-    backup.sh
-```
-
 ## Requirements
 
-- Python 3.6+ (no external packages - stdlib only)
-- Standard Linux utilities (find, file, etc.)
-- For patching: **flips** binary (`bin/flips` or system PATH)
+- Python 3.6+ (stdlib only — no `pip install` needed)
+- Standard Linux utilities (`find`, `file`)
+- For BPS patching: `flips` binary in `bin/` or system PATH
+- For SteamGridDB enrichment: a free [API key](https://www.steamgriddb.com/profile/preferences/api)
 
-## Platform Support
+## Platform support
 
-- **Linux**: Fully tested (Steam Deck, desktop Linux)
-- **macOS**: Development only
-- **Windows**: Included but untested
-
-## Steam ROM Manager Integration
-
-1. Install [Steam ROM Manager](https://github.com/SteamGridDB/steam-rom-manager)
-2. Run cartouche to generate manifests
-3. Configure a parser to use the generated `manifests.json`
-4. Parse and add games to Steam
+| Platform | Status |
+|---|---|
+| Linux (Steam Deck, desktop) | Fully tested |
+| macOS | Works for development |
+| Windows | Included but untested |
 
 ## Credits
 
