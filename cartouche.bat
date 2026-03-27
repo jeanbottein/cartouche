@@ -1,13 +1,22 @@
 @echo off
-REM Cartouche - Windows Batch Script
-REM Runs the main Python script with proper error handling
+set SCRIPT_DIR=%~dp0
+pushd "%SCRIPT_DIR%"
 
-python --version >nul 2>&1
-if errorlevel 1 (
-    echo Error: Python is not installed or not in PATH
-    echo Please install Python 3.6+ from https://python.org
-    pause
-    exit /b 1
+if not exist ".venv\" (
+    echo Creating virtual environment...
+    python -m venv .venv
+    if errorlevel 1 (
+        echo Error: Failed to create virtual environment.
+        pause
+        exit /b 1
+    )
+    call .venv\Scripts\activate
+    if exist "requirements.txt" (
+        echo Installing requirements...
+        pip install -q -r requirements.txt
+    )
+) else (
+    call .venv\Scripts\activate
 )
 
 python cartouche.py %*

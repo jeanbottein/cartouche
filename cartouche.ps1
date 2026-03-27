@@ -1,21 +1,26 @@
-# Cartouche - PowerShell Script
-# Runs the main Python script with proper error handling
+$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+Push-Location $ScriptDir
 
-# Check if Python is available
-try {
-    $pythonVersion = python --version 2>&1
+$VenvPath = Join-Path $ScriptDir ".venv"
+
+if (-not (Test-Path $VenvPath)) {
+    Write-Host "Creating virtual environment..." -ForegroundColor Cyan
+    python -m venv .venv
     if ($LASTEXITCODE -ne 0) {
-        throw "Python not found"
+        Write-Host "Error: Failed to create virtual environment." -ForegroundColor Red
+        Read-Host "Press Enter to exit"
+        Pop-Location
+        exit 1
     }
-    Write-Host "Found: $pythonVersion" -ForegroundColor Green
-} catch {
-    Write-Host "Error: Python is not installed or not in PATH" -ForegroundColor Red
-    Write-Host "Please install Python 3.6+ from https://python.org" -ForegroundColor Yellow
-    Read-Host "Press Enter to exit"
-    exit 1
+    & .venv\Scripts\Activate.ps1
+    if (Test-Path "requirements.txt") {
+        Write-Host "Installing requirements..." -ForegroundColor Cyan
+        pip install -q -r requirements.txt
+    }
+} else {
+    & .venv\Scripts\Activate.ps1
 }
 
-# Run the main script
 Write-Host "Starting Cartouche..." -ForegroundColor Cyan
 python cartouche.py $args
 
