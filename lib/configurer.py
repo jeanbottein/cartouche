@@ -65,7 +65,7 @@ def load_apps_config(config_vars):
                     # Skip replacement if any variables are unresolved
                     all_unresolved = pattern_unresolved + value_unresolved
                     if resolved_pattern is None or resolved_value is None:
-                        logger.info(f"⚠️  Skipping {rep.get('name', 'unnamed')} - undefined variables: {', '.join(all_unresolved)}")
+                        logger.info(f"  {', '.join(all_unresolved)} ignored")
                         continue
                     
                     processed_rep = {

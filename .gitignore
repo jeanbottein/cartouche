@@ -2,7 +2,12 @@
 /games
 /mods
 /patches
-/config.txt
+/*.conf
+!/*-default.conf
 **/__pycache__
 __pycache__/
 *.py[cod]
+/.build
+/dist
+.cartouche
+.venv
