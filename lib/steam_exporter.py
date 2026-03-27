@@ -29,7 +29,7 @@ OWNERSHIP_TAG = APP_NAME
 
 def generate_appid(app_name, exe_path):
     """Generate a stable non-Steam shortcut appid (unsigned 32-bit)."""
-    unique = (exe_path + app_name).encode('utf-8')
+    unique = (str(exe_path or "") + str(app_name or "")).encode('utf-8')
     crc = zlib.crc32(unique) & 0xFFFFFFFF
     return (crc | 0x80000000) & 0xFFFFFFFF
 

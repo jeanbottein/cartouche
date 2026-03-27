@@ -108,6 +108,16 @@ class Game:
     def __post_init__(self):
         if isinstance(self.game_dir, str):
             self.game_dir = Path(self.game_dir)
+        if self.title is None:
+            self.title = ""
+
+    def __hash__(self):
+        return hash(self.folder_name)
+
+    def __eq__(self, other):
+        if not isinstance(other, Game):
+            return False
+        return self.folder_name == other.folder_name
 
     @property
     def cartouche_dir(self) -> Path:

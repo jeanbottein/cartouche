@@ -123,7 +123,7 @@ def _load_game_json(game_dir: str) -> Game | None:
     game = Game(
         folder_name=folder_name,
         game_dir=game_dir,
-        title=data.get("title", folder_name),
+        title=data.get("title") or folder_name,
         targets=targets,
         save_paths=save_paths,
         steamgriddb_id=data.get("steamgriddb_id"),
@@ -145,8 +145,8 @@ def _resolve_runtime_fields(game: Game):
         if best:
             target_path = best.get("target", "")
             start_in_path = best.get("startIn", "") or os.path.dirname(target_path)
-            game.resolved_target = os.path.normpath(os.path.join(game_dir, target_path))
-            game.resolved_start_in = os.path.normpath(os.path.join(game_dir, start_in_path))
+            game.resolved_target = os.path.normpath(os.path.join(game_dir, str(target_path)))
+            game.resolved_start_in = os.path.normpath(os.path.join(game_dir, str(start_in_path)))
             game.resolved_launch_options = best.get("launchOptions", "")
             game.resolved_target_os = (best.get("os") or "").lower()
 
