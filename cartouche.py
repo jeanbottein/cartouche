@@ -26,7 +26,7 @@ from lib import manifest_writer
 from lib import patcher
 from lib import saver
 from lib import configurer
-from lib.app import APP_NAME
+from lib.app import APP_NAME, get_script_dir
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +57,6 @@ def ensure_config_file(script_dir: Path) -> Path:
         logger.info("Loaded config from %s", config_path)
         return config_path
 
-    # When frozen by PyInstaller the bundled copy is in sys._MEIPASS, not next to the binary.
     if not default_path.exists() and getattr(sys, 'frozen', False):
         default_path = Path(sys._MEIPASS) / f'{APP_NAME}-default.conf'
 
@@ -157,12 +156,7 @@ def test_steam(cfg: dict):
 
 def main():
     logging.basicConfig(level=logging.INFO, format='%(message)s')
-    # When frozen by PyInstaller, use the binary's location so that
-    # config.txt is created next to the executable, not in the temp bundle.
-    if getattr(sys, 'frozen', False):
-        script_dir = Path(sys.executable).resolve().parent
-    else:
-        script_dir = Path(__file__).resolve().parent
+    script_dir = get_script_dir()
     config_path = ensure_config_file(script_dir)
     cfg = load_config_map(config_path)
     cfg["_CONFIG_PATH"] = str(config_path)

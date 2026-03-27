@@ -16,3 +16,10 @@ else:
     _filename = Path(sys.argv[0]).name
 
 APP_NAME = re.split(r'[-.]', _filename)[0] or "cartouche"
+
+
+def get_script_dir() -> Path:
+    """Return the directory containing the binary (frozen) or the entry-point script."""
+    if getattr(sys, 'frozen', False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent.parent
