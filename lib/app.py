@@ -23,3 +23,28 @@ def get_script_dir() -> Path:
     if getattr(sys, 'frozen', False):
         return Path(sys.executable).resolve().parent
     return Path(__file__).resolve().parent.parent
+
+
+def _is_app_dir(p: Path) -> bool:
+    """True if p looks like an app config dir (not a per-game data dir)."""
+    return p.is_dir() and not (p / "game.json").exists()
+
+
+def find_app_dir(cli_dir: Path | None = None) -> Path | None:
+    """
+    Locate the .{APP_NAME}/ config directory.
+
+    Resolution order (first valid match wins):
+      1. cli_dir/.{APP_NAME}/      explicit CLI arg
+      2. binary_dir/.{APP_NAME}/   portable mode
+      3. cwd/.{APP_NAME}/          ambient fallback
+
+    A candidate is rejected if it contains game.json (per-game data dir).
+    Returns None when no valid directory is found.
+    """
+    candidates = []
+    if cli_dir:
+        candidates.append(cli_dir / f".{APP_NAME}")
+    candidates.append(get_script_dir() / f".{APP_NAME}")
+    candidates.append(Path.cwd() / f".{APP_NAME}")
+    return next((p for p in candidates if _is_app_dir(p)), None)
