@@ -25,7 +25,7 @@ ARCH="$(uname -m)"
 ENTRY_SCRIPT="$(ls "$REPO_ROOT"/*.py 2>/dev/null | head -1)"
 APP_NAME="$(basename "$ENTRY_SCRIPT" .py)"
 
-OUTPUT_DIR="$DIST_DIR/${OS}-${ARCH}"
+OUTPUT_DIR="$DIST_DIR"
 
 USE_VENV=true
 for arg in "$@"; do
@@ -54,15 +54,15 @@ if [[ -f "$REPO_ROOT/requirements.txt" ]]; then
 fi
 
 # ── PyInstaller ───────────────────────────────────────────────────────────────
-echo "Building ${OS}-${ARCH}/${APP_NAME}..."
+echo "Building ${APP_NAME}-${OS}-${ARCH}..."
 
 pyinstaller \
   --onefile \
-  --name "$APP_NAME" \
+  --name "$APP_NAME-${OS}-${ARCH}" \
   --distpath "$OUTPUT_DIR" \
   --workpath "$BUILD_DIR/pyinstaller-work" \
   --specpath "$BUILD_DIR" \
-  --add-data "$REPO_ROOT/lib/$APP_NAME-default.conf:lib" \
+  --add-data "$REPO_ROOT/lib/config-default.txt:lib" \
   --add-data "$REPO_ROOT/lib/configurer.json:lib" \
   --add-data "$REPO_ROOT/lib/games_locations.json:lib" \
   --collect-all vdf \
@@ -71,6 +71,6 @@ pyinstaller \
   "$ENTRY_SCRIPT"
 
 # ── Done ──────────────────────────────────────────────────────────────────────
-SIZE=$(du -sh "$OUTPUT_DIR/$APP_NAME" | cut -f1)
+SIZE=$(du -sh "$OUTPUT_DIR/$APP_NAME-${OS}-${ARCH}" | cut -f1)
 echo ""
-echo "Done: dist/${OS}-${ARCH}/${APP_NAME}  ($SIZE)"
+echo "Done: dist/${APP_NAME}-${OS}-${ARCH}  ($SIZE)"
