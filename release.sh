@@ -62,7 +62,7 @@ pyinstaller \
   --distpath "$OUTPUT_DIR" \
   --workpath "$BUILD_DIR/pyinstaller-work" \
   --specpath "$BUILD_DIR" \
-  --add-data "$REPO_ROOT/$APP_NAME-default.conf:." \
+  --add-data "$REPO_ROOT/lib/$APP_NAME-default.conf:lib" \
   --add-data "$REPO_ROOT/lib/configurer.json:lib" \
   --add-data "$REPO_ROOT/lib/games_locations.json:lib" \
   --collect-all vdf \

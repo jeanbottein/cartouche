@@ -80,9 +80,9 @@ def parse_args(argv: list) -> tuple:
 
 def _seed_conf(app_dir: Path, conf_path: Path) -> None:
     script_dir = get_script_dir()
-    default = script_dir / f'{APP_NAME}-default.conf'
+    default = script_dir / 'lib' / f'{APP_NAME}-default.conf'
     if not default.exists() and getattr(sys, 'frozen', False):
-        default = Path(sys._MEIPASS) / f'{APP_NAME}-default.conf'
+        default = Path(sys._MEIPASS) / 'lib' / f'{APP_NAME}-default.conf'
     if default.exists():
         try:
             shutil.copy2(default, conf_path)

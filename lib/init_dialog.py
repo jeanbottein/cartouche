@@ -23,10 +23,10 @@ from .app import APP_NAME, get_script_dir
 def _find_default_conf() -> Path | None:
     """Locate the bundled {APP_NAME}-default.conf (MEIPASS then script dir)."""
     if getattr(sys, 'frozen', False):
-        candidate = Path(sys._MEIPASS) / f"{APP_NAME}-default.conf"
+        candidate = Path(sys._MEIPASS) / 'lib' / f"{APP_NAME}-default.conf"
         if candidate.exists():
             return candidate
-    candidate = get_script_dir() / f"{APP_NAME}-default.conf"
+    candidate = get_script_dir() / 'lib' / f"{APP_NAME}-default.conf"
     return candidate if candidate.exists() else None
 
 
