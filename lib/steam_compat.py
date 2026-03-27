@@ -14,18 +14,21 @@ try:
 except ImportError:
     vdf = None
 
-logger = logging.getLogger("cartouche.steam_compat")
+from .app import APP_NAME
+
+logger = logging.getLogger(f"{APP_NAME}.steam_compat")
+
+_COMPAT_KEY_PATH = ("InstallConfigStore", "Software", "Valve", "Steam", "CompatToolMapping")
+_DEFAULT_PRIORITY = "250"
 
 
 def _find_config_vdf(steam_root: str) -> str | None:
-    """Return the path to config.vdf if it exists."""
     path = os.path.join(steam_root, "config", "config.vdf")
     return path if os.path.isfile(path) else None
 
 
 def _steam_root_from_userdata_config(config_dir: str) -> str | None:
-    """Derive Steam root from a userdata/<id>/config path (3 levels up)."""
-    # config_dir = .../steam/userdata/<id>/config
+    """Derive Steam root from a userdata/<id>/config path."""
     steam_root = os.path.dirname(os.path.dirname(os.path.dirname(config_dir)))
     if os.path.isdir(os.path.join(steam_root, "config")):
         return steam_root
@@ -68,26 +71,16 @@ def set_compat_tools(windows_appids: list, compat_tool: str, config_dir: str) ->
         logger.error(f"Failed to read {config_vdf_path}: {e}")
         return 0
 
-    # Navigate to CompatToolMapping, creating path if needed
     root = data
-    for key in ("InstallConfigStore", "Software", "Valve", "Steam", "CompatToolMapping"):
-        if key not in root:
-            root[key] = {}
-        root = root[key]
+    for key in _COMPAT_KEY_PATH:
+        root = root.setdefault(key, {})
 
-    compat_mapping = root
     added = 0
-
     for appid in windows_appids:
         appid_str = str(appid)
-        if appid_str in compat_mapping:
-            continue
-        compat_mapping[appid_str] = {
-            "name": compat_tool,
-            "config": "",
-            "priority": "250",
-        }
-        added += 1
+        if appid_str not in root:
+            root[appid_str] = {"name": compat_tool, "config": "", "priority": _DEFAULT_PRIORITY}
+            added += 1
 
     if added:
         try:

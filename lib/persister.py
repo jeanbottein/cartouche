@@ -12,10 +12,11 @@ import urllib.request
 import urllib.error
 
 from .models import GameDatabase, CARTOUCHE_DIR, GAME_JSON
+from .app import APP_NAME
 
-logger = logging.getLogger("cartouche.persister")
+logger = logging.getLogger(f"{APP_NAME}.persister")
 
-USER_AGENT = "cartouche/1.0"
+USER_AGENT = f"{APP_NAME}/1.0"
 
 
 def _download_file(url, local_path):

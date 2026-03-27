@@ -12,8 +12,9 @@ import shutil
 import re
 
 from .models import GameDatabase
+from .app import APP_NAME
 
-logger = logging.getLogger("cartouche.saver")
+logger = logging.getLogger(f"{APP_NAME}.saver")
 
 
 WINDOWS_RESERVED_NAMES = {

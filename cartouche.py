@@ -26,6 +26,8 @@ from lib import manifest_writer
 from lib import patcher
 from lib import saver
 from lib import configurer
+from lib.app import APP_NAME, get_script_dir, find_app_dir
+from lib.init_dialog import run_init_dialog
 
 logger = logging.getLogger(__name__)
 
@@ -48,24 +50,61 @@ def load_config_map(config_path: Path) -> Dict[str, str]:
     return config_map
 
 
-def ensure_config_file(script_dir: Path) -> Path:
-    config_path = script_dir / 'config.txt'
-    default_path = script_dir / 'config-default.txt'
+def parse_args(argv: list) -> tuple:
+    """
+    Split argv on '--' into a positional directory and mode flags.
 
-    if config_path.exists():
-        logger.info("Loaded config from %s", config_path)
-        return config_path
-
-    if default_path.exists():
-        try:
-            shutil.copy2(default_path, config_path)
-            logger.info("config.txt missing. Copied defaults from %s", default_path.name)
-        except OSError as exc:
-            logger.error("Failed to copy %s -> %s: %s", default_path, config_path, exc)
+    Usage:
+        cartouche                            normal run, auto-detect .{APP_NAME}/
+        cartouche /path/to/dir               normal run, explicit directory
+        cartouche -- test steam              dry-run, auto-detect
+        cartouche /path/to/dir -- test steam dry-run, explicit directory
+    """
+    if '--' in argv:
+        sep    = argv.index('--')
+        before = argv[:sep]
+        after  = argv[sep + 1:]
     else:
-        logger.warning("config.txt missing and config-default.txt not found. Using empty configuration")
+        before = argv
+        after  = []
 
-    return config_path
+    cli_dir = None
+    if before:
+        p = Path(before[0]).expanduser()
+        if p.is_dir():
+            cli_dir = p.resolve()
+
+    dry_run = len(after) >= 2 and after[0] == 'test' and after[1] == 'steam'
+    return cli_dir, dry_run
+
+
+def _seed_conf(app_dir: Path, conf_path: Path) -> None:
+    script_dir = get_script_dir()
+    default = script_dir / f'{APP_NAME}-default.conf'
+    if not default.exists() and getattr(sys, 'frozen', False):
+        default = Path(sys._MEIPASS) / f'{APP_NAME}-default.conf'
+    if default.exists():
+        try:
+            shutil.copy2(default, conf_path)
+            logger.info("%s missing. Copied defaults from %s", conf_path.name, default.name)
+        except OSError as exc:
+            logger.error("Failed to copy %s -> %s: %s", default, conf_path, exc)
+    else:
+        logger.warning("%s missing and no default template found. Using empty configuration.",
+                       conf_path.name)
+
+
+def resolve_config_path(cli_dir: Path | None) -> Path:
+    """Locate or create the .{APP_NAME}/ directory and return the conf file path inside it."""
+    app_dir = find_app_dir(cli_dir)
+    if app_dir is None:
+        app_dir = run_init_dialog(get_script_dir(), Path.cwd())
+    conf_path = app_dir / f'{APP_NAME}.conf'
+    if not conf_path.exists():
+        _seed_conf(app_dir, conf_path)
+    else:
+        logger.info("Loaded config from %s", conf_path)
+    return conf_path
 
 
 def run_post_commands(config: Dict[str, str]) -> None:
@@ -142,24 +181,22 @@ def test_steam(cfg: dict):
         owned = [(k, steam_cleaner._get_appname(s)) for k, s in shortcuts.items() if steam_cleaner._has_ownership_tag(s)]
         uid = os.path.basename(os.path.dirname(config_dir))
         if owned:
-            logger.info("  Steam user %s: %d existing cartouche shortcuts", uid, len(owned))
+            logger.info("  Steam user %s: %d existing %s shortcuts", uid, len(owned), APP_NAME)
             for _, appname in owned:
                 logger.info("     - %s", appname)
         else:
-            logger.info("  Steam user %s: no cartouche shortcuts yet", uid)
+            logger.info("  Steam user %s: no %s shortcuts yet", uid, APP_NAME)
 
 
 def main():
     logging.basicConfig(level=logging.INFO, format='%(message)s')
-    script_dir = Path(__file__).resolve().parent
-    config_path = ensure_config_file(script_dir)
+    cli_dir, dry_run = parse_args(sys.argv[1:])
+    config_path = resolve_config_path(cli_dir)
     cfg = load_config_map(config_path)
     cfg["_CONFIG_PATH"] = str(config_path)
-    cfg["_SCRIPT_DIR"] = str(script_dir)
+    cfg["_SCRIPT_DIR"] = str(get_script_dir())
 
-    # CLI modes
-    args = sys.argv[1:]
-    if len(args) >= 2 and args[0] == "test" and args[1] == "steam":
+    if dry_run:
         test_steam(cfg)
         return
 

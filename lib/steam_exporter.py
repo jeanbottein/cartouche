@@ -18,9 +18,11 @@ from .steam_cleaner import (
     _has_ownership_tag, _get_appname,
 )
 
-logger = logging.getLogger("cartouche.steam_exporter")
+from .app import APP_NAME
 
-OWNERSHIP_TAG = "cartouche"
+logger = logging.getLogger(f"{APP_NAME}.steam_exporter")
+
+OWNERSHIP_TAG = APP_NAME
 
 
 # ── AppID generation ─────────────────────────────────────────────────────
@@ -146,6 +148,8 @@ def export(db: GameDatabase, cfg: dict):
     if not games:
         return
 
+    game_appids = {g: generate_appid(g.title, g.resolved_target) for g in games}
+
     total_added = 0
     total_updated = 0
 
@@ -169,33 +173,25 @@ def export(db: GameDatabase, cfg: dict):
             start_in = game.resolved_start_in or os.path.dirname(target)
             launch_opts = game.resolved_launch_options
             name = game.title
+            appid = game_appids[game]
 
-            # Build icon path
             icon_path = ""
             if game.images.icon:
-                appid = generate_appid(name, target)
                 _, ext = os.path.splitext(game.images.icon)
                 icon_path = os.path.join(grid_dir, f"{appid}_icon{ext}")
 
             if target in owned_exes:
-                # Update existing shortcut if name/icon changed
                 key = owned_exes[target]
                 existing = shortcuts[key]
-                name_changed = _get_appname(existing) != name
-                icon_changed = existing.get("icon", "") != icon_path
-
-                if name_changed or icon_changed:
+                if _get_appname(existing) != name or existing.get("icon", "") != icon_path:
                     shortcuts[key] = _make_shortcut_entry(name, target, start_in, launch_opts, icon_path)
                     updated += 1
             else:
-                # Add new shortcut
                 idx = _next_index(shortcuts)
                 shortcuts[idx] = _make_shortcut_entry(name, target, start_in, launch_opts, icon_path)
                 owned_exes[target] = idx
                 added += 1
 
-            # Copy artwork
-            appid = generate_appid(name, target)
             _copy_artwork_to_grid(game, grid_dir, appid)
 
         if added or updated:
@@ -211,12 +207,8 @@ def export(db: GameDatabase, cfg: dict):
     else:
         logger.info("Steam shortcuts already up to date")
 
-    # Set Proton compat tools for Windows games
     compat_tool = cfg.get("PROTON_VERSION", "proton_experimental").strip()
-    windows_appids = [
-        generate_appid(g.title, g.resolved_target)
-        for g in games if g.resolved_target_os == "windows"
-    ]
+    windows_appids = [game_appids[g] for g in games if g.resolved_target_os == "windows"]
     if windows_appids:
         for config_dir in config_dirs:
             steam_compat.set_compat_tools(windows_appids, compat_tool, config_dir)

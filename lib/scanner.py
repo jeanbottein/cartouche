@@ -15,8 +15,9 @@ from .models import (
     Game, GameTarget, GameImages, GameDatabase,
     CARTOUCHE_DIR, GAME_JSON,
 )
+from .app import APP_NAME
 
-logger = logging.getLogger("cartouche.scanner")
+logger = logging.getLogger(f"{APP_NAME}.scanner")
 
 
 def _os_tag():
@@ -58,6 +59,21 @@ def _pick_target_entry(targets: list) -> dict | None:
     pool = same_arch or pool
 
     return pool[0]
+
+
+def _collect_save_paths(sp_list, os_tag, game_dir, result):
+    for sp in sp_list:
+        if not isinstance(sp, dict):
+            continue
+        if "paths" in sp and isinstance(sp["paths"], list):
+            _collect_save_paths(sp["paths"], os_tag, game_dir, result)
+            continue
+        sp_os = (sp.get("os") or "").lower().strip()
+        if sp_os and sp_os != os_tag and sp_os != "any":
+            continue
+        abs_path = _resolve_save_path(sp.get("path", ""), game_dir)
+        if abs_path:
+            result.append(abs_path)
 
 
 def _resolve_save_path(save_path: str, game_dir: str) -> str:
@@ -134,30 +150,9 @@ def _resolve_runtime_fields(game: Game):
             game.resolved_launch_options = best.get("launchOptions", "")
             game.resolved_target_os = (best.get("os") or "").lower()
 
-    # Resolve save paths — filter by current OS, expand and absolutize
-    os_tag = _os_tag()
-    game.resolved_save_paths = []
-
-    def _process_sp_list(sp_list):
-        for sp in sp_list:
-            if not isinstance(sp, dict):
-                continue
-            # Handle nested "paths" list (new schema)
-            if "paths" in sp and isinstance(sp["paths"], list):
-                _process_sp_list(sp["paths"])
-                continue
-
-            # Handle individual path entry (flat schema or leaf node)
-            sp_os = (sp.get("os") or "").lower().strip()
-            if sp_os and sp_os != os_tag and sp_os != "any":
-                continue
-            path_str = sp.get("path", "")
-            if path_str:
-                abs_path = _resolve_save_path(path_str, game_dir)
-                if abs_path:
-                    game.resolved_save_paths.append(abs_path)
-
-    _process_sp_list(game.save_paths)
+    paths = []
+    _collect_save_paths(game.save_paths, _os_tag(), game_dir, paths)
+    game.resolved_save_paths = paths
 
 
 def scan(games_dir: str) -> GameDatabase:

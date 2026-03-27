@@ -12,9 +12,11 @@ import os
 from .models import GameDatabase
 from . import steam_vdf
 
-logger = logging.getLogger("cartouche.steam_cleaner")
+from .app import APP_NAME
 
-OWNERSHIP_TAGS = {"cartouche", "gamer-sidekick"}
+logger = logging.getLogger(f"{APP_NAME}.steam_cleaner")
+
+OWNERSHIP_TAGS = {APP_NAME, "cartouche", "gamer-sidekick"}
 
 
 def _has_ownership_tag(shortcut):

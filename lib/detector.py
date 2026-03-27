@@ -14,8 +14,9 @@ import subprocess
 import sys
 
 from .models import Game, GameTarget, GameDatabase
+from .app import APP_NAME
 
-logger = logging.getLogger("cartouche.detector")
+logger = logging.getLogger(f"{APP_NAME}.detector")
 
 
 # ── Architecture filter constants ────────────────────────────────────────

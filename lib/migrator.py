@@ -11,8 +11,9 @@ import logging
 import os
 
 from .models import CARTOUCHE_DIR, GAME_JSON
+from .app import APP_NAME
 
-logger = logging.getLogger("cartouche.migrator")
+logger = logging.getLogger(f"{APP_NAME}.migrator")
 
 OLD_MANIFEST = "launch_manifest.json"
 MIGRATED_SUFFIX = ".migrated"
