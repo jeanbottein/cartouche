@@ -41,6 +41,27 @@ def load_config_map(config_path: Path) -> Dict[str, str]:
     return config_map
 
 
+# Keys whose values may be stored as relative paths (relative to .cartouche parent)
+_RELATIVE_PATH_KEYS = frozenset({
+    "FREEGAMES_PATH", "PATCHES_PATH", "SAVESCOPY_PATH", "SAVESLINK_PATH", "MANIFEST_PATH",
+})
+
+
+def _resolve_relative_paths(cfg: Dict[str, str], config_path: Path) -> None:
+    """Resolve relative path values against the .cartouche/ parent directory.
+
+    Absolute paths are left unchanged so existing configs keep working.
+    """
+    base = config_path.parent.parent  # .cartouche/ -> workspace root
+    for key in list(cfg.keys()):
+        if key not in _RELATIVE_PATH_KEYS and not key.startswith("BACKUP_"):
+            continue
+        val = cfg[key]
+        p = Path(val)
+        if not p.is_absolute():
+            cfg[key] = str((base / p).resolve())
+
+
 def parse_args(argv: list) -> tuple:
     """
     Split argv on '--' into a positional directory and mode flags.
@@ -199,6 +220,7 @@ def main():
     cli_dir, dry_run, batch_mode = parse_args(sys.argv[1:])
     config_path = resolve_config_path(cli_dir)
     cfg = load_config_map(config_path)
+    _resolve_relative_paths(cfg, config_path)
     cfg["_CONFIG_PATH"] = str(config_path)
     cfg["_SCRIPT_DIR"] = str(get_script_dir())
 
