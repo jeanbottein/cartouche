@@ -53,6 +53,12 @@ if [[ -f "$REPO_ROOT/requirements.txt" ]]; then
   pip install --quiet -r "$REPO_ROOT/requirements.txt"
 fi
 
+# ── API key injection (if available) ──────────────────────────────────────────
+if [[ -n "${STEAMGRIDDB_API_KEY:-}" ]]; then
+  echo "Injecting SteamGridDB API key..."
+  python3 "$REPO_ROOT/scripts/inject_api_key.py"
+fi
+
 # ── PyInstaller ───────────────────────────────────────────────────────────────
 echo "Building ${APP_NAME}-${OS}-${ARCH}..."
 

@@ -15,19 +15,10 @@ import shutil
 import subprocess
 import sys
 
-from lib import migrator
-from lib import scanner
-from lib import detector
-from lib import enricher
-from lib import persister
-from lib import steam_cleaner
-from lib import steam_exporter
-from lib import manifest_writer
-from lib import patcher
-from lib import saver
-from lib import configurer
+from lib import scanner, enricher, steam_cleaner, steam_exporter
 from lib.app import APP_NAME, get_script_dir, find_app_dir
 from lib.init_dialog import run_init_dialog
+from lib.pipeline import PipelineRunner
 
 logger = logging.getLogger(__name__)
 
@@ -55,8 +46,10 @@ def parse_args(argv: list) -> tuple:
     Split argv on '--' into a positional directory and mode flags.
 
     Usage:
-        cartouche                            normal run, auto-detect .{APP_NAME}/
-        cartouche /path/to/dir               normal run, explicit directory
+        cartouche                            launch GUI (default)
+        cartouche /path/to/dir               launch GUI with explicit directory
+        cartouche -- batch                   CLI batch mode (all phases)
+        cartouche /path/to/dir -- batch      CLI batch mode, explicit directory
         cartouche -- test steam              dry-run, auto-detect
         cartouche /path/to/dir -- test steam dry-run, explicit directory
     """
@@ -75,7 +68,8 @@ def parse_args(argv: list) -> tuple:
             cli_dir = p.resolve()
 
     dry_run = len(after) >= 2 and after[0] == 'test' and after[1] == 'steam'
-    return cli_dir, dry_run
+    batch_mode = len(after) >= 1 and after[0] == 'batch'
+    return cli_dir, dry_run, batch_mode
 
 
 def _seed_conf(app_dir: Path, conf_path: Path) -> None:
@@ -188,9 +182,21 @@ def test_steam(cfg: dict):
             logger.info("  Steam user %s: no %s shortcuts yet", uid, APP_NAME)
 
 
+def run_batch(cfg: dict):
+    """Run all pipeline phases in CLI batch mode."""
+    games_dir = cfg.get("FREEGAMES_PATH")
+    if not games_dir or not os.path.isdir(games_dir):
+        logger.error("FREEGAMES_PATH not configured or invalid. Stopping the app.")
+        return
+
+    runner = PipelineRunner(cfg, games_dir)
+    runner.set_post_commands_fn(run_post_commands)
+    runner.run_all()
+
+
 def main():
     logging.basicConfig(level=logging.INFO, format='%(message)s')
-    cli_dir, dry_run = parse_args(sys.argv[1:])
+    cli_dir, dry_run, batch_mode = parse_args(sys.argv[1:])
     config_path = resolve_config_path(cli_dir)
     cfg = load_config_map(config_path)
     cfg["_CONFIG_PATH"] = str(config_path)
@@ -200,61 +206,17 @@ def main():
         test_steam(cfg)
         return
 
-    games_dir = cfg.get("FREEGAMES_PATH")
-    if not games_dir or not os.path.isdir(games_dir):
-        logger.error("FREEGAMES_PATH not configured or invalid. Stopping the app.")
+    if batch_mode:
+        run_batch(cfg)
         return
 
-    # Step 0: Migration (one-time)
-    logger.info("\n--- MIGRATION ---")
-    migrator.migrate(games_dir)
-
-    # Step 1: Parse games into in-memory database
-    logger.info("\n--- SCANNING ---")
-    db = scanner.scan(games_dir)
-
-    # Step 2: Calculate missing data (exe detection)
-    logger.info("\n--- DETECTION ---")
-    detector.detect(db)
-
-    # Step 3: Fetch from SteamGridDB (if API key available)
-    logger.info("\n--- ENRICHMENT ---")
-    enricher.enrich(db, cfg)
-
-    # Step 4: Persist .cartouche/game.json + images
-    logger.info("\n--- PERSISTENCE ---")
-    if cfg.get("PERSIST_DATA", "True").lower() != "false":
-        persister.persist(db)
-
-    # Step 5: Clean old Steam shortcuts
-    logger.info("\n--- STEAM CLEANUP ---")
-    steam_cleaner.clean(db, cfg)
-
-    # Step 6: Export to Steam
-    logger.info("\n--- STEAM EXPORT ---")
-    steam_exporter.export(db, cfg)
-
-    # Step 7: ROM manager manifest
-    logger.info("\n--- MANIFEST ---")
-    if cfg.get("MANIFEST_EXPORT", "True").lower() != "false":
-        manifest_path = cfg.get("MANIFEST_PATH", os.path.join(games_dir, "manifests.json"))
-        manifest_writer.write(db, manifest_path)
-
-    # Step 8: Patcher
-    logger.info("\n--- PATCHER ---")
-    patcher.run(cfg)
-
-    # Step 9: Saver (backup/restore)
-    logger.info("\n--- SAVER ---")
-    saver.run(db, cfg)
-
-    # Step 10: Configurer (emulator config mutations)
-    logger.info("\n--- CONFIGURER ---")
-    configurer.run(cfg)
-
-    # Step 11: Post commands
-    logger.info("\n--- POST COMMANDS ---")
-    run_post_commands(cfg)
+    # Default: launch GUI
+    try:
+        from lib.gui.app import run_gui
+        run_gui(cfg)
+    except ImportError:
+        logger.info("GUI not available (dearpygui not installed). Running in batch mode.")
+        run_batch(cfg)
 
 
 if __name__ == "__main__":

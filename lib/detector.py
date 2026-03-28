@@ -10,11 +10,11 @@ import difflib
 import logging
 import os
 import platform
-import subprocess
 import sys
 
 from .models import Game, GameTarget, GameDatabase
 from .app import APP_NAME
+from .platform_info import os_tag, arch_tag, detect_binary_arch, is_executable
 
 logger = logging.getLogger(f"{APP_NAME}.detector")
 
@@ -58,35 +58,11 @@ else:
 
 # ── OS/Arch helpers ──────────────────────────────────────────────────────
 
-def _os_tag():
-    if sys.platform.startswith("linux"):
-        return "linux"
-    if sys.platform.startswith("win"):
-        return "windows"
-    if sys.platform == "darwin":
-        return "macos"
-    return "other"
-
-
-def _arch_tag():
-    m = platform.machine().lower()
-    if "arm" in m or "aarch64" in m:
-        return "arm64"
-    if "64" in m or "x86_64" in m or "amd64" in m:
-        return "x86_64"
-    if "86" in m or "i386" in m or "i686" in m:
-        return "x86"
-    return "other"
-
-
-def _arch_from_filter(arch_filter, exe_path):
-    f = (arch_filter or "").lower()
-    if f in ("arm64", "aarch64"):
-        return "arm64"
-    if f in ("x86-64", "x86_64"):
-        return "x86_64"
-    if f == "x86":
-        return "x86"
+def _arch_from_binary(exe_path: str) -> str:
+    """Detect architecture from binary headers, falling back to filename heuristics."""
+    arch = detect_binary_arch(exe_path)
+    if arch:
+        return arch
     base = os.path.basename(exe_path).lower()
     if "arm64" in base or "aarch64" in base:
         return "arm64"
@@ -94,19 +70,10 @@ def _arch_from_filter(arch_filter, exe_path):
         return "x86_64"
     if "x86" in base or "32" in base:
         return "x86"
-    return _arch_tag()
+    return arch_tag()
 
 
 # ── Executable finding ───────────────────────────────────────────────────
-
-def _run_find_exe(cmd):
-    try:
-        executables = subprocess.check_output(cmd, shell=True, text=True).splitlines()
-    except subprocess.CalledProcessError:
-        return None
-    if not executables:
-        return None
-    return executables
 
 
 def _find_best(game_dir, files):
@@ -129,15 +96,42 @@ def _find_best(game_dir, files):
     return best_match
 
 
+_SKIP_DIRS = {"java", "jre", "lib", "__pycache__"}
+
+
 def _get_bin_posix(game_dir, maxdepth, arch_filter=""):
-    if arch_filter == "x86":
-        cmd = f"""find "{game_dir}" -maxdepth {maxdepth} -type f -executable | \
-            grep -E "\\.x86$" | grep -v "x86_64" """
-    else:
-        cmd = f"""find "{game_dir}" -maxdepth {maxdepth} -type f -executable -exec file {{}} + | \
-            grep executable | grep "{arch_filter}"  | sed "s#:.*##" | \
-            grep -v "/java/" | grep -v "/jre/" | grep -v "/lib/" """
-    return _find_best(game_dir, _run_find_exe(cmd))
+    root_depth = game_dir.rstrip(os.sep).count(os.sep)
+    candidates = []
+
+    for dirpath, dirnames, filenames in os.walk(game_dir):
+        depth = dirpath.rstrip(os.sep).count(os.sep) - root_depth
+        if depth >= maxdepth:
+            dirnames[:] = []
+            continue
+        dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS and not d.startswith('.')]
+
+        for name in filenames:
+            full = os.path.join(dirpath, name)
+            if not os.access(full, os.X_OK):
+                continue
+            if not is_executable(full):
+                continue
+            bin_arch = detect_binary_arch(full)
+            if arch_filter:
+                # Match arch_filter against detected architecture
+                filter_norm = arch_filter.lower().replace("-", "_")
+                if bin_arch and filter_norm not in bin_arch.replace("-", "_"):
+                    continue
+                if not bin_arch:
+                    # Fallback: check filename for arch hint
+                    base = name.lower()
+                    if arch_filter == "x86" and ("x86_64" in base or "amd64" in base):
+                        continue
+                    if arch_filter and arch_filter.lower() not in base:
+                        continue
+            candidates.append(full)
+
+    return _find_best(game_dir, candidates or None)
 
 
 def _get_bin_windows(game_dir, maxdepth):
@@ -216,7 +210,7 @@ def _format_path(full_path, base_path):
 
 def _collect_targets(game_dir: str) -> list[GameTarget]:
     """Collect all executable targets for a game directory."""
-    os_tag = _os_tag()
+    cur_os = os_tag()
     real_game_dir = _get_real_first_path(game_dir)
     targets = []
 
@@ -224,8 +218,8 @@ def _collect_targets(game_dir: str) -> list[GameTarget]:
         exe = _get_target(game_dir)
         if exe:
             targets.append(GameTarget(
-                os=os_tag,
-                arch=_arch_tag(),
+                os=cur_os,
+                arch=arch_tag(),
                 target=_format_path(exe, game_dir),
                 start_in=_format_path(os.path.dirname(exe), game_dir),
             ))
@@ -238,12 +232,12 @@ def _collect_targets(game_dir: str) -> list[GameTarget]:
             continue
         seen.add(exe)
 
-        # FIX: If it's an .EXE file, it's a Windows target even if on Linux
-        target_os = os_tag
+        # If it's an .EXE file, it's a Windows target even if on Linux
+        target_os = cur_os
         if exe.lower().endswith(".exe"):
             target_os = "windows"
 
-        arch = _arch_from_filter(arch_filter, exe)
+        arch = _arch_from_binary(exe)
         targets.append(GameTarget(
             os=target_os,
             arch=arch,
@@ -258,15 +252,15 @@ def _collect_targets(game_dir: str) -> list[GameTarget]:
 def _pick_target_entry(targets: list[GameTarget]) -> GameTarget | None:
     if not targets:
         return None
-    os_tag = _os_tag()
-    arch_tag = _arch_tag()
+    cur_os = os_tag()
+    cur_arch = arch_tag()
 
-    same_os = [t for t in targets if t.os.lower() == os_tag]
+    same_os = [t for t in targets if t.os.lower() == cur_os]
     if not same_os:
         same_os = [t for t in targets if not t.os.strip() or t.os.lower() == "any"]
     pool = same_os or targets
 
-    same_arch = [t for t in pool if t.arch.lower() == arch_tag]
+    same_arch = [t for t in pool if t.arch.lower() == cur_arch]
     if not same_arch:
         same_arch = [t for t in pool if not t.arch.strip() or t.arch.lower() == "any"]
     pool = same_arch or pool

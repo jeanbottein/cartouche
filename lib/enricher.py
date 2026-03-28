@@ -9,11 +9,12 @@ GameDatabase. Manages the SGDB cache to minimize API calls.
 import json
 import logging
 import os
-import urllib.request
-import urllib.error
+
+import requests
 
 from .models import GameDatabase, GameImages
 from .app import APP_NAME
+from .api_keys import get_steamgriddb_key
 
 logger = logging.getLogger(f"{APP_NAME}.enricher")
 
@@ -25,23 +26,23 @@ USER_AGENT = f"{APP_NAME}/1.0"
 def _steamgriddb_request(endpoint, api_key):
     """Make a GET request to SteamGridDB API. Returns parsed JSON or None."""
     url = f"https://www.steamgriddb.com/api/v2/{endpoint}"
-    req = urllib.request.Request(url, headers={
-        "Authorization": f"Bearer {api_key}",
-        "User-Agent": USER_AGENT,
-    })
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            if data.get("success") and data.get("data"):
-                return data["data"]
-    except (urllib.error.URLError, urllib.error.HTTPError, OSError) as e:
+        resp = requests.get(url, headers={
+            "Authorization": f"Bearer {api_key}",
+            "User-Agent": USER_AGENT,
+        }, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        if data.get("success") and data.get("data"):
+            return data["data"]
+    except requests.RequestException as e:
         logger.debug(f"SteamGridDB request failed for {endpoint}: {e}")
     return None
 
 
 def search_game_id(game_name, api_key):
     """Search SteamGridDB for a game. Returns (id, official_name) or (None, None)."""
-    encoded = urllib.request.quote(game_name)
+    encoded = requests.utils.quote(game_name)
     data = _steamgriddb_request(f"search/autocomplete/{encoded}", api_key)
     if data:
         return data[0].get("id"), data[0].get("name")
@@ -194,7 +195,7 @@ def enrich(db: GameDatabase, cfg: dict):
     Enrich games with SteamGridDB data: official names, IDs, artwork URLs.
     Only runs if STEAMGRIDDB_API_KEY is configured.
     """
-    api_key = cfg.get("STEAMGRIDDB_API_KEY", "").strip()
+    api_key = get_steamgriddb_key(cfg)
     if not api_key:
         return
 

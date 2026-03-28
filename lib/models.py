@@ -13,6 +13,7 @@ from .app import APP_NAME
 
 CARTOUCHE_DIR = f".{APP_NAME}"
 GAME_JSON = "game.json"
+SCHEMA_VERSION = 2
 
 
 @dataclass
@@ -94,6 +95,9 @@ class Game:
     steamgriddb_id: Optional[int] = None
     images: GameImages = field(default_factory=GameImages)
 
+    # User-editable
+    notes: str = ""
+
     # State tracking
     has_cartouche: bool = False      # True if .cartouche/game.json exists on disk
     needs_persist: bool = False      # True if in-memory data differs from disk
@@ -130,6 +134,7 @@ class Game:
     def to_dict(self) -> dict:
         """Serialize to the game.json schema (only persisted fields)."""
         d = {
+            "schema_version": SCHEMA_VERSION,
             "title": self.title,
             "targets": [t.to_dict() for t in self.targets],
             "savePaths": list(self.save_paths),
@@ -137,6 +142,8 @@ class Game:
         }
         if self.steamgriddb_id is not None:
             d["steamgriddb_id"] = self.steamgriddb_id
+        if self.notes:
+            d["notes"] = self.notes
         return d
 
 

@@ -8,52 +8,30 @@ files, and builds a GameDatabase.
 import json
 import logging
 import os
-import sys
-import platform
 
 from .models import (
     Game, GameTarget, GameImages, GameDatabase,
     CARTOUCHE_DIR, GAME_JSON,
 )
 from .app import APP_NAME
+from .platform_info import os_tag, arch_tag
 
 logger = logging.getLogger(f"{APP_NAME}.scanner")
-
-
-def _os_tag():
-    if sys.platform.startswith("linux"):
-        return "linux"
-    if sys.platform.startswith("win"):
-        return "windows"
-    if sys.platform == "darwin":
-        return "macos"
-    return "other"
-
-
-def _arch_tag():
-    m = platform.machine().lower()
-    if "arm" in m or "aarch64" in m:
-        return "arm64"
-    if "64" in m or "x86_64" in m or "amd64" in m:
-        return "x86_64"
-    if "86" in m or "i386" in m or "i686" in m:
-        return "x86"
-    return "other"
 
 
 def _pick_target_entry(targets: list) -> dict | None:
     """Select the best target entry for the current OS/arch."""
     if not targets:
         return None
-    os_tag = _os_tag()
-    arch_tag = _arch_tag()
+    cur_os = os_tag()
+    cur_arch = arch_tag()
 
-    same_os = [t for t in targets if (t.get("os") or "").lower() == os_tag]
+    same_os = [t for t in targets if (t.get("os") or "").lower() == cur_os]
     if not same_os:
         same_os = [t for t in targets if not (t.get("os") or "").strip() or (t.get("os") or "").lower() == "any"]
     pool = same_os or targets
 
-    same_arch = [t for t in pool if (t.get("arch") or "").lower() == arch_tag]
+    same_arch = [t for t in pool if (t.get("arch") or "").lower() == cur_arch]
     if not same_arch:
         same_arch = [t for t in pool if not (t.get("arch") or "").strip() or (t.get("arch") or "").lower() == "any"]
     pool = same_arch or pool
@@ -120,14 +98,21 @@ def _load_game_json(game_dir: str) -> Game | None:
             if not os.path.isfile(img_path):
                 setattr(images, img_field, None)
 
+    # Validate required fields
+    title = data.get("title") or folder_name
+    if not title or not isinstance(title, str):
+        logger.warning(f"Invalid title in {game_json_path}, using folder name")
+        title = folder_name
+
     game = Game(
         folder_name=folder_name,
         game_dir=game_dir,
-        title=data.get("title") or folder_name,
+        title=title,
         targets=targets,
         save_paths=save_paths,
         steamgriddb_id=data.get("steamgriddb_id"),
         images=images,
+        notes=data.get("notes", ""),
         has_cartouche=True,
     )
 
@@ -151,7 +136,7 @@ def _resolve_runtime_fields(game: Game):
             game.resolved_target_os = (best.get("os") or "").lower()
 
     paths = []
-    _collect_save_paths(game.save_paths, _os_tag(), game_dir, paths)
+    _collect_save_paths(game.save_paths, os_tag(), game_dir, paths)
     game.resolved_save_paths = paths
 
 

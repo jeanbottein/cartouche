@@ -8,8 +8,8 @@ been modified in memory (needs_persist = True).
 import json
 import logging
 import os
-import urllib.request
-import urllib.error
+
+import requests
 
 from .models import GameDatabase, CARTOUCHE_DIR, GAME_JSON
 from .app import APP_NAME
@@ -22,12 +22,12 @@ USER_AGENT = f"{APP_NAME}/1.0"
 def _download_file(url, local_path):
     """Download a file from URL to local_path. Returns True on success."""
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            with open(local_path, 'wb') as f:
-                f.write(resp.read())
+        resp = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=15)
+        resp.raise_for_status()
+        with open(local_path, 'wb') as f:
+            f.write(resp.content)
         return True
-    except (urllib.error.URLError, OSError) as e:
+    except (requests.RequestException, OSError) as e:
         logger.warning(f"Failed to download {url}: {e}")
         return False
 

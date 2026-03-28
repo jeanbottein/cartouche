@@ -1,1 +1,4 @@
 vdf>=3.4
+requests>=2.28
+python-bps-continued>=7
+dearpygui>=2.0

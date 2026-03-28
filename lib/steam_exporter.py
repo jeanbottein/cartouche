@@ -11,7 +11,6 @@ import shutil
 import zlib
 
 from .models import GameDatabase
-from . import steam_vdf
 from . import steam_compat
 from .steam_cleaner import (
     find_steam_userdata_dirs, load_shortcuts, save_shortcuts,

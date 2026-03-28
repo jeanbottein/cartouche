@@ -41,10 +41,8 @@ Metadata and artwork are stored in a `.cartouche/` subfolder inside each game's 
 
 ## Requirements
 
-- Python 3.6+ (stdlib only — no `pip install` needed)
-- Standard Linux utilities (`find`, `file`)
-- For BPS patching: `flips` binary in `bin/` or system PATH
-- For SteamGridDB enrichment: a free [API key](https://www.steamgriddb.com/profile/preferences/api)
+- Python 3.10+
+- Dependencies: `pip install -r requirements.txt`
 
 ## Platform support
 
@@ -57,5 +55,6 @@ Metadata and artwork are stored in a `.cartouche/` subfolder inside each game's 
 ## Credits
 
 - **Icon**: <a href="https://www.flaticon.com/free-icons/game-cartridge" title="game cartridge icons">Game cartridge icons created by Freepik - Flaticon</a>
-- **vdf** (Python library): [ValvePython/vdf](https://github.com/ValvePython/vdf) by Rossen Georgiev — MIT License. Used for reading/writing Steam's text-format VDF configuration files.
-- **Binary VDF format reference**: [GameSync](https://github.com/Maikeru86/GameSync) by Maikeru86 — MIT License. The binary `shortcuts.vdf` reader/writer (`lib/steam_vdf.py`) was adapted from this project.
+- **vdf**: [ValvePython/vdf](https://github.com/ValvePython/vdf) by Rossen Georgiev — MIT License. Used for reading/writing Steam's VDF configuration and shortcut files.
+- **requests**: [psf/requests](https://github.com/psf/requests) by Kenneth Reitz — Apache-2.0 License. HTTP client for SteamGridDB API and artwork downloads.
+- **python-bps-continued**: [Screwtape/python-bps](https://gitlab.com/Screwtapello/python-bps) — ISC License. Pure Python BPS patch application (replaces external flips binary).

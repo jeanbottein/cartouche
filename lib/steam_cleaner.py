@@ -9,8 +9,9 @@ is no longer in the game database.
 import logging
 import os
 
+import vdf
+
 from .models import GameDatabase
-from . import steam_vdf
 
 from .app import APP_NAME
 
@@ -61,7 +62,7 @@ def load_shortcuts(shortcuts_path):
     if not os.path.exists(shortcuts_path):
         return {}
     with open(shortcuts_path, 'rb') as f:
-        data = steam_vdf.binary_vdf_load(f)
+        data = vdf.binary_load(f)
     return data.get("shortcuts", {})
 
 
@@ -69,7 +70,7 @@ def save_shortcuts(shortcuts_path, shortcuts_dict):
     """Write the shortcuts dict back to shortcuts.vdf."""
     os.makedirs(os.path.dirname(shortcuts_path), exist_ok=True)
     with open(shortcuts_path, 'wb') as f:
-        steam_vdf.binary_vdf_dump({"shortcuts": shortcuts_dict}, f)
+        vdf.binary_dump({"shortcuts": shortcuts_dict}, f)
 
 
 def _reindex(shortcuts_dict):
