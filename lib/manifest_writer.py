@@ -62,5 +62,5 @@ def write(db: GameDatabase, output_path: str):
         with open(output_path, "w") as f:
             json.dump(manifests, f, indent=4)
         logger.info(f"Wrote manifests.json ({len(manifests)} games) to {output_path}")
-    except Exception as e:
+    except OSError as e:
         logger.error(f"Failed to write manifests.json: {e}")

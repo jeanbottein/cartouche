@@ -232,7 +232,6 @@ def _collect_targets(game_dir: str) -> list[GameTarget]:
             continue
         seen.add(exe)
 
-        # If it's an .EXE file, it's a Windows target even if on Linux
         target_os = cur_os
         if exe.lower().endswith(".exe"):
             target_os = "windows"

@@ -19,10 +19,10 @@ SCHEMA_VERSION = 2
 @dataclass
 class GameTarget:
     """A platform-specific executable target for a game."""
-    os: str              # "linux", "windows", "macos"
-    arch: str            # "x86_64", "x86", "arm64"
-    target: str          # Relative path to executable from game_dir
-    start_in: str        # Relative path to working directory
+    os: str
+    arch: str
+    target: str
+    start_in: str
     launch_options: str = ""
 
     def to_dict(self) -> dict:

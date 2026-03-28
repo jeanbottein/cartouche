@@ -67,7 +67,7 @@ def set_compat_tools(windows_appids: list, compat_tool: str, config_dir: str) ->
     try:
         with open(config_vdf_path, "r", encoding="utf-8") as f:
             data = vdf.load(f)
-    except Exception as e:
+    except (OSError, ValueError) as e:
         logger.error(f"Failed to read {config_vdf_path}: {e}")
         return 0
 
@@ -87,7 +87,7 @@ def set_compat_tools(windows_appids: list, compat_tool: str, config_dir: str) ->
             with open(config_vdf_path, "w", encoding="utf-8") as f:
                 vdf.dump(data, f, pretty=True)
             logger.info(f"Set {compat_tool} for {added} Windows game(s) in config.vdf")
-        except Exception as e:
+        except OSError as e:
             logger.error(f"Failed to write {config_vdf_path}: {e}")
             return 0
 

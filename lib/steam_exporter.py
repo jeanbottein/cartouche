@@ -99,7 +99,6 @@ def _copy_artwork_to_grid(game, grid_dir, appid):
             continue
         _, ext = os.path.splitext(filename)
         dest = os.path.join(grid_dir, f"{prefix}{ext}")
-        # Skip if already exists
         if os.path.isfile(dest):
             continue
         try:
@@ -107,7 +106,6 @@ def _copy_artwork_to_grid(game, grid_dir, appid):
         except OSError as e:
             logger.warning(f"    Failed to copy artwork {src} -> {dest}: {e}")
 
-    # Also copy cover as the grid image (non-poster format)
     cover = game.images.cover
     if cover:
         src = os.path.join(cartouche_dir, cover)

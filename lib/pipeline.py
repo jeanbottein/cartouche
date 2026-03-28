@@ -14,8 +14,9 @@ from . import migrator, scanner, detector, enricher, persister
 from . import steam_cleaner, steam_exporter, manifest_writer
 from . import patcher, saver, configurer
 from .models import GameDatabase
+from .app import APP_NAME
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(f"{APP_NAME}.pipeline")
 
 
 class PipelineRunner:

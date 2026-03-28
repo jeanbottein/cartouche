@@ -86,7 +86,7 @@ def load_sgdb_cache(project_root):
         try:
             with open(cache_path, 'r') as f:
                 return json.load(f)
-        except Exception as e:
+        except (json.JSONDecodeError, OSError) as e:
             logger.warning(f"Failed to load SteamGridDB cache: {e}")
     return {}
 
@@ -96,7 +96,7 @@ def save_sgdb_cache(project_root, cache):
     try:
         with open(cache_path, 'w') as f:
             json.dump(cache, f, indent=2)
-    except Exception as e:
+    except OSError as e:
         logger.warning(f"Failed to save SteamGridDB cache: {e}")
 
 
@@ -128,7 +128,7 @@ def get_sgdb_info(name, api_key, cache, manifest_id=None):
 
             if needs_update:
                 return game_id, cached.get("urls", {}), cached.get("name")
-        elif cached.get("game_id") is None and "game_id" in cached:
+        elif "game_id" in cached and cached["game_id"] is None:
             return None, {}, None
 
     if manifest_id:
@@ -161,30 +161,16 @@ IMAGE_FIELD_MAP = {
 def _urls_to_image_filenames(urls: dict) -> GameImages:
     """Convert SGDB artwork URLs to local filenames for .cartouche/ storage."""
     images = GameImages()
-
-    # Poster is preferred for cover, grid is fallback
-    poster_url = urls.get("poster")
-    grid_url = urls.get("grid")
-    cover_url = poster_url or grid_url
-    if cover_url:
-        ext = _get_extension(cover_url)
-        images.cover = f"cover{ext}"
-
-    icon_url = urls.get("icon")
-    if icon_url:
-        ext = _get_extension(icon_url)
-        images.icon = f"icon{ext}"
-
-    hero_url = urls.get("hero")
-    if hero_url:
-        ext = _get_extension(hero_url)
-        images.hero = f"hero{ext}"
-
-    logo_url = urls.get("logo")
-    if logo_url:
-        ext = _get_extension(logo_url)
-        images.logo = f"logo{ext}"
-
+    field_url_keys = [
+        ("cover", ["poster", "grid"]),
+        ("icon", ["icon"]),
+        ("hero", ["hero"]),
+        ("logo", ["logo"]),
+    ]
+    for field, keys in field_url_keys:
+        url = next((urls.get(k) for k in keys if urls.get(k)), None)
+        if url:
+            setattr(images, field, f"{field}{_get_extension(url)}")
     return images
 
 
@@ -237,22 +223,13 @@ def enrich(db: GameDatabase, cfg: dict):
             game.title = official_name
             changed = True
 
-        # Compute image filenames from URLs
         new_images = _urls_to_image_filenames(urls)
-        if new_images.cover and not game.images.cover:
-            game.images.cover = new_images.cover
-            changed = True
-        if new_images.icon and not game.images.icon:
-            game.images.icon = new_images.icon
-            changed = True
-        if new_images.hero and not game.images.hero:
-            game.images.hero = new_images.hero
-            changed = True
-        if new_images.logo and not game.images.logo:
-            game.images.logo = new_images.logo
-            changed = True
+        for field in ("cover", "icon", "hero", "logo"):
+            new_val = getattr(new_images, field)
+            if new_val and not getattr(game.images, field):
+                setattr(game.images, field, new_val)
+                changed = True
 
-        # Store URLs temporarily for the persister to download
         if urls:
             game._artwork_urls = urls  # type: ignore[attr-defined]
 
@@ -263,7 +240,6 @@ def enrich(db: GameDatabase, cfg: dict):
             if not game.images.cover:
                 logger.info(f"  No artwork found on SteamGridDB for: {game.title}")
 
-    # Save cache if it changed
     cache_json = json.dumps(sgdb_cache)
     if len(cache_json) != cache_start_len:
         save_sgdb_cache(project_root, sgdb_cache)

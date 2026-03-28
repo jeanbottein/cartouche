@@ -8,23 +8,21 @@ from pathlib import Path
 
 from bps.apply import apply_to_files as bps_apply
 
-logger = logging.getLogger("patcher")
+from .app import APP_NAME
+
+logger = logging.getLogger(f"{APP_NAME}.patcher")
 
 def load_games_locations():
-    """Load game directory locations from JSON file"""
+    """Load game directory locations from JSON file."""
     json_path = Path(__file__).resolve().parent / 'games_locations.json'
     with open(json_path, 'r') as f:
         locations = json.load(f)
-    
-    # Combine all directories and resolve environment variables
+
     all_dirs = locations.get('steam_directories', []) + locations.get('other_game_directories', [])
     resolved_dirs = []
-    
+
     for path in all_dirs:
-        # Resolve environment variables
         resolved_path = os.path.expandvars(path)
-        
-        # Handle wildcards by expanding them
         if '*' in resolved_path:
             expanded_paths = glob.glob(resolved_path)
             resolved_dirs.extend(expanded_paths)
@@ -77,7 +75,6 @@ def apply_replacement(source_file, target_file):
 def patch_file_with_backup_check(patch_info, source_file, target_file):
     backup_file = f"{target_file}.backup"
 
-    # Check CRC32 before attempting to patch
     target_crc32_expected = patch_info.get('target_crc32')
     if target_crc32_expected:
         actual_crc32 = calculate_crc32(target_file)
@@ -160,8 +157,12 @@ def run(config: dict):
         relative_path = os.path.relpath(root, patches_dir)
         logger.info(f"📦 Processing {relative_path}")
 
-        with open(json_file, 'r') as f:
-            patches = json.load(f)
+        try:
+            with open(json_file, 'r') as f:
+                patches = json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            logger.error(f"Failed to read {json_file}: {e}")
+            continue
 
         patch_folder = os.path.dirname(json_file)
         for patch in patches:

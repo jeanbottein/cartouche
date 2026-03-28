@@ -76,7 +76,7 @@ def _copy_file(src: str, dst: str) -> None:
             ):
                 return
         shutil.copy2(src, dst)
-    except Exception as e:
+    except OSError as e:
         logger.error(f"Error copying {src} -> {dst}: {e}")
 
 
@@ -144,7 +144,7 @@ def _create_symlink(link_path: str, target_path: str) -> None:
             return
         os.makedirs(os.path.dirname(link_path), exist_ok=True)
         os.symlink(target_path, link_path)
-    except Exception as e:
+    except OSError as e:
         logger.error(f"  Error creating symlink {link_path} -> {target_path}: {e}")
 
 
@@ -175,7 +175,6 @@ def _build_symlink_tree(symlink_entries: list, link_root: str) -> None:
             _create_symlink(link_path, source_path)
             created_top_level.add(game_title)
 
-    # Clean up stale entries at top level
     try:
         for entry in os.listdir(link_root):
             full = os.path.join(link_root, entry)
@@ -217,7 +216,6 @@ def run(db: GameDatabase, config: dict) -> None:
     saves_root = _resolve_base_path(saves_root)
     os.makedirs(saves_root, exist_ok=True)
 
-    # Copy config.txt to backup folder
     machine_name = (config.get("MACHINE_NAME") or "").strip()
     config_path = config.get("_CONFIG_PATH")
     config_backup_name = None
@@ -227,7 +225,6 @@ def run(db: GameDatabase, config: dict) -> None:
         _copy_file(config_path, config_dst)
         logger.info(f"  Config backed up as {config_backup_name}")
 
-    # Process game saves from database
     symlink_entries = []
     games_processed = 0
 
@@ -258,7 +255,6 @@ def run(db: GameDatabase, config: dict) -> None:
     if games_processed:
         logger.info(f"Processed saves for {games_processed} game(s)")
 
-    # Process custom directory backups (BACKUP_<name>=<path>)
     custom_backups = {}
     for key, value in config.items():
         if key.startswith("BACKUP_"):
@@ -274,13 +270,11 @@ def run(db: GameDatabase, config: dict) -> None:
             _sync_directory(custom_name, src_dir, dst_dir, strategy)
             symlink_entries.append((_sanitize_title(custom_name), None, src_dir))
 
-    # Build symlink tree
     if link_root and symlink_entries:
         link_root = _resolve_base_path(link_root)
         logger.info(f"Building symlink tree at {link_root}")
         _build_symlink_tree(symlink_entries, link_root)
 
-        # Copy config to symlink folder too
         if config_backup_name and config_path and os.path.isfile(config_path):
             config_link_dst = os.path.join(link_root, config_backup_name)
             _copy_file(config_path, config_link_dst)

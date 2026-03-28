@@ -5,14 +5,15 @@ import logging
 import glob
 from pathlib import Path
 
-logger = logging.getLogger("configurer")
+from .app import APP_NAME
+
+logger = logging.getLogger(f"{APP_NAME}.configurer")
 
 def resolve_variables(text, config_vars=None):
-    """Resolve ${VAR} placeholders in text"""
+    """Resolve ${VAR} placeholders in text."""
     if not isinstance(text, str):
-        return text
-    
-    # Find all unresolved variables
+        return (text, [])
+
     unresolved_vars = []
     def check_replacer(match):
         var = match.group(1)
@@ -55,7 +56,6 @@ def load_apps_config(config_vars):
             if not resolved_paths:
                 continue
                 
-            # Process replacements
             replacements = []
             for rep in file_config.get('replacements', []):
                 if isinstance(rep, dict):
@@ -129,7 +129,6 @@ def apply_hex_replacements(content, replacements):
     for rep in replacements:
         pattern, value = rep['pattern'], rep['value']
         
-        # Convert ASCII pattern to hex bytes
         if '?' in pattern:
             # Wildcard pattern - find and replace
             prefix = pattern.split('?')[0]
@@ -138,13 +137,11 @@ def apply_hex_replacements(content, replacements):
             prefix_bytes = prefix.encode('ascii') if prefix else b''
             suffix_bytes = suffix.encode('ascii') if suffix else b''
             
-            # Simple search for pattern
             pattern_len = len(prefix_bytes) + 1 + len(suffix_bytes)
             for i in range(len(content) - pattern_len + 1):
                 if (content[i:i+len(prefix_bytes)] == prefix_bytes and 
                     content[i+len(prefix_bytes)+1:i+len(prefix_bytes)+1+len(suffix_bytes)] == suffix_bytes):
                     
-                    # Convert value (handle decimal numbers)
                     value_bytes = b''
                     for char in value:
                         if char.isdigit():
@@ -157,7 +154,6 @@ def apply_hex_replacements(content, replacements):
                     modified = True
                     break
         else:
-            # Exact pattern match
             pattern_bytes = pattern.encode('ascii')
             if pattern_bytes in content:
                 value_bytes = value.encode('ascii')
@@ -178,11 +174,9 @@ def modify_file(file_path, replacements):
     
     logger.info(f"🤖 {file_path} found")
 
-    # Separate by type
     text_reps = [r for r in replacements if r.get('type') != 'hexadecimal']
     hex_reps = [r for r in replacements if r.get('type') == 'hexadecimal']
     
-    # Handle text files
     if text_reps:
         with open(file_path, 'r') as f:
             content = f.read()
@@ -193,7 +187,6 @@ def modify_file(file_path, replacements):
             with open(file_path, 'w') as f:
                 f.write(content)
     
-    # Handle binary files
     if hex_reps:
         with open(file_path, 'rb') as f:
             content = f.read()

@@ -75,22 +75,16 @@ def _load_game_json(game_dir: str) -> Game | None:
     try:
         with open(game_json_path, "r") as f:
             data = json.load(f)
-    except Exception as e:
+    except (json.JSONDecodeError, OSError) as e:
         logger.error(f"Failed to read {game_json_path}: {e}")
         return None
 
     folder_name = os.path.basename(game_dir)
 
-    # Parse targets
     targets = [GameTarget.from_dict(t) for t in data.get("targets", [])]
-
-    # Parse save paths (flat list of {os, path} dicts)
     save_paths = data.get("savePaths", [])
-
-    # Parse images
     images = GameImages.from_dict(data.get("images", {}))
 
-    # Detect which image files actually exist on disk
     for img_field in ("cover", "icon", "hero", "logo"):
         filename = getattr(images, img_field)
         if filename:
@@ -98,7 +92,6 @@ def _load_game_json(game_dir: str) -> Game | None:
             if not os.path.isfile(img_path):
                 setattr(images, img_field, None)
 
-    # Validate required fields
     title = data.get("title") or folder_name
     if not title or not isinstance(title, str):
         logger.warning(f"Invalid title in {game_json_path}, using folder name")

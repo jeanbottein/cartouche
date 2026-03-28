@@ -100,7 +100,6 @@ def clean(db: GameDatabase, cfg: dict):
             logger.warning(f"STEAM_USERID={steam_userid} not found")
             return
 
-    # Build set of valid exe paths from database
     valid_targets = {g.resolved_target for g in db.games_with_targets()}
 
     for config_dir in config_dirs:

@@ -57,7 +57,6 @@ def _download_images(game, cartouche_dir: str):
         if _download_file(url, local_path):
             logger.info(f"  Downloaded {field_name}: {filename}")
 
-    # Clean up temporary attribute
     if hasattr(game, "_artwork_urls"):
         del game._artwork_urls
 
@@ -78,16 +77,14 @@ def persist(db: GameDatabase):
 
         os.makedirs(cartouche_dir, exist_ok=True)
 
-        # Write game.json
         try:
             with open(game_json_path, "w") as f:
                 json.dump(game.to_dict(), f, indent=4)
             logger.info(f"  Saved: {game.folder_name}/{CARTOUCHE_DIR}/{GAME_JSON}")
-        except Exception as e:
+        except OSError as e:
             logger.error(f"  Failed to write {game_json_path}: {e}")
             continue
 
-        # Download images
         _download_images(game, cartouche_dir)
 
         game.has_cartouche = True

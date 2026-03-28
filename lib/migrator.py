@@ -76,7 +76,7 @@ def _migrate_one(game_dir: str) -> bool:
     try:
         with open(old_path, "r") as f:
             old_manifest = json.load(f)
-    except Exception as e:
+    except (json.JSONDecodeError, OSError) as e:
         logger.error(f"Failed to read {old_path}: {e}")
         return False
 
@@ -89,11 +89,9 @@ def _migrate_one(game_dir: str) -> bool:
         "images": {},
     }
 
-    # Preserve steamgriddb_id if present
     if "steamgriddb_id" in old_manifest:
         new_game["steamgriddb_id"] = old_manifest["steamgriddb_id"]
 
-    # Handle old flat format (no targets array)
     if "targets" not in old_manifest and "target" in old_manifest:
         new_game["targets"] = [{
             "os": old_manifest.get("os", ""),
@@ -103,16 +101,14 @@ def _migrate_one(game_dir: str) -> bool:
             "launchOptions": old_manifest.get("launchOptions", ""),
         }]
 
-    # Write new format
     os.makedirs(cartouche_dir, exist_ok=True)
     try:
         with open(new_path, "w") as f:
             json.dump(new_game, f, indent=4)
-    except Exception as e:
+    except OSError as e:
         logger.error(f"Failed to write {new_path}: {e}")
         return False
 
-    # Rename old file
     migrated_path = old_path + MIGRATED_SUFFIX
     try:
         os.rename(old_path, migrated_path)

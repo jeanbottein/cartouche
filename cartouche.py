@@ -15,7 +15,7 @@ import shutil
 import subprocess
 import sys
 
-from lib import scanner, enricher, steam_cleaner, steam_exporter
+from lib import scanner, detector, enricher, migrator, steam_cleaner, steam_exporter
 from lib.app import APP_NAME, get_script_dir, find_app_dir
 from lib.init_dialog import run_init_dialog
 from lib.pipeline import PipelineRunner
@@ -127,7 +127,7 @@ def run_post_commands(config: Dict[str, str]) -> None:
                     logger.warning("   %s", result.stderr.strip())
             else:
                 logger.info("  %s: done", label)
-        except Exception as e:
+        except (OSError, subprocess.SubprocessError) as e:
             logger.error("  %s: failed to execute: %s", label, e)
 
 
