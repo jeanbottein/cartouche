@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from typing import Callable
+from typing import Any, Callable
 
 import dearpygui.dearpygui as dpg
 
@@ -167,7 +167,7 @@ def _build_saves_table(game: Game) -> None:
 
 # -- Save / close callbacks -----------------------------------------------
 
-def _do_save() -> None:
+def _do_save(sender: int | str = None, app_data: Any = None, user_data: Any = None) -> None:
     if _current_game is None:
         return
 
@@ -197,7 +197,7 @@ def _do_save() -> None:
         logger.error("Failed to save %s: %s", json_path, exc)
 
 
-def _on_close() -> None:
+def _on_close(sender: int | str = None, app_data: Any = None, user_data: Any = None) -> None:
     if dpg.does_item_exist(TAG_WINDOW):
         dpg.configure_item(TAG_WINDOW, show=False)
 

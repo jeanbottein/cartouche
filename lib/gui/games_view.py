@@ -176,7 +176,7 @@ def _show_detail(game: Game) -> None:
             tag=edit_tag,
             parent=TAG_DETAIL_PANEL,
             width=140,
-            callback=lambda: _on_edit(game) if _on_edit else None,
+            callback=lambda s, a, u: _on_edit(game) if _on_edit else None,
         )
 
 
