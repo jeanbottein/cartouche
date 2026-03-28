@@ -11,7 +11,7 @@ from typing import Any, Callable
 
 import dearpygui.dearpygui as dpg
 
-from lib.gui import theme, status_view, games_view, game_edit, controller
+from lib.gui import theme, status_view, games_view, game_edit, settings_view, controller
 
 VIEWPORT_WIDTH = 1280
 VIEWPORT_HEIGHT = 800
@@ -101,35 +101,18 @@ def _build_games_view(cfg: dict) -> None:
 
 
 def _build_settings_view(cfg: dict) -> None:
-    """Minimal settings panel showing current configuration values."""
-    from .theme import TEXT_SECONDARY, TEXT_MUTED
+    """Build the settings view using the new settings_view module."""
+    settings_view.create(
+        cfg=cfg,
+        on_saved=lambda: _on_settings_saved(cfg),
+    )
 
-    with dpg.window(
-        label="Settings",
-        tag="settings_view_window",
-        no_title_bar=True,
-        no_move=True,
-        no_resize=True,
-        no_close=True,
-        no_collapse=True,
-        show=False,
-    ):
-        dpg.add_text("Settings", color=TEXT_SECONDARY)
-        dpg.add_separator()
-        dpg.add_spacer(height=8)
 
-        dpg.add_text("Configuration", color=TEXT_SECONDARY)
-        dpg.add_separator()
-        dpg.add_spacer(height=4)
-
-        config_path = cfg.get("_CONFIG_PATH", "(unknown)")
-        dpg.add_text(f"Config file: {config_path}", color=TEXT_MUTED)
-        dpg.add_spacer(height=4)
-
-        for key in sorted(cfg.keys()):
-            if key.startswith("_"):
-                continue
-            dpg.add_text(f"{key} = {cfg[key]}", color=TEXT_MUTED, wrap=700)
+def _on_settings_saved(cfg: dict) -> None:
+    """Callback after settings are saved."""
+    # We might need to reload the config if other parts of the app depend on it.
+    # For now, we'll just show a message.
+    pass
 
 
 # -- Navigation -----------------------------------------------------------
