@@ -2,8 +2,9 @@
 First-run initialization wizard for the .{APP_NAME}/ config directory.
 
 Shows a setup wizard (Dear PyGui preferred, tkinter fallback, CLI last).
-The user enables features, optionally customises folder names, then clicks
-Confirm to create all directories and seed config.txt.
+The user picks a gamespace location, enables features, sets directories
+(absolute or relative to the gamespace), then clicks Confirm to create
+all directories and seed config.txt.
 
 Public API:
     run_init_dialog(script_dir, cwd) -> Path
@@ -25,39 +26,28 @@ WIZARD_FEATURES = [
         "key": "FREEGAMES_PATH",
         "label": "Games",
         "default": "games",
-        "description": (
-            "Your DRM-free game library. Cartouche will scan this folder,\n"
-            "detect executables, and fetch artwork from SteamGridDB."
-        ),
+        "description": "DRM-free game library. Relative to gamespace or absolute.",
         "enabled": True,
     },
     {
         "key": "PATCHES_PATH",
         "label": "Mods & Patches",
         "default": "mods",
-        "description": (
-            "Patches and file replacements for your games (BPS format)."
-        ),
+        "description": "Patches and file replacements (BPS format). Relative or absolute.",
         "enabled": False,
     },
     {
         "key": "SAVESCOPY_PATH",
         "label": "Save Copies",
         "default": "saves-copies",
-        "description": (
-            "Backup copies of your save files.\n"
-            "Cartouche copies them here after each run."
-        ),
+        "description": "Backup copies of save files. Relative or absolute.",
         "enabled": False,
     },
     {
         "key": "SAVESLINK_PATH",
         "label": "Save Links",
         "default": "saves-links",
-        "description": (
-            "A folder of symlinks pointing to your save directories.\n"
-            "Works with Syncthing or similar tools for cloud sync."
-        ),
+        "description": "Symlinks to save directories for Syncthing sync. Relative or absolute.",
         "enabled": False,
     },
 ]
@@ -94,13 +84,15 @@ def _write_config(conf_path: Path, feature_paths: dict) -> None:
 
 
 def _initialize_dir(parent: Path, feature_paths: dict | None = None) -> Path:
-    """Create .cartouche/, feature folders, and config.txt. Return the app dir."""
+    """Create .cartouche/, feature directories, and config.txt. Return the app dir."""
     app_dir = parent / f".{APP_NAME}"
     app_dir.mkdir(parents=True, exist_ok=True)
 
-    # Create enabled feature folders next to .cartouche/
-    for rel in (feature_paths or {}).values():
-        (parent / rel).mkdir(parents=True, exist_ok=True)
+    # Create enabled feature directories (absolute or relative to gamespace)
+    for val in (feature_paths or {}).values():
+        p = Path(val)
+        target = p if p.is_absolute() else parent / p
+        target.mkdir(parents=True, exist_ok=True)
 
     # Seed config.txt (cartouche.py won't overwrite if it already exists)
     conf_path = app_dir / "config.txt"
@@ -115,38 +107,72 @@ def _initialize_dir(parent: Path, feature_paths: dict | None = None) -> Path:
 def _run_dpg_wizard(script_dir: Path, cwd: Path) -> Path:
     import dearpygui.dearpygui as dpg
 
-    # Build location list (deduplicate when script_dir == cwd)
+    # Build gamespace location list (deduplicate when script_dir == cwd)
     locations: list[tuple[str, Path]] = []
     if script_dir.resolve() != cwd.resolve():
         locations.append(("Next to binary", script_dir))
     locations.append(("Current directory", cwd))
 
-    loc_labels = [f"{lbl}  —  {path}" for lbl, path in locations]
-    default_loc = loc_labels[-1]
-
     result: list[tuple[Path, dict]] = []
+    _pending_browse_key: list[str] = []  # one-element mutable cell
 
     # ── callbacks ─────────────────────────────────────────────────────────
 
     def _get_parent() -> Path:
-        sel = dpg.get_value("loc_radio")
-        try:
-            idx = loc_labels.index(sel)
-        except ValueError:
-            idx = len(locations) - 1
-        return locations[idx][1]
+        if dpg.get_value("portable_check"):
+            return script_dir.resolve()
+        raw = dpg.get_value("gamespace_path").strip() or str(cwd)
+        return Path(raw).expanduser().resolve()
+
+    def _on_portable_toggled(sender, app_data, user_data):
+        """Switch gamespace path between script_dir (portable) and cwd."""
+        if app_data:
+            dpg.hide_item("gamespace_path")
+            dpg.hide_item("gamespace_browse_btn")
+        else:
+            dpg.set_value("gamespace_path", str(cwd))
+            dpg.show_item("gamespace_path")
+            dpg.show_item("gamespace_browse_btn")
 
     def _on_check(sender, app_data, user_data):
-        dpg.configure_item(f"feat_path_{user_data}", enabled=app_data)
+        if app_data:
+            dpg.show_item(f"feat_path_{user_data}")
+            dpg.show_item(f"feat_browse_{user_data}")
+        else:
+            dpg.hide_item(f"feat_path_{user_data}")
+            dpg.hide_item(f"feat_browse_{user_data}")
+
+    def _on_browse(sender, app_data, user_data):
+        _pending_browse_key.clear()
+        _pending_browse_key.append(user_data)
+        dpg.show_item("wiz_file_dialog")
+
+    def _on_dir_selected(sender, app_data):
+        key = _pending_browse_key[0] if _pending_browse_key else None
+        chosen = app_data.get("file_path_name", "")
+        if not chosen:
+            return
+        if key == "__gamespace__":
+            dpg.set_value("gamespace_path", str(Path(chosen).resolve()))
+        elif key:
+            # Make relative to gamespace if possible
+            try:
+                rel = Path(chosen).relative_to(_get_parent())
+                chosen = str(rel)
+            except ValueError:
+                pass  # keep absolute
+            dpg.set_value(f"feat_path_{key}", chosen)
 
     def _on_confirm():
         parent = _get_parent()
+        # Reflect the resolved absolute path back into the field
+        dpg.set_value("gamespace_path", str(parent))
         paths = {}
         for feat in WIZARD_FEATURES:
             key = feat["key"]
             if dpg.get_value(f"feat_check_{key}"):
-                rel = dpg.get_value(f"feat_path_{key}").strip() or feat["default"]
-                paths[key] = rel
+                val = dpg.get_value(f"feat_path_{key}").strip() or feat["default"]
+                paths[key] = val
         result.append((parent, paths))
         dpg.stop_dearpygui()
 
@@ -157,16 +183,13 @@ def _run_dpg_wizard(script_dir: Path, cwd: Path) -> Path:
 
     dpg.create_context()
 
-    W, H = 700, 680
+    W, H = 820, 500
     dpg.create_viewport(
         title=f"Initialize {APP_NAME.capitalize()}",
         width=W, height=H,
-        min_width=W, max_width=W,
-        min_height=H, max_height=H,
-        resizable=False,
+        resizable=True,
     )
 
-    # Apply a simple dark theme matching the main app
     with dpg.theme() as wiz_theme:
         with dpg.theme_component(dpg.mvAll):
             dpg.add_theme_color(dpg.mvThemeCol_WindowBg,      (23, 26, 33, 255))
@@ -180,79 +203,145 @@ def _run_dpg_wizard(script_dir: Path, cwd: Path) -> Path:
             dpg.add_theme_color(dpg.mvThemeCol_CheckMark,     (86, 156, 214, 255))
             dpg.add_theme_color(dpg.mvThemeCol_Border,        (60, 65, 78, 255))
             dpg.add_theme_color(dpg.mvThemeCol_Separator,     (60, 65, 78, 255))
-            dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 6)
-            dpg.add_theme_style(dpg.mvStyleVar_WindowRounding, 6)
-            dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 10, 6)
-            dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing, 10, 8)
-            dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 20, 16)
-            dpg.add_theme_style(dpg.mvStyleVar_IndentSpacing, 22)
+            dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 4)
+            dpg.add_theme_style(dpg.mvStyleVar_WindowRounding, 4)
+            dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 6, 3)
+            dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing, 6, 4)
+            dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 14, 10)
+            dpg.add_theme_style(dpg.mvStyleVar_IndentSpacing, 16)
     dpg.bind_theme(wiz_theme)
-    dpg.set_global_font_scale(1.1)
+    dpg.set_global_font_scale(1.0)
+
+    COL = W - 40  # content width with window padding
+    PAD = 0
 
     with dpg.window(tag="wiz_win", no_title_bar=True, no_resize=True,
-                    no_move=True, no_close=True, width=W, height=H, pos=[0, 0]):
+                    no_move=True, no_close=True, no_scrollbar=True,
+                    no_scroll_with_mouse=True, width=W, height=H, pos=[0, 0]):
 
-        # ── Header ────────────────────────────────────────────────────────
-        dpg.add_spacer(height=6)
-        dpg.add_text(f"Welcome to {APP_NAME.capitalize()}")
-        dpg.add_text(
-            "Let's set up your workspace. Enable the features you want and\n"
-            "adjust folder names if needed, then click Confirm.",
-            color=(160, 168, 180, 255),
-        )
-        dpg.add_spacer(height=10)
-        dpg.add_separator()
-        dpg.add_spacer(height=10)
+        # File dialog for directory browsing
+        with dpg.file_dialog(tag="wiz_file_dialog", directory_selector=True,
+                             show=False, callback=_on_dir_selected,
+                             width=700, height=450):
+            pass
 
-        # ── Location ──────────────────────────────────────────────────────
-        dpg.add_text("Workspace location", color=(160, 168, 180, 255))
-        dpg.add_spacer(height=4)
-        dpg.add_radio_button(
-            items=loc_labels,
-            tag="loc_radio",
-            default_value=default_loc,
-            indent=4,
-        )
-        dpg.add_spacer(height=10)
-        dpg.add_separator()
-        dpg.add_spacer(height=10)
+        with dpg.group(indent=PAD):
 
-        # ── Features ──────────────────────────────────────────────────────
-        dpg.add_text("Features", color=(160, 168, 180, 255))
-        dpg.add_spacer(height=6)
+            # ── Header ────────────────────────────────────────────────────
+            ICON_SIZE = 36
+            icon_path = get_icon_path()
+            icon_tex = None
+            if icon_path and icon_path.exists():
+                try:
+                    iw, ih, _, idata = dpg.load_image(str(icon_path))
+                    with dpg.texture_registry():
+                        icon_tex = dpg.add_static_texture(iw, ih, idata)
+                except Exception:
+                    pass
 
-        for feat in WIZARD_FEATURES:
-            key = feat["key"]
+            with dpg.table(header_row=False, borders_innerV=False,
+                           borders_outerV=False, borders_innerH=False,
+                           borders_outerH=False):
+                dpg.add_table_column(width_fixed=True,
+                                     init_width_or_weight=ICON_SIZE + 8)
+                dpg.add_table_column(width_fixed=False)
 
+                with dpg.table_row():
+                    if icon_tex is not None:
+                        dpg.add_image(icon_tex, width=ICON_SIZE, height=ICON_SIZE)
+                    else:
+                        dpg.add_text("")
+                    with dpg.group():
+                        dpg.add_text(f"Welcome to {APP_NAME.capitalize()}")
+                        dpg.add_text("Configure your gamespace, then click Confirm.",
+                                     color=(160, 168, 180, 255))
+
+            dpg.add_separator()
+            dpg.add_spacer(height=8)
+
+            # ── Gamespace location ─────────────────────────────────────────
+            dpg.add_text("Gamespace location", color=(160, 168, 180, 255))
+            dpg.add_spacer(height=4)
+
+            LABEL_W  = 135
+            BROWSE_W = 72
+            PATH_W   = COL - LABEL_W - BROWSE_W - 12
+
+            with dpg.group(horizontal=True):
+                dpg.add_input_text(
+                    tag="gamespace_path",
+                    default_value=str(cwd),
+                    width=COL - BROWSE_W - 6,
+                    hint="/absolute/path",
+                )
+                dpg.add_button(
+                    label="Browse",
+                    tag="gamespace_browse_btn",
+                    callback=_on_browse,
+                    user_data="__gamespace__",
+                    width=BROWSE_W,
+                )
+            dpg.add_spacer(height=4)
             dpg.add_checkbox(
-                label=f"  {feat['label']}",
-                tag=f"feat_check_{key}",
-                default_value=feat["enabled"],
-                callback=_on_check,
-                user_data=key,
+                label=f"  Portable  (place .{APP_NAME}/ next to the {APP_NAME} binary)",
+                tag="portable_check",
+                default_value=False,
+                callback=_on_portable_toggled,
             )
-            with dpg.group(indent=22):
-                dpg.add_text(feat["description"], color=(130, 138, 150, 255), wrap=W - 80)
-                dpg.add_spacer(height=2)
+            dpg.add_spacer(height=4)
+            dpg.add_text(
+                f"A .{APP_NAME}/ directory will be created here to store settings and app files.",
+                color=(110, 118, 130, 255), wrap=COL,
+            )
+            dpg.add_separator()
+            dpg.add_spacer(height=8)
+
+            # ── Features ──────────────────────────────────────────────────
+            dpg.add_text("Directories  (relative to gamespace or absolute)",
+                         color=(160, 168, 180, 255))
+            dpg.add_spacer(height=4)
+
+            for feat in WIZARD_FEATURES:
+                key = feat["key"]
                 with dpg.group(horizontal=True):
-                    dpg.add_text("Folder name:", color=(160, 168, 180, 255))
+                    dpg.add_checkbox(
+                        label="",
+                        tag=f"feat_check_{key}",
+                        default_value=True,
+                        callback=_on_check,
+                        user_data=key,
+                    )
+                    # Fixed-width label cell to align all path fields
+                    dpg.add_text(feat["label"],
+                                 tag=f"feat_label_{key}",
+                                 indent=-1)
+                    dpg.add_spacer(width=LABEL_W - len(feat["label"]) * 7 - 24)
                     dpg.add_input_text(
                         tag=f"feat_path_{key}",
                         default_value=feat["default"],
-                        width=W - 240,
-                        enabled=feat["enabled"],
+                        width=PATH_W,
+                        hint="relative or /absolute/path",
                     )
+                    dpg.add_button(
+                        label="Browse",
+                        tag=f"feat_browse_{key}",
+                        callback=_on_browse,
+                        user_data=key,
+                        width=BROWSE_W,
+                    )
+                dpg.add_text(feat["description"], color=(110, 118, 130, 255),
+                             wrap=COL)
+                dpg.add_spacer(height=4)
+
+            dpg.add_separator()
             dpg.add_spacer(height=8)
 
-        dpg.add_separator()
-        dpg.add_spacer(height=10)
-
-        # ── Buttons ───────────────────────────────────────────────────────
-        with dpg.group(horizontal=True):
-            dpg.add_spacer(width=W - 260)
-            dpg.add_button(label="Cancel", width=100, callback=_on_cancel)
-            dpg.add_spacer(width=8)
-            dpg.add_button(label="Confirm", width=110, callback=_on_confirm)
+            # ── Buttons ───────────────────────────────────────────────────
+            with dpg.group(horizontal=True):
+                dpg.add_spacer(width=COL - 214)
+                dpg.add_button(label="Cancel", width=100, callback=_on_cancel)
+                dpg.add_spacer(width=4)
+                dpg.add_button(label="Confirm", width=110, callback=_on_confirm)
 
     dpg.set_primary_window("wiz_win", True)
     dpg.setup_dearpygui()
@@ -282,7 +371,7 @@ def _run_tkinter_wizard(script_dir: Path, cwd: Path) -> Path:
 
     root = tk.Tk()
     root.title(f"Initialize {APP_NAME.capitalize()}")
-    root.resizable(False, False)
+    root.resizable(True, True)
 
     icon_path = get_icon_path()
     if icon_path:
@@ -304,16 +393,13 @@ def _run_tkinter_wizard(script_dir: Path, cwd: Path) -> Path:
     ).pack(anchor="w")
     ttk.Label(
         outer,
-        text=(
-            "Enable the features you want and adjust folder names,\n"
-            "then click Confirm."
-        ),
+        text="Configure your gamespace, then click Confirm.",
         foreground="gray",
     ).pack(anchor="w", pady=(2, 8))
     ttk.Separator(outer).pack(fill="x", pady=(0, 8))
 
     # Location
-    ttk.Label(outer, text="Workspace location", foreground="gray").pack(anchor="w")
+    ttk.Label(outer, text="Gamespace location", foreground="gray").pack(anchor="w")
     loc_var = tk.IntVar(value=len(locations) - 1)
     for i, (lbl, path) in enumerate(locations):
         ttk.Radiobutton(
@@ -322,26 +408,45 @@ def _run_tkinter_wizard(script_dir: Path, cwd: Path) -> Path:
             variable=loc_var,
             value=i,
         ).pack(anchor="w", padx=8)
+    ttk.Label(
+        outer,
+        text=f"A .{APP_NAME}/ directory will be created here to store settings and app files.",
+        foreground="gray",
+        font=("TkDefaultFont", 8),
+    ).pack(anchor="w", padx=8, pady=(2, 0))
 
     ttk.Separator(outer).pack(fill="x", pady=8)
 
     # Features
-    ttk.Label(outer, text="Features", foreground="gray").pack(anchor="w")
+    ttk.Label(outer, text="Directories (relative to gamespace or absolute)",
+              foreground="gray").pack(anchor="w")
+
+    def _get_tk_parent() -> Path:
+        return locations[loc_var.get()][1]
 
     feat_vars: dict[str, tuple[tk.BooleanVar, tk.StringVar]] = {}
     for feat in WIZARD_FEATURES:
         key = feat["key"]
-        enabled_var = tk.BooleanVar(value=feat["enabled"])
+        enabled_var = tk.BooleanVar(value=True)
         path_var = tk.StringVar(value=feat["default"])
         feat_vars[key] = (enabled_var, path_var)
 
         row = ttk.Frame(outer)
         row.pack(fill="x", pady=(6, 0))
 
-        path_entry = ttk.Entry(row, textvariable=path_var, width=22)
+        path_entry = ttk.Entry(row, textvariable=path_var, width=28)
 
         def _toggle(ev=None, ev_=enabled_var, pe=path_entry):
             pe.configure(state="normal" if ev_.get() else "disabled")
+
+        def _browse(pv=path_var):
+            chosen = filedialog.askdirectory(title="Select directory")
+            if chosen:
+                try:
+                    rel = str(Path(chosen).relative_to(_get_tk_parent()))
+                    pv.set(rel)
+                except ValueError:
+                    pv.set(chosen)
 
         ttk.Checkbutton(
             row,
@@ -350,10 +455,8 @@ def _run_tkinter_wizard(script_dir: Path, cwd: Path) -> Path:
             command=_toggle,
         ).pack(side="left")
 
-        ttk.Label(row, text="Folder:").pack(side="left", padx=(16, 4))
-        path_entry.pack(side="left")
-        if not feat["enabled"]:
-            path_entry.configure(state="disabled")
+        path_entry.pack(side="left", padx=(8, 4))
+        ttk.Button(row, text="Browse", command=_browse).pack(side="left")
 
         ttk.Label(
             outer,
@@ -405,8 +508,8 @@ def _run_cli(script_dir: Path, cwd: Path) -> Path:
     print(f"\nInitialize {APP_NAME.capitalize()}")
     print("=" * 40)
 
-    # Location
-    print("\nWhere should .cartouche/ be created?\n")
+    # Gamespace location
+    print(f"\nGamespace location (a .{APP_NAME}/ directory will be created here to store settings and app files):\n")
     for i, (lbl, path) in enumerate(locations, 1):
         print(f"  {i}. {lbl}  ({path})")
     print("  q. Exit\n")
@@ -423,23 +526,19 @@ def _run_cli(script_dir: Path, cwd: Path) -> Path:
             break
         print(f"  Please enter 1–{len(locations)} or q.")
 
-    # Features
+    # Directories
     paths = {}
-    print("\nEnable features (Enter to keep default, leave blank to skip):\n")
+    print("\nConfigure directories (relative to gamespace or absolute, Enter to keep default):\n")
     for feat in WIZARD_FEATURES:
-        default_yn = "Y/n" if feat["enabled"] else "y/N"
         try:
-            ans = input(f"  {feat['label']} [{default_yn}]: ").strip().lower()
+            ans = input(f"  {feat['label']} [{feat['default']}] (leave blank to skip): ").strip()
         except EOFError:
             sys.exit(0)
 
-        enabled = feat["enabled"] if not ans else ans in ("y", "yes")
-        if enabled:
-            try:
-                rel = input(f"    Folder name [{feat['default']}]: ").strip()
-            except EOFError:
-                sys.exit(0)
-            paths[feat["key"]] = rel or feat["default"]
+        if ans.lower() in ("", feat["default"]):
+            paths[feat["key"]] = feat["default"]
+        elif ans.lower() not in ("n", "no", "skip"):
+            paths[feat["key"]] = ans
         print()
 
     return _initialize_dir(parent, paths)

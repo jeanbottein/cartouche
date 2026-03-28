@@ -94,31 +94,31 @@ def create(cfg: dict, on_saved: Callable[[], None] | None = None) -> None:
         with dpg.child_window(border=False):
             dpg.add_text("Settings", color=TEXT_SECONDARY)
             dpg.add_separator()
-            dpg.add_spacer(height=8)
+            dpg.add_spacer(height=4)
 
             if not _config_path:
                 dpg.add_text("Error: Config path not found.", color=ERROR)
                 return
 
             dpg.add_text(f"Editing: {_config_path}", color=TEXT_MUTED)
-            dpg.add_spacer(height=12)
+            dpg.add_spacer(height=6)
 
             # 1. Main Categories
             for cat in SETTINGS_SCHEMA:
                 _build_category(cat["category"], cat["settings"])
-                dpg.add_spacer(height=16)
+                dpg.add_spacer(height=8)
 
             # 2. Custom/Other Settings (BACKUP_*, RUN_AFTER_*, etc.)
-            other_keys = [k for k in sorted(_current_cfg.keys()) 
+            other_keys = [k for k in sorted(_current_cfg.keys())
                          if not k.startswith("_") and not _is_schema_key(k)]
             if other_keys:
                 with dpg.tree_node(label="Custom Assignments", default_open=True):
                     for key in other_keys:
                         _build_generic_setting(key, _current_cfg[key])
-                dpg.add_spacer(height=16)
+                dpg.add_spacer(height=8)
 
             dpg.add_separator()
-            dpg.add_spacer(height=8)
+            dpg.add_spacer(height=6)
             
             with dpg.group(horizontal=True):
                 dpg.add_button(label="Save Settings", width=150, callback=_on_save_clicked)
@@ -164,10 +164,10 @@ def _build_category(name: str, settings: list[dict]) -> None:
                     bool_val = str(val).lower() == "true"
                     dpg.add_checkbox(tag=tag, default_value=bool_val)
                 elif stype == "choice":
-                    dpg.add_combo(tag=tag, items=s["options"], default_value=val, width=200)
+                    dpg.add_combo(tag=tag, items=s["options"], default_value=val, width=160)
                 elif stype == "path":
                     with dpg.group(horizontal=True):
-                        dpg.add_input_text(tag=tag, default_value=val, width=400)
+                        dpg.add_input_text(tag=tag, default_value=val, width=320)
                         dpg.add_button(label="Browse...", callback=_on_browse_clicked, user_data=tag)
                 elif stype == "password":
                     if val:
@@ -177,20 +177,20 @@ def _build_category(name: str, settings: list[dict]) -> None:
                             # Invisible input to hold the value if not cleared
                             dpg.add_input_text(tag=tag, default_value=val, show=False)
                     else:
-                        dpg.add_input_text(tag=tag, default_value="", password=True, width=300)
+                        dpg.add_input_text(tag=tag, default_value="", password=True, width=240)
                 else:  # text
-                    dpg.add_input_text(tag=tag, default_value=str(val), width=400)
+                    dpg.add_input_text(tag=tag, default_value=str(val), width=320)
 
             if help_text:
-                dpg.add_text(help_text, color=TEXT_MUTED, indent=188)
-                dpg.add_spacer(height=4)
+                dpg.add_text(help_text, color=TEXT_MUTED, indent=150)
+                dpg.add_spacer(height=2)
 
 
 def _build_generic_setting(key: str, val: str) -> None:
     """Build a generic key=value row for custom settings."""
     with dpg.group(horizontal=True):
         dpg.add_text(key, color=TEXT_MUTED)
-        dpg.add_input_text(tag=f"conf_{key}", default_value=str(val), width=400)
+        dpg.add_input_text(tag=f"conf_{key}", default_value=str(val), width=320)
 
 
 def _clear_key(key: str):

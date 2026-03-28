@@ -83,12 +83,12 @@ def create(
         no_collapse=True,
     ):
         with dpg.group(horizontal=True):
-            with dpg.group(width=400):
+            with dpg.group(width=340):
                 dpg.add_text("Cartouche", color=(230, 235, 242, 255))
                 dpg.add_text(f"v{VERSION}  --  DRM-free game manager",
                               color=TEXT_SECONDARY)
                 dpg.add_separator()
-                dpg.add_spacer(height=10)
+                dpg.add_spacer(height=4)
 
                 # -- Game count ---------------------------------------------------
                 if not games_dir or not os.path.isdir(games_dir):
@@ -98,30 +98,30 @@ def create(
                                  tag=TAG_GAME_COUNT,
                                  color=SUCCESS if game_count > 0 else WARNING)
 
-                dpg.add_spacer(height=16)
+                dpg.add_spacer(height=8)
 
                 # -- Quick actions ------------------------------------------------
                 dpg.add_text("Quick Actions", color=TEXT_SECONDARY)
                 dpg.add_separator()
-                dpg.add_spacer(height=6)
+                dpg.add_spacer(height=4)
 
                 with dpg.group(horizontal=True):
-                    dpg.add_button(label="Run All", width=120,
+                    dpg.add_button(label="Run All", width=100,
                                    callback=lambda s, a, u: on_run_all())
-                    dpg.add_button(label="Parse", width=120,
+                    dpg.add_button(label="Parse", width=100,
                                    callback=lambda s, a, u: on_run_parse())
-                    dpg.add_button(label="Backup", width=120,
+                    dpg.add_button(label="Backup", width=100,
                                    callback=lambda s, a, u: on_run_backup())
-                
-                dpg.add_button(label="Cancel Current Run", width=370,
+
+                dpg.add_button(label="Cancel Current Run", width=305,
                                callback=lambda s, a, u: _request_cancel())
 
-                dpg.add_spacer(height=20)
+                dpg.add_spacer(height=10)
 
                 # -- Phase status indicators --------------------------------------
                 dpg.add_text("Phase Status", color=TEXT_SECONDARY)
                 dpg.add_separator()
-                dpg.add_spacer(height=6)
+                dpg.add_spacer(height=4)
 
                 for phase_key, phase_label in PipelineRunner.PHASES:
                     tag = f"status_phase_{phase_key}"
@@ -130,28 +130,28 @@ def create(
                         dpg.add_text(f"  [{phase_label}]", color=TEXT_MUTED)
                         dpg.add_text("not yet run", tag=tag, color=TEXT_MUTED)
 
-                dpg.add_spacer(height=16)
+                dpg.add_spacer(height=8)
                 dpg.add_text("Last run: never", tag=TAG_LAST_RUN, color=TEXT_MUTED)
 
-            dpg.add_spacer(width=20)
+            dpg.add_spacer(width=12)
 
             # -- Progress and Logs (Right side) -------------------------------
             with dpg.group(width=-1):
                 dpg.add_text("Pipeline Progress", color=TEXT_SECONDARY)
                 dpg.add_separator()
-                dpg.add_spacer(height=8)
+                dpg.add_spacer(height=4)
 
                 dpg.add_text("Idle", tag=TAG_STATUS_LABEL, color=TEXT_MUTED)
-                
+
                 dpg.add_text("Overall progress:", color=TEXT_SECONDARY)
                 dpg.add_progress_bar(tag=TAG_OVERALL_PROGRESS, default_value=0.0, width=-1)
-                
+
                 with dpg.group(horizontal=True):
                     dpg.add_text("Current phase:", color=TEXT_SECONDARY)
                     dpg.add_text("--", tag=TAG_PHASE_LABEL, color=TEXT_MUTED)
                 dpg.add_progress_bar(tag=TAG_PHASE_PROGRESS, default_value=0.0, width=-1)
 
-                dpg.add_spacer(height=12)
+                dpg.add_spacer(height=6)
                 dpg.add_text("Log Output:", color=TEXT_SECONDARY)
                 dpg.add_input_text(
                     tag=TAG_LOG_TEXT,

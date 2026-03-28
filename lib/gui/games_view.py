@@ -55,11 +55,11 @@ def create(
     ):
         dpg.add_text("Game Library", color=TEXT_SECONDARY)
         dpg.add_separator()
-        dpg.add_spacer(height=6)
+        dpg.add_spacer(height=4)
 
         with dpg.group(horizontal=True):
             # -- Left panel: game list ------------------------------------
-            with dpg.child_window(tag=TAG_GAME_LIST, width=360, height=-1,
+            with dpg.child_window(tag=TAG_GAME_LIST, width=280, height=-1,
                                    border=True):
                 dpg.add_text("Loading...", color=TEXT_MUTED)
 

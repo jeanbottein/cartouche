@@ -40,7 +40,7 @@ def run_gui(cfg: dict) -> None:
 
     # -- Theme and font scale for Steam Deck readability ------------------
     theme.apply_theme()
-    theme.set_global_scale(1.15)
+    theme.set_global_scale(1.0)
 
     # -- Build views (order matters: tags must exist before tab bar) ------
     _build_status_view(cfg)
@@ -141,7 +141,7 @@ def _switch_view(name: str) -> None:
     """Show the window for *name* and hide all others."""
     vp_w = dpg.get_viewport_client_width()
     vp_h = dpg.get_viewport_client_height()
-    tab_bar_height = 50  # approximate tab bar + padding
+    tab_bar_height = 36  # approximate tab bar + padding
 
     for view_name, tag in _VIEW_TAGS.items():
         if not dpg.does_item_exist(tag):
