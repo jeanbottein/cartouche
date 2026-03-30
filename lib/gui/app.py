@@ -11,7 +11,7 @@ from typing import Any, Callable
 
 import dearpygui.dearpygui as dpg
 
-from lib.gui import theme, status_view, games_view, game_edit, settings_view, controller
+from lib.gui import theme, status_view, games_view, settings_view, controller
 
 VIEWPORT_WIDTH = 1280
 VIEWPORT_HEIGHT = 800
@@ -91,13 +91,7 @@ def _build_status_view(cfg: dict) -> None:
 
 
 def _build_games_view(cfg: dict) -> None:
-    games_view.create(
-        cfg=cfg,
-        on_edit_game=lambda game: game_edit.open_editor(
-            game,
-            on_saved=lambda: games_view.refresh(cfg),
-        ),
-    )
+    games_view.create(cfg=cfg)
 
 
 def _build_settings_view(cfg: dict) -> None:
