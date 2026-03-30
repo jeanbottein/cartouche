@@ -24,11 +24,11 @@ logger = logging.getLogger(f"{APP_NAME}.detector")
 if sys.platform.startswith("linux") or sys.platform == "darwin":
     _machine = platform.machine().lower()
     if "arm" in _machine or "aarch64" in _machine:
-        EXEC_FILTERS = ["arm64", "aarch64", "x86-64", "x86", ""]
+        EXEC_FILTERS = ["arm64", "x64", ""]
     elif "64" in _machine or "x86_64" in _machine or "amd64" in _machine:
-        EXEC_FILTERS = ["x86-64", "x86", "arm64", "aarch64", ""]
+        EXEC_FILTERS = ["x64", "arm64", ""]
     else:
-        EXEC_FILTERS = ["x86", "x86-64", "arm64", "aarch64", ""]
+        EXEC_FILTERS = ["x64", "arm64", ""]
 else:
     EXEC_FILTERS = [""]
 
@@ -62,14 +62,15 @@ def _arch_from_binary(exe_path: str) -> str:
     """Detect architecture from binary headers, falling back to filename heuristics."""
     arch = detect_binary_arch(exe_path)
     if arch:
-        return arch
+        return arch  # already normalised by platform_info
     base = os.path.basename(exe_path).lower()
     if "arm64" in base or "aarch64" in base:
         return "arm64"
+    # x86, x86_64, amd64 all map to x64
     if "x86_64" in base or "amd64" in base or "64" in base:
-        return "x86_64"
+        return "x64"
     if "x86" in base or "32" in base:
-        return "x86"
+        return "x64"
     return arch_tag()
 
 
@@ -112,22 +113,19 @@ def _get_bin_posix(game_dir, maxdepth, arch_filter=""):
 
         for name in filenames:
             full = os.path.join(dirpath, name)
-            if not os.access(full, os.X_OK):
+            is_exe = name.lower().endswith(".exe")
+            if not is_exe and not os.access(full, os.X_OK):
                 continue
             if not is_executable(full):
                 continue
-            bin_arch = detect_binary_arch(full)
             if arch_filter:
-                # Match arch_filter against detected architecture
-                filter_norm = arch_filter.lower().replace("-", "_")
-                if bin_arch and filter_norm not in bin_arch.replace("-", "_"):
+                bin_arch = detect_binary_arch(full)
+                if bin_arch and bin_arch != arch_filter:
                     continue
                 if not bin_arch:
-                    # Fallback: check filename for arch hint
-                    base = name.lower()
-                    if arch_filter == "x86" and ("x86_64" in base or "amd64" in base):
-                        continue
-                    if arch_filter and arch_filter.lower() not in base:
+                    # Fallback: infer arch from filename
+                    arch_guess = _arch_from_binary(full)
+                    if arch_guess != arch_filter:
                         continue
             candidates.append(full)
 
@@ -206,13 +204,46 @@ def _format_path(full_path, base_path):
     return os.path.relpath(full_path, base_path)
 
 
+# ── Collect all executables ──────────────────────────────────────────────
+
+def _find_all_executables(game_dir: str, maxdepth: int = 3) -> list[str]:
+    """Find all recognized executables in game_dir up to maxdepth."""
+    root_depth = game_dir.rstrip(os.sep).count(os.sep)
+    results = []
+
+    for dirpath, dirnames, filenames in os.walk(game_dir):
+        depth = dirpath.rstrip(os.sep).count(os.sep) - root_depth
+        if depth >= maxdepth:
+            dirnames[:] = []
+            continue
+        dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS and not d.startswith('.')]
+
+        for name in filenames:
+            full = os.path.join(dirpath, name)
+            is_exe = name.lower().endswith(".exe")
+            if not is_exe and not os.access(full, os.X_OK):
+                continue
+            if not is_executable(full):
+                continue
+            results.append(full)
+
+    return results
+
+
 # ── Multi-target collection ──────────────────────────────────────────────
 
 def _collect_targets(game_dir: str) -> list[GameTarget]:
-    """Collect all executable targets for a game directory."""
+    """
+    Collect executable targets for a game directory.
+
+    Rules:
+    - x86 binaries are reported as x64 (x64 covers legacy x86)
+    - Only one target per (os, arch) pair is kept
+    - Best name match (vs folder name) wins within each (os, arch) group
+    """
     cur_os = os_tag()
     real_game_dir = _get_real_first_path(game_dir)
-    targets = []
+    targets: list[GameTarget] = []
 
     if sys.platform.startswith("win"):
         exe = _get_target(game_dir)
@@ -225,24 +256,33 @@ def _collect_targets(game_dir: str) -> list[GameTarget]:
             ))
         return targets
 
-    seen = set()
-    for arch_filter in EXEC_FILTERS:
-        exe = _get_bin(real_game_dir, 3, arch_filter)
-        if not exe or exe in seen:
-            continue
-        seen.add(exe)
+    # Collect all executables, then group by (os, arch)
+    all_exes = _find_all_executables(real_game_dir)
+    if not all_exes:
+        return targets
 
+    # Group executables by (os, arch)
+    groups: dict[tuple[str, str], list[str]] = {}
+    for exe in all_exes:
         target_os = cur_os
         if exe.lower().endswith(".exe"):
             target_os = "windows"
 
         arch = _arch_from_binary(exe)
-        targets.append(GameTarget(
-            os=target_os,
-            arch=arch,
-            target=_format_path(exe, game_dir),
-            start_in=_format_path(os.path.dirname(exe), game_dir),
-        ))
+        key = (target_os, arch)
+        groups.setdefault(key, []).append(exe)
+
+    # Pick the best match per (os, arch) group
+    for (target_os, arch), exes in groups.items():
+        best = _find_best(real_game_dir, exes)
+        if best:
+            targets.append(GameTarget(
+                os=target_os,
+                arch=arch,
+                target=_format_path(best, game_dir),
+                start_in=_format_path(os.path.dirname(best), game_dir),
+            ))
+
     return targets
 
 

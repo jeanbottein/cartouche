@@ -31,9 +31,9 @@ def arch_tag() -> str:
     if "arm" in m or "aarch64" in m:
         return "arm64"
     if "64" in m or "x86_64" in m or "amd64" in m:
-        return "x86_64"
+        return "x64"
     if "86" in m or "i386" in m or "i686" in m:
-        return "x86"
+        return "x64"  # x86 treated as x64
     return "other"
 
 
@@ -41,24 +41,24 @@ def arch_tag() -> str:
 
 # ELF e_machine values
 _ELF_ARCH = {
-    0x03: "x86",
-    0x3E: "x86_64",
+    0x03: "x64",      # x86 → x64
+    0x3E: "x64",      # x86_64 → x64
     0xB7: "arm64",
-    0x28: "arm",
+    0x28: "arm64",    # arm → arm64
 }
 
 # PE Machine values
 _PE_ARCH = {
-    0x014C: "x86",
-    0x8664: "x86_64",
+    0x014C: "x64",    # x86 → x64
+    0x8664: "x64",    # x86_64 → x64
     0xAA64: "arm64",
 }
 
 # Mach-O cputype values
 _MACHO_ARCH = {
-    7: "x86",         # CPU_TYPE_X86
-    0x01000007: "x86_64",  # CPU_TYPE_X86_64
-    12: "arm",         # CPU_TYPE_ARM
+    7: "x64",              # CPU_TYPE_X86 → x64
+    0x01000007: "x64",     # CPU_TYPE_X86_64 → x64
+    12: "arm64",           # CPU_TYPE_ARM → arm64
     0x0100000C: "arm64",   # CPU_TYPE_ARM64
 }
 

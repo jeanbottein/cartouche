@@ -54,7 +54,7 @@ _ARTWORK_SIZES: dict[str, tuple[int, int]] = {
 }
 
 # -- Dropdown options ------------------------------------------------------
-_OS_OPTIONS   = ["linux", "windows", "mac", "android", "web"]
+_OS_OPTIONS   = ["linux", "windows", "macos", "android", "web"]
 _ARCH_OPTIONS = ["x64", "arm64"]
 
 # -- Module state ----------------------------------------------------------
@@ -152,6 +152,7 @@ def create(cfg: dict) -> None:
                     auto_detect_btn = dpg.add_button(label="Auto-Detect",
                                                       callback=_on_auto_detect_targets)
                     dpg.bind_item_theme(auto_detect_btn, TAG_ADD_BTN_THEME)
+                    dpg.add_text("", tag=TAG_EDIT_STATUS, color=SUCCESS)
 
                 dpg.add_separator()
 
@@ -172,20 +173,17 @@ def create(cfg: dict) -> None:
                 dpg.add_group(tag=TAG_IMG_GROUP)
 
                 dpg.add_separator()
-                # Save button + status
+                # Save button
                 dpg.add_separator()
-                with dpg.group(horizontal=True):
-                    dpg.add_button(label="Save", width=80,
-                                   callback=_save_game_from_detail)
-                    dpg.add_text("", tag=TAG_EDIT_STATUS, color=SUCCESS)
+                dpg.add_button(label="Save", width=80,
+                               callback=_save_game_from_detail)
 
-                
 
     # File dialog (for target exe)
     with dpg.file_dialog(
         directory_selector=False, show=False,
         callback=_on_file_selected, tag=TAG_FILE_DLG,
-        width=700, height=450,
+        width=700, height=450, file_count=1,
     ):
         dpg.add_file_extension(".*")
         dpg.add_file_extension(".exe", color=(100, 200, 100, 255))
@@ -492,8 +490,16 @@ def _show_dir_dialog(field_tag: str) -> None:
 
 def _on_file_selected(sender: object, app_data: dict) -> None:
     global _pending_field_tag
-    path = app_data.get("file_path_name", "")
+    # "selections" maps display names to actual full paths — use it when available
+    # as file_path_name mangles multi-part extensions (e.g. .bin.x86_64 → .bin.*)
+    selections = app_data.get("selections", {})
+    if selections:
+        path = next(iter(selections.values()), "")
+    else:
+        path = app_data.get("file_path_name", "")
     if _pending_field_tag and path and dpg.does_item_exist(_pending_field_tag):
+        if _selected_game is not None:
+            path = os.path.relpath(path, _selected_game.game_dir)
         dpg.set_value(_pending_field_tag, path)
     _pending_field_tag = None
 
@@ -502,6 +508,9 @@ def _on_dir_selected(sender: object, app_data: dict) -> None:
     global _pending_field_tag
     path = app_data.get("file_path_name", "")
     if _pending_field_tag and path and dpg.does_item_exist(_pending_field_tag):
+        if _selected_game is not None:
+            # Convert to relative path from game directory
+            path = os.path.relpath(path, _selected_game.game_dir)
         dpg.set_value(_pending_field_tag, path)
     _pending_field_tag = None
 
