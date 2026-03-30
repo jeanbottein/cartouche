@@ -267,6 +267,16 @@ def _pick_target_entry(targets: list[GameTarget]) -> GameTarget | None:
     return pool[0]
 
 
+# ── Public single-game API ───────────────────────────────────────────────
+
+def collect_targets(game_dir: str) -> list[GameTarget]:
+    """
+    Collect all detected executable targets for a single game directory.
+    Returns a list of GameTarget objects (may be empty).
+    """
+    return _collect_targets(game_dir)
+
+
 # ── Main entry point ─────────────────────────────────────────────────────
 
 def detect(db: GameDatabase):

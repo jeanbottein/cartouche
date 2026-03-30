@@ -8,19 +8,23 @@ Cartouche (French for "cartridge") is a Python CLI tool for managing DRM-free ga
 
 ```
 cartouche.py main():
- 0. migrator.migrate()         # One-time: launch_manifest.json -> .cartouche/game.json
- 1. db = scanner.scan()        # Parse .cartouche/game.json into GameDatabase
- 2. detector.detect(db)        # Fill missing targets (exe detection)
- 3. enricher.enrich(db, cfg)   # Fetch SteamGridDB data (if API key)
- 4. persister.persist(db)      # Write .cartouche/game.json + download images
- 5. steam_cleaner.clean()      # Remove stale Steam shortcuts
- 6. steam_exporter.export()    # Insert/update Steam shortcuts
- 7. manifest_writer.write()    # Create manifests.json (ROM manager compat)
- 8. patcher.run(cfg)           # Apply patches
- 9. saver.run(db, cfg)         # Backup/restore saves
-10. configurer.run(cfg)        # Emulator config mutations
-11. run_post_commands(cfg)     # RUN_AFTER_* commands
+ 0. migrations.run_all_migrations()     # Data migrations (coordinator)
+ 1. db = scanner.scan()                 # Parse .cartouche/game.json into GameDatabase
+ 2. detector.detect(db)                 # Fill missing targets (exe detection)
+ 3. enricher.enrich(db, cfg)            # Fetch SteamGridDB data (if API key)
+ 4. persister.persist(db)               # Write .cartouche/game.json + download images
+ 5. steam_cleaner.clean()               # Remove stale Steam shortcuts
+ 6. steam_exporter.export()             # Insert/update Steam shortcuts
+ 7. manifest_writer.write()             # Create manifests.json (ROM manager compat)
+ 8. patcher.run(cfg)                    # Apply patches
+ 9. saver.run(db, cfg)                  # Backup/restore saves
+10. configurer.run(cfg)                 # Emulator config mutations
+11. run_post_commands(cfg)              # RUN_AFTER_* commands
 ```
+
+**Migrations** (step 0) runs before scanning and is idempotent — safe to run every time. Includes:
+- `migrator.migrate()` — One-time: `launch_manifest.json` → `.cartouche/game.json`
+- `save_paths_migrator.migrate_all_games()` — Flatten nested save paths format
 
 ## Architecture
 
@@ -28,6 +32,9 @@ cartouche.py main():
 cartouche.py               # Entry point: loads config, runs pipeline
 lib/
   models.py                # Game, GameTarget, GameImages, GameDatabase
+  migrations.py            # Step 0: coordinator for all data migrations
+  migrator.py              # (Step 0 sub-task) Legacy launch_manifest.json migration
+  save_paths_migrator.py   # (Step 0 sub-task) Save paths format migration
   scanner.py               # Step 1: parse .cartouche/ folders
   detector.py              # Step 2: exe detection
   enricher.py              # Step 3: SteamGridDB API
@@ -36,7 +43,6 @@ lib/
   steam_exporter.py        # Step 6: create/update shortcuts
   steam_compat.py          # Step 6b: set Proton compat for Windows games
   manifest_writer.py       # Step 7: write manifests.json
-  migrator.py              # Step 0: migrate old format
   patcher.py               # Step 8: BPS patching + file replacement
   saver.py                 # Step 9: save backup/restore/symlink
   configurer.py            # Step 10: emulator config mutations

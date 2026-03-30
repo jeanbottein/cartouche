@@ -10,7 +10,7 @@ import logging
 import os
 from typing import Callable
 
-from . import migrator, scanner, detector, enricher, persister
+from . import migrations, scanner, detector, enricher, persister
 from . import steam_cleaner, steam_exporter, manifest_writer
 from . import patcher, saver, configurer
 from .models import GameDatabase
@@ -87,7 +87,7 @@ class PipelineRunner:
     # ── Individual phase implementations ──────────────────────────────────
 
     def _phase_migrate(self):
-        migrator.migrate(self.games_dir)
+        migrations.run_all_migrations(self.games_dir)
 
     def _phase_scan(self):
         self.db = scanner.scan(self.games_dir)

@@ -14,7 +14,7 @@ from typing import Callable
 
 import dearpygui.dearpygui as dpg
 
-from lib import scanner
+from lib import scanner, detector
 from lib.models import Game, GameDatabase, GameTarget, CARTOUCHE_DIR, GAME_JSON
 from .theme import TEXT_SECONDARY, TEXT_MUTED, ACCENT, SUCCESS, WARNING, ERROR
 
@@ -41,6 +41,7 @@ TAG_DIR_DLG         = "games_dir_dlg"
 
 # -- Themes -------------------------------------------------------------------
 TAG_DELETE_BTN_THEME  = "games_delete_btn_theme"
+TAG_ADD_BTN_THEME     = "games_add_btn_theme"
 TAG_TIGHT_THEME       = "games_tight_theme"
 TAG_AUTO_WINDOW_THEME = "games_auto_window_theme"
 
@@ -84,6 +85,13 @@ def create(cfg: dict) -> None:
             dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (255, 120, 120, 255))
             dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (180, 50, 50, 255))
 
+    # Create green add button theme
+    with dpg.theme(tag=TAG_ADD_BTN_THEME):
+        with dpg.theme_component(dpg.mvButton):
+            dpg.add_theme_color(dpg.mvThemeCol_Button, SUCCESS)
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (120, 210, 150, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (50, 150, 90, 255))
+
     # Zero horizontal spacing — applied to input+button sub-groups
     with dpg.theme(tag=TAG_TIGHT_THEME):
         with dpg.theme_component(dpg.mvAll):
@@ -105,9 +113,6 @@ def create(cfg: dict) -> None:
         no_title_bar=True, no_move=True, no_resize=True,
         no_close=True, no_collapse=True, show=False,
     ):
-        dpg.add_text("Game Library", color=TEXT_SECONDARY)
-        dpg.add_separator()
-        dpg.add_spacer(height=4)
 
         with dpg.group(horizontal=True):
             # -- Left panel: game list ------------------------------------
@@ -140,8 +145,13 @@ def create(cfg: dict) -> None:
                 with dpg.group(tag=TAG_TARGETS_SECTION, horizontal=False) as grp:
                     dpg.bind_item_theme(grp, TAG_AUTO_WINDOW_THEME)
                     pass
-                dpg.add_button(label="+ Add Target",
-                               callback=_on_add_target)
+                with dpg.group(horizontal=True):
+                    add_target_btn = dpg.add_button(label="+ Add Target",
+                                                     callback=_on_add_target)
+                    dpg.bind_item_theme(add_target_btn, TAG_ADD_BTN_THEME)
+                    auto_detect_btn = dpg.add_button(label="Auto-Detect",
+                                                      callback=_on_auto_detect_targets)
+                    dpg.bind_item_theme(auto_detect_btn, TAG_ADD_BTN_THEME)
 
                 dpg.add_separator()
 
@@ -153,19 +163,23 @@ def create(cfg: dict) -> None:
                 with dpg.group(tag=TAG_SAVES_SECTION, horizontal=False) as grp:
                     dpg.bind_item_theme(grp, TAG_AUTO_WINDOW_THEME)
                     pass
-                dpg.add_button(label="+ Add Save Path",
-                               callback=_on_add_save_path)
+                add_save_btn = dpg.add_button(label="+ Add Save Path",
+                                              callback=_on_add_save_path)
+                dpg.bind_item_theme(add_save_btn, TAG_ADD_BTN_THEME)
 
-                dpg.add_spacer(height=3)
+                dpg.add_separator()
+                dpg.add_text("Images", color=TEXT_SECONDARY)
+                dpg.add_group(tag=TAG_IMG_GROUP)
 
+                dpg.add_separator()
                 # Save button + status
+                dpg.add_separator()
                 with dpg.group(horizontal=True):
                     dpg.add_button(label="Save", width=80,
                                    callback=_save_game_from_detail)
                     dpg.add_text("", tag=TAG_EDIT_STATUS, color=SUCCESS)
 
-                dpg.add_spacer(height=2)
-                dpg.add_group(tag=TAG_IMG_GROUP)
+                
 
     # File dialog (for target exe)
     with dpg.file_dialog(
@@ -346,6 +360,47 @@ def _delete_target_row(tags: dict) -> None:
 def _on_add_target(sender=None, app_data=None, user_data=None) -> None:
     if _selected_game is not None:
         _add_target_row()
+
+
+_ARCH_NORMALIZE = {"x86_64": "x64", "amd64": "x64"}
+
+
+def _on_auto_detect_targets(sender=None, app_data=None, user_data=None) -> None:
+    if _selected_game is None:
+        return
+
+    detected = detector.collect_targets(str(_selected_game.game_dir))
+    if not detected:
+        _set_edit_status("No executables detected.", WARNING)
+        return
+
+    # Build set of existing (os, arch, target) from live widgets
+    existing = set()
+    for tags in _target_row_tags:
+        if dpg.does_item_exist(tags["target"]):
+            existing.add((
+                dpg.get_value(tags["os"]),
+                dpg.get_value(tags["arch"]),
+                dpg.get_value(tags["target"]),
+            ))
+
+    added = 0
+    for t in detected:
+        arch = _ARCH_NORMALIZE.get(t.arch.lower(), t.arch)
+        key = (t.os, arch, t.target)
+        if key not in existing:
+            _add_target_row(GameTarget(
+                os=t.os, arch=arch,
+                target=t.target, start_in=t.start_in,
+                launch_options=t.launch_options,
+            ))
+            existing.add(key)
+            added += 1
+
+    if added:
+        _set_edit_status(f"Detected {added} new target(s).", SUCCESS)
+    else:
+        _set_edit_status("No new targets found.", WARNING)
 
 
 # =========================================================================
@@ -572,5 +627,5 @@ def _try_load_all_artwork(game: Game) -> None:
                 continue
 
         col = dpg.add_group(parent=artwork_row)
-        dpg.add_image(_loaded_textures[tex_tag], parent=col, width=w, height=h)
         dpg.add_text(field, parent=col, color=TEXT_MUTED)
+        dpg.add_image(_loaded_textures[tex_tag], parent=col, width=w, height=h)

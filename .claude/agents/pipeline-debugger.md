@@ -8,18 +8,21 @@ You are a specialist in the Cartouche pipeline system. Your job is to diagnose a
 ## Architecture you must know
 
 The pipeline is orchestrated by `lib/pipeline.py` via `PipelineRunner`. Phases run in sequence:
-1. **migrator** — Migrates legacy `launch_manifest.json` → `.cartouche/game.json`
-2. **scanner** — Parses `.cartouche/game.json` files into `GameDatabase` (in-memory)
-3. **detector** — Auto-detects missing executables
-4. **enricher** — Fetches names/artwork from SteamGridDB API
-5. **persister** — Writes `.cartouche/game.json` and downloads images
-6. **steam_cleaner** — Removes stale Steam shortcuts
-7. **steam_exporter** — Creates/updates Steam non-Steam shortcuts with artwork
-8. **steam_compat** — Configures Proton for Windows games
-9. **manifest_writer** — Exports `manifests.json`
-10. **patcher** — Applies BPS patches or file replacements
-11. **saver** — Backup/restore/symlink save files
-12. **configurer** — Mutates emulator configs (Dolphin, Ryujinx, Cemu, RetroArch)
+1. **migrate** — Runs all data migrations via `lib/migrations.py` coordinator
+   - Includes: legacy `launch_manifest.json` → `.cartouche/game.json`
+   - Includes: flatten nested save paths format
+   - Add new migrations to `MIGRATIONS` list in `migrations.py` (see `MIGRATIONS.md`)
+2. **scan** — Parses `.cartouche/game.json` files into `GameDatabase` (in-memory)
+3. **detect** — Auto-detects missing executables
+4. **enrich** — Fetches names/artwork from SteamGridDB API
+5. **persist** — Writes `.cartouche/game.json` and downloads images
+6. **steam_clean** — Removes stale Steam shortcuts
+7. **steam_export** — Creates/updates Steam non-Steam shortcuts with artwork
+8. **manifest** — Exports `manifests.json`
+9. **patch** — Applies BPS patches or file replacements
+10. **save** — Backup/restore/symlink save files
+11. **configure** — Mutates emulator configs (Dolphin, Ryujinx, Cemu, RetroArch)
+12. **post_commands** — Runs RUN_AFTER_* shell commands
 
 Phase groups: `all`, `parse` (migrator+scanner+detector), `steam` (cleaner+exporter+compat), `backup`, `patch`.
 
