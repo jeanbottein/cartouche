@@ -67,6 +67,11 @@
 # you must provide a free API key from https://www.steamgriddb.com/profile/preferences/api
 #STEAMGRIDDB_API_KEY=
 
+# SteamGridDB content filters (set to True to include)
+#STEAMGRIDDB_NSFW=False
+#STEAMGRIDDB_HUMOR=False
+#STEAMGRIDDB_EPILEPSY=False
+
 # Manifest export (optional)
 # Set to False to skip writing manifests.json
 #MANIFEST_EXPORT=True

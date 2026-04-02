@@ -73,6 +73,7 @@ _selected_game: Game | None = None
 _cfg: dict = {}
 _texture_registry_tag = "games_tex_registry"
 _loaded_textures: dict[str, int | str] = {}
+_texture_sizes: dict[str, tuple[int, int]] = {}  # tex_tag -> (width, height)
 
 # Dynamic rows: each entry is a dict of widget tags for one row
 _target_row_tags: list[dict[str, str]] = []
@@ -732,8 +733,13 @@ def _try_load_all_artwork(game: Game) -> None:
                             tag=tex_tag,
                         )
                         _loaded_textures[tex_tag] = texture_id
+                        _texture_sizes[tex_tag] = (iw, ih)
                 if tex_tag in _loaded_textures:
-                    dpg.add_image(_loaded_textures[tex_tag], parent=slot, width=w, height=h)
+                    # Fit image within slot while preserving aspect ratio
+                    iw, ih = _texture_sizes.get(tex_tag, (w, h))
+                    scale = min(w / iw, h / ih)
+                    dw, dh = int(iw * scale), int(ih * scale)
+                    dpg.add_image(_loaded_textures[tex_tag], parent=slot, width=dw, height=dh)
                     loaded = True
                 if not loaded:
                     ext = os.path.splitext(filename)[1]
@@ -766,6 +772,7 @@ def _invalidate_game_textures(game: Game) -> None:
         except Exception:
             pass
         del _loaded_textures[key]
+        _texture_sizes.pop(key, None)
 
 
 def _on_image_delete_click(sender=None, app_data=None, user_data=None) -> None:
@@ -852,7 +859,7 @@ def _on_fetch_images(sender=None, app_data=None, user_data=None) -> None:
         dpg.configure_item(TAG_FETCH_STATUS, color=TEXT_MUTED)
 
     try:
-        urls = _enricher.fetch_artwork_urls(game.steamgriddb_id, api_key)
+        urls = _enricher.fetch_artwork_urls(game.steamgriddb_id, api_key, _cfg)
         new_images = _enricher._urls_to_image_filenames(urls)
 
         any_found = False

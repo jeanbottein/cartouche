@@ -50,6 +50,9 @@ SETTINGS_SCHEMA = [
             {"key": "STEAM_USERID", "label": "Steam User ID", "type": "text", "help": "Optional: target specific user ID."},
             {"key": "PROTON_VERSION", "label": "Proton Version", "type": "text", "help": "Tool for Windows games (e.g. proton_experimental)."},
             {"key": "STEAMGRIDDB_API_KEY", "label": "SteamGridDB API Key", "type": "password", "help": "For automatic artwork (steamgriddb.com)."},
+            {"key": "STEAMGRIDDB_NSFW", "label": "SteamGridDB NSFW", "type": "bool", "help": "Include adult content in artwork results."},
+            {"key": "STEAMGRIDDB_HUMOR", "label": "SteamGridDB Humor", "type": "bool", "help": "Include humor content in artwork results."},
+            {"key": "STEAMGRIDDB_EPILEPSY", "label": "SteamGridDB Epilepsy", "type": "bool", "help": "Include epilepsy content in artwork results."},
             {"key": "MANIFEST_EXPORT", "label": "Export Manifests", "type": "bool", "help": "Generate manifests.json."},
             {"key": "MANIFEST_PATH", "label": "Manifest File Path", "type": "path", "help": "Custom path for manifests.json."},
         ]

@@ -49,26 +49,45 @@ def search_game_id(game_name, api_key):
     return None, None
 
 
-def fetch_artwork_urls(game_id, api_key):
+def _pick_best(data):
+    """Pick the entry with the highest score from a SteamGridDB result list."""
+    if not data:
+        return None
+    best = max(data, key=lambda d: d.get("score", 0))
+    return best.get("url")
+
+
+def _build_content_filters(cfg: dict) -> str:
+    """Build SteamGridDB content filter query string from config.
+    Each filter defaults to off (excluded) unless explicitly enabled."""
+    nsfw = "any" if str(cfg.get("STEAMGRIDDB_NSFW", "")).lower() == "true" else "false"
+    humor = "any" if str(cfg.get("STEAMGRIDDB_HUMOR", "")).lower() == "true" else "false"
+    epilepsy = "any" if str(cfg.get("STEAMGRIDDB_EPILEPSY", "")).lower() == "true" else "false"
+    return f"nsfw={nsfw}&humor={humor}&epilepsy={epilepsy}"
+
+
+def fetch_artwork_urls(game_id, api_key, cfg: dict | None = None):
     """
     Fetch artwork URLs for a game from SteamGridDB.
     Returns dict with keys: grid, poster, hero, logo, icon (URL or None each).
+    Picks the highest-scored result per type. Content filters from config.
     """
-    # (art_type, endpoint, query, fallback_without_query)
+    filters = _build_content_filters(cfg or {})
+    # (art_type, endpoint, extra_query, fallback_without_extra)
     endpoints = [
-        ("grid",   "grids", "dimensions=460x215,920x430", True),
-        ("poster", "grids", "dimensions=600x900,342x482", True),
-        ("hero",   "heroes", "",                           False),
-        ("logo",   "logos",  "",                           False),
-        ("icon",   "icons",  "",                            False),
+        ("grid",   "grids", f"dimensions=460x215,920x430&{filters}", True),
+        ("poster", "grids", f"dimensions=600x900,342x482&{filters}", True),
+        ("hero",   "heroes", filters,                                  False),
+        ("logo",   "logos",  filters,                                  False),
+        ("icon",   "icons",  filters,                                  False),
     ]
     result = {}
     for art_type, endpoint, query, fallback in endpoints:
         q = f"?{query}" if query else ""
         data = _steamgriddb_request(f"{endpoint}/game/{game_id}{q}", api_key)
-        if not data and query and fallback:
-            data = _steamgriddb_request(f"{endpoint}/game/{game_id}", api_key)
-        result[art_type] = data[0]["url"] if data else None
+        if not data and fallback:
+            data = _steamgriddb_request(f"{endpoint}/game/{game_id}?{filters}", api_key)
+        result[art_type] = _pick_best(data)
     return result
 
 
@@ -101,7 +120,7 @@ def save_sgdb_cache(project_root, cache):
         logger.warning(f"Failed to save SteamGridDB cache: {e}")
 
 
-def get_sgdb_info(name, api_key, cache, manifest_id=None):
+def get_sgdb_info(name, api_key, cache, manifest_id=None, cfg=None):
     """
     Returns (game_id, urls_dict, official_name). Uses cache to prevent API calls.
     Updates cache in-place if fresh data is fetched.
@@ -123,7 +142,7 @@ def get_sgdb_info(name, api_key, cache, manifest_id=None):
                     cached["name"] = official_name
                     needs_update = True
             if "icon" not in urls or "poster" not in urls:
-                fresh_urls = fetch_artwork_urls(game_id, api_key)
+                fresh_urls = fetch_artwork_urls(game_id, api_key, cfg)
                 cached["urls"] = fresh_urls
                 needs_update = True
 
@@ -139,7 +158,7 @@ def get_sgdb_info(name, api_key, cache, manifest_id=None):
         game_id, official_name = search_game_id(name, api_key)
 
     if game_id:
-        urls = fetch_artwork_urls(game_id, api_key)
+        urls = fetch_artwork_urls(game_id, api_key, cfg)
         cache[key] = {"game_id": game_id, "urls": urls, "name": official_name}
         return game_id, urls, official_name
     else:
@@ -208,7 +227,7 @@ def enrich(db: GameDatabase, cfg: dict):
 
     for game in games:
         game_id, urls, official_name = get_sgdb_info(
-            game.title, api_key, sgdb_cache, game.steamgriddb_id
+            game.title, api_key, sgdb_cache, game.steamgriddb_id, cfg=cfg
         )
 
         if not game_id:
