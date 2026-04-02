@@ -54,18 +54,19 @@ def fetch_artwork_urls(game_id, api_key):
     Fetch artwork URLs for a game from SteamGridDB.
     Returns dict with keys: grid, poster, hero, logo, icon (URL or None each).
     """
+    # (art_type, endpoint, query, fallback_without_query)
     endpoints = [
-        ("grid", "grids", "dimensions=460x215,920x430"),
-        ("poster", "grids", "dimensions=600x900,342x482"),
-        ("hero", "heroes", ""),
-        ("logo", "logos", ""),
-        ("icon", "icons", ""),
+        ("grid",   "grids", "dimensions=460x215,920x430", True),
+        ("poster", "grids", "dimensions=600x900,342x482", True),
+        ("hero",   "heroes", "",                           False),
+        ("logo",   "logos",  "",                           False),
+        ("icon",   "icons",  "",                            False),
     ]
     result = {}
-    for art_type, endpoint, query in endpoints:
+    for art_type, endpoint, query, fallback in endpoints:
         q = f"?{query}" if query else ""
         data = _steamgriddb_request(f"{endpoint}/game/{game_id}{q}", api_key)
-        if not data and query:
+        if not data and query and fallback:
             data = _steamgriddb_request(f"{endpoint}/game/{game_id}", api_key)
         result[art_type] = data[0]["url"] if data else None
     return result
@@ -162,10 +163,11 @@ def _urls_to_image_filenames(urls: dict) -> GameImages:
     """Convert SGDB artwork URLs to local filenames for .cartouche/ storage."""
     images = GameImages()
     field_url_keys = [
-        ("cover", ["poster", "grid"]),
-        ("icon", ["icon"]),
-        ("hero", ["hero"]),
-        ("logo", ["logo"]),
+        ("cover",   ["poster"]),
+        ("icon",    ["icon"]),
+        ("hero",    ["hero"]),
+        ("logo",    ["logo"]),
+        ("header",  ["grid"]),
     ]
     for field, keys in field_url_keys:
         url = next((urls.get(k) for k in keys if urls.get(k)), None)
@@ -224,7 +226,7 @@ def enrich(db: GameDatabase, cfg: dict):
             changed = True
 
         new_images = _urls_to_image_filenames(urls)
-        for field in ("cover", "icon", "hero", "logo"):
+        for field in ("cover", "icon", "hero", "logo", "header"):
             new_val = getattr(new_images, field)
             if new_val and not getattr(game.images, field):
                 setattr(game.images, field, new_val)

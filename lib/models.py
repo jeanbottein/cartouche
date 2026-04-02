@@ -48,10 +48,11 @@ class GameTarget:
 @dataclass
 class GameImages:
     """Filenames for Steam artwork images stored in .cartouche/."""
-    cover: Optional[str] = None    # Grid/poster artwork
+    cover: Optional[str] = None    # Vertical poster artwork
     icon: Optional[str] = None     # Icon
     hero: Optional[str] = None     # Hero banner
     logo: Optional[str] = None     # Logo overlay
+    header: Optional[str] = None   # Horizontal header/grid artwork
 
     def to_dict(self) -> dict:
         d = {}
@@ -63,6 +64,8 @@ class GameImages:
             d["hero"] = self.hero
         if self.logo:
             d["logo"] = self.logo
+        if self.header:
+            d["header"] = self.header
         return d
 
     @classmethod
@@ -72,6 +75,7 @@ class GameImages:
             icon=d.get("icon"),
             hero=d.get("hero"),
             logo=d.get("logo"),
+            header=d.get("header"),
         )
 
 

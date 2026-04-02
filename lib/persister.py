@@ -32,17 +32,18 @@ def _download_file(url, local_path):
         return False
 
 
-def _download_images(game, cartouche_dir: str):
+def _download_images(game, cartouche_dir: str, force: bool = False):
     """Download artwork images from URLs stored during enrichment."""
     urls = getattr(game, "_artwork_urls", None)
     if not urls:
         return
 
     image_map = {
-        "cover": urls.get("poster") or urls.get("grid"),
-        "icon": urls.get("icon"),
-        "hero": urls.get("hero"),
-        "logo": urls.get("logo"),
+        "cover":  urls.get("poster"),
+        "icon":   urls.get("icon"),
+        "hero":   urls.get("hero"),
+        "logo":   urls.get("logo"),
+        "header": urls.get("grid"),
     }
 
     for field_name, url in image_map.items():
@@ -52,7 +53,7 @@ def _download_images(game, cartouche_dir: str):
         if not filename:
             continue
         local_path = os.path.join(cartouche_dir, filename)
-        if os.path.isfile(local_path):
+        if not force and os.path.isfile(local_path):
             continue
         if _download_file(url, local_path):
             logger.info(f"  Downloaded {field_name}: {filename}")

@@ -1,33 +1,44 @@
 """
-Dark Steam-like theme for Dear PyGui.
+Dark terminal-style theme for Dear PyGui.
 
-Provides a cohesive dark color palette with blue accents,
-rounded corners, and readable fonts sized for 1280x800 (Steam Deck).
+Palette derived from the app icon: dark amber for window chrome,
+green accents for buttons/interactive elements, blue for tab selection.
+Rounded corners and readable fonts sized for 1280x800 (Steam Deck).
 """
 
 import dearpygui.dearpygui as dpg
 
 # -- Color palette --------------------------------------------------------
-BG_DARKEST = (23, 26, 33, 255)
-BG_DARK = (30, 34, 42, 255)
-BG_MID = (42, 46, 56, 255)
-BG_LIGHT = (55, 60, 72, 255)
+BG_DARKEST = (18, 13, 8, 255)
+BG_DARK = (26, 19, 12, 255)
+BG_MID = (38, 28, 18, 255)
+BG_LIGHT = (52, 40, 26, 255)
 
 TEXT_PRIMARY = (230, 235, 242, 255)
 TEXT_SECONDARY = (160, 168, 180, 255)
 TEXT_MUTED = (110, 118, 130, 255)
 
+# Blue — tabs only
 ACCENT = (86, 156, 214, 255)
 ACCENT_HOVER = (106, 176, 234, 255)
 ACCENT_ACTIVE = (66, 136, 194, 255)
+
+# Green — buttons, checkmarks, sliders (from icon's green face)
+GREEN = (38, 168, 108, 255)
+GREEN_HOVER = (54, 195, 128, 255)
+GREEN_ACTIVE = (26, 138, 86, 255)
+
+# Amber — title bar chrome (from icon's orange body, kept very dark)
+AMBER_DARK = (60, 30, 6, 255)
+AMBER = (160, 82, 16, 255)
 
 SUCCESS = (78, 185, 120, 255)
 ERROR = (214, 86, 86, 255)
 WARNING = (214, 180, 86, 255)
 
-BORDER = (60, 65, 78, 255)
-SCROLLBAR = (50, 54, 64, 255)
-SCROLLBAR_GRAB = (80, 85, 98, 255)
+BORDER = (65, 48, 30, 255)
+SCROLLBAR = (32, 24, 15, 255)
+SCROLLBAR_GRAB = (70, 52, 32, 255)
 
 # -- Sizing constants -----------------------------------------------------
 ROUNDING = 6
@@ -60,15 +71,15 @@ def apply_theme() -> int:
             dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, BG_LIGHT)
             dpg.add_theme_color(dpg.mvThemeCol_FrameBgActive, BG_LIGHT)
 
-            # Title bar
-            dpg.add_theme_color(dpg.mvThemeCol_TitleBg, BG_DARK)
-            dpg.add_theme_color(dpg.mvThemeCol_TitleBgActive, BG_MID)
+            # Title bar (amber tint — from icon's orange body)
+            dpg.add_theme_color(dpg.mvThemeCol_TitleBg, AMBER_DARK)
+            dpg.add_theme_color(dpg.mvThemeCol_TitleBgActive, AMBER_DARK)
             dpg.add_theme_color(dpg.mvThemeCol_TitleBgCollapsed, BG_DARKEST)
 
-            # Buttons
-            dpg.add_theme_color(dpg.mvThemeCol_Button, ACCENT)
-            dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, ACCENT_HOVER)
-            dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, ACCENT_ACTIVE)
+            # Buttons (green — from icon's green face)
+            dpg.add_theme_color(dpg.mvThemeCol_Button, GREEN)
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, GREEN_HOVER)
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, GREEN_ACTIVE)
 
             # Headers / tabs
             dpg.add_theme_color(dpg.mvThemeCol_Header, BG_MID)
@@ -83,7 +94,7 @@ def apply_theme() -> int:
             # Table
             dpg.add_theme_color(dpg.mvThemeCol_TableHeaderBg, BG_MID)
             dpg.add_theme_color(dpg.mvThemeCol_TableBorderStrong, BORDER)
-            dpg.add_theme_color(dpg.mvThemeCol_TableBorderLight, (50, 54, 64, 128))
+            dpg.add_theme_color(dpg.mvThemeCol_TableBorderLight, (65, 48, 30, 128))
             dpg.add_theme_color(dpg.mvThemeCol_TableRowBg, BG_DARK)
             dpg.add_theme_color(dpg.mvThemeCol_TableRowBgAlt, BG_DARKEST)
 
@@ -91,21 +102,21 @@ def apply_theme() -> int:
             dpg.add_theme_color(dpg.mvThemeCol_ScrollbarBg, SCROLLBAR)
             dpg.add_theme_color(dpg.mvThemeCol_ScrollbarGrab, SCROLLBAR_GRAB)
             dpg.add_theme_color(dpg.mvThemeCol_ScrollbarGrabHovered, BG_LIGHT)
-            dpg.add_theme_color(dpg.mvThemeCol_ScrollbarGrabActive, ACCENT)
+            dpg.add_theme_color(dpg.mvThemeCol_ScrollbarGrabActive, GREEN)
 
             # Separator / resize grip
             dpg.add_theme_color(dpg.mvThemeCol_Separator, BORDER)
             dpg.add_theme_color(dpg.mvThemeCol_ResizeGrip, (0, 0, 0, 0))
-            dpg.add_theme_color(dpg.mvThemeCol_ResizeGripHovered, ACCENT_HOVER)
-            dpg.add_theme_color(dpg.mvThemeCol_ResizeGripActive, ACCENT)
+            dpg.add_theme_color(dpg.mvThemeCol_ResizeGripHovered, GREEN_HOVER)
+            dpg.add_theme_color(dpg.mvThemeCol_ResizeGripActive, GREEN)
 
-            # Check / slider
-            dpg.add_theme_color(dpg.mvThemeCol_CheckMark, ACCENT)
-            dpg.add_theme_color(dpg.mvThemeCol_SliderGrab, ACCENT)
-            dpg.add_theme_color(dpg.mvThemeCol_SliderGrabActive, ACCENT_HOVER)
+            # Check / slider (green)
+            dpg.add_theme_color(dpg.mvThemeCol_CheckMark, GREEN)
+            dpg.add_theme_color(dpg.mvThemeCol_SliderGrab, GREEN)
+            dpg.add_theme_color(dpg.mvThemeCol_SliderGrabActive, GREEN_HOVER)
 
-            # Progress bar
-            dpg.add_theme_color(dpg.mvThemeCol_PlotHistogram, ACCENT)
+            # Progress bar (green)
+            dpg.add_theme_color(dpg.mvThemeCol_PlotHistogram, GREEN)
 
             # -- Style --
             dpg.add_theme_style(dpg.mvStyleVar_WindowRounding, ROUNDING)

@@ -85,12 +85,8 @@ def _load_game_json(game_dir: str) -> Game | None:
     save_paths = data.get("savePaths", [])
     images = GameImages.from_dict(data.get("images", {}))
 
-    for img_field in ("cover", "icon", "hero", "logo"):
-        filename = getattr(images, img_field)
-        if filename:
-            img_path = os.path.join(cartouche_dir, filename)
-            if not os.path.isfile(img_path):
-                setattr(images, img_field, None)
+    # Do not clear image fields when files are missing — preserve the JSON reference
+    # so the UI can show "file missing" and the user can re-fetch.
 
     title = data.get("title") or folder_name
     if not title or not isinstance(title, str):

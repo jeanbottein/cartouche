@@ -10,12 +10,17 @@ from __future__ import annotations
 import json
 import logging
 import os
+import webbrowser
 from typing import Callable
 
 import dearpygui.dearpygui as dpg
+from PIL import Image as PILImage
 
 from lib import scanner, detector
+from lib import enricher as _enricher
+from lib import persister as _persister
 from lib.models import Game, GameDatabase, GameTarget, CARTOUCHE_DIR, GAME_JSON
+from lib.api_keys import get_steamgriddb_key
 from .theme import TEXT_SECONDARY, TEXT_MUTED, ACCENT, SUCCESS, WARNING, ERROR
 
 logger = logging.getLogger(__name__)
@@ -38,19 +43,24 @@ TAG_SAVES_SECTION   = "games_saves_section"
 # -- File dialog tags ------------------------------------------------------
 TAG_FILE_DLG        = "games_file_dlg"
 TAG_DIR_DLG         = "games_dir_dlg"
+TAG_FETCH_STATUS    = "games_fetch_status"
+TAG_IMG_DELETE_POPUP = "games_img_delete_popup"
 
 # -- Themes -------------------------------------------------------------------
 TAG_DELETE_BTN_THEME  = "games_delete_btn_theme"
 TAG_ADD_BTN_THEME     = "games_add_btn_theme"
 TAG_TIGHT_THEME       = "games_tight_theme"
 TAG_AUTO_WINDOW_THEME = "games_auto_window_theme"
+TAG_IMG_SLOT_THEME    = "games_img_slot_theme"
 
-# -- Artwork thumbnails ----------------------------------------------------
+# -- Artwork thumbnails (fixed order: 5 slots always shown) ---------------
+_ARTWORK_ORDER = ["icon", "cover", "hero", "logo", "header"]
 _ARTWORK_SIZES: dict[str, tuple[int, int]] = {
-    "cover": (120, 180),
-    "hero":  (200, 75),
-    "logo":  (150, 60),
-    "icon":  (60, 60),
+    "icon":   (60,  60),
+    "cover":  (120, 180),
+    "hero":   (200, 75),
+    "logo":   (150, 60),
+    "header": (200, 93),
 }
 
 # -- Dropdown options ------------------------------------------------------
@@ -60,6 +70,7 @@ _ARCH_OPTIONS = ["x64", "arm64"]
 # -- Module state ----------------------------------------------------------
 _db: GameDatabase | None = None
 _selected_game: Game | None = None
+_cfg: dict = {}
 _texture_registry_tag = "games_tex_registry"
 _loaded_textures: dict[str, int | str] = {}
 
@@ -68,6 +79,7 @@ _target_row_tags: list[dict[str, str]] = []
 _save_row_tags:   list[dict[str, str]] = []
 _row_counter: int = 0          # ever-increasing, never reused
 _pending_field_tag: str | None = None  # which input the open dialog fills
+_pending_delete_field: str | None = None  # which image field the delete popup targets
 
 
 # =========================================================================
@@ -76,6 +88,8 @@ _pending_field_tag: str | None = None  # which input the open dialog fills
 
 def create(cfg: dict) -> None:
     """Build the games-browser view."""
+    global _cfg
+    _cfg = cfg
     games_dir: str = cfg.get("FREEGAMES_PATH", "")
 
     # Create red delete button theme
@@ -105,6 +119,15 @@ def create(cfg: dict) -> None:
             dpg.add_theme_style(dpg.mvStyleVar_ChildBorderSize, 1)
             dpg.add_theme_style(dpg.mvStyleVar_ChildRounding, 4)
 
+    # Image slot theme: zero padding, border
+    with dpg.theme(tag=TAG_IMG_SLOT_THEME):
+        with dpg.theme_component(dpg.mvAll):
+            dpg.add_theme_color(dpg.mvThemeCol_Border, (60, 65, 78, 255))
+            dpg.add_theme_style(dpg.mvStyleVar_ChildBorderSize, 1)
+            dpg.add_theme_style(dpg.mvStyleVar_ChildRounding, 4)
+            dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 0, 0)
+            dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing, 0, 2)
+
     with dpg.texture_registry(tag=_texture_registry_tag):
         pass
 
@@ -129,9 +152,11 @@ def create(cfg: dict) -> None:
                 with dpg.group(horizontal=True):
                     dpg.add_text("Title:", color=TEXT_MUTED)
                     dpg.add_input_text(tag=TAG_EDIT_TITLE, default_value="", width=280)
-                    dpg.add_text("ID:", color=TEXT_MUTED)
+                    dpg.add_text("SteamGridDB ID:", color=TEXT_MUTED)
                     dpg.add_input_text(tag=TAG_EDIT_SGDB, default_value="",
                                        width=70, decimal=True)
+                    dpg.add_button(label="Go to SteamGridDB game page",
+                                   callback=_on_open_sgdb_page)
 
                 # -- Targets ----------------------------------------------
                 dpg.add_separator()
@@ -171,6 +196,10 @@ def create(cfg: dict) -> None:
                 dpg.add_separator()
                 dpg.add_text("Images", color=TEXT_SECONDARY)
                 dpg.add_group(tag=TAG_IMG_GROUP)
+                with dpg.group(horizontal=True):
+                    dpg.add_button(label="Fetch Images",
+                                   callback=_on_fetch_images)
+                    dpg.add_text("", tag=TAG_FETCH_STATUS, color=TEXT_MUTED)
 
                 dpg.add_separator()
                 # Save button
@@ -197,11 +226,31 @@ def create(cfg: dict) -> None:
     ):
         pass
 
+    # Image delete confirmation popup
+    with dpg.window(
+        label="Delete Image", tag=TAG_IMG_DELETE_POPUP,
+        modal=True, show=False, no_resize=True, no_move=True,
+        width=300, height=180, no_collapse=True,
+    ):
+        dpg.add_text("Remove this image?", tag=f"{TAG_IMG_DELETE_POPUP}_text")
+        dpg.add_separator()
+        dpg.add_spacer(height=4)
+        dpg.add_button(label="Delete entry only", width=-1,
+                       callback=_on_image_delete_entry_only)
+        dpg.add_spacer(height=2)
+        dpg.add_button(label="Delete entry + file", width=-1,
+                       callback=_on_image_delete_entry_and_file)
+        dpg.add_spacer(height=2)
+        dpg.add_button(label="Cancel", width=-1,
+                       callback=lambda: dpg.configure_item(TAG_IMG_DELETE_POPUP, show=False))
+
     _refresh_list(games_dir)
 
 
 def refresh(cfg: dict) -> None:
     """Re-scan and rebuild the list after a pipeline run."""
+    global _cfg
+    _cfg = cfg
     _refresh_list(cfg.get("FREEGAMES_PATH", ""))
 
 
@@ -588,6 +637,12 @@ def _save_game_from_detail(
         logger.error("Failed to save %s: %s", json_path, exc)
 
 
+def _on_open_sgdb_page(sender=None, app_data=None, user_data=None) -> None:
+    sgdb_raw = dpg.get_value(TAG_EDIT_SGDB).strip() if dpg.does_item_exist(TAG_EDIT_SGDB) else ""
+    if sgdb_raw.isdigit():
+        webbrowser.open(f"https://www.steamgriddb.com/game/{sgdb_raw}")
+
+
 def _set_edit_status(text: str, color: tuple[int, ...]) -> None:
     if dpg.does_item_exist(TAG_EDIT_STATUS):
         dpg.set_value(TAG_EDIT_STATUS, text)
@@ -598,6 +653,30 @@ def _set_edit_status(text: str, color: tuple[int, ...]) -> None:
 # Artwork
 # =========================================================================
 
+def _load_image_pil(path: str):
+    """Load an image via Pillow (handles .ico and other formats dpg can't).
+    Returns (width, height, data) where data is a flat list of floats 0-1 RGBA,
+    or None on failure."""
+    try:
+        img = PILImage.open(path)
+        # For .ico, pick the largest resolution
+        if hasattr(img, "n_frames") and img.n_frames > 1:
+            best, best_size = None, 0
+            for i in range(img.n_frames):
+                img.seek(i)
+                px = img.size[0] * img.size[1]
+                if px > best_size:
+                    best, best_size = i, px
+            if best is not None:
+                img.seek(best)
+        img = img.convert("RGBA")
+        w, h = img.size
+        raw = img.tobytes()
+        data = [b / 255.0 for b in raw]
+        return w, h, data
+    except Exception:
+        return None
+
 def _clear_image_group() -> None:
     if not dpg.does_item_exist(TAG_IMG_GROUP):
         return
@@ -606,35 +685,205 @@ def _clear_image_group() -> None:
 
 
 def _try_load_all_artwork(game: Game) -> None:
-    """Load all available artwork images and display them side by side."""
-    if not game.images:
-        return
-
+    """Display all 5 artwork slots with borders, status text, and delete buttons."""
     artwork_row = dpg.add_group(horizontal=True, parent=TAG_IMG_GROUP)
 
-    for field, (w, h) in _ARTWORK_SIZES.items():
-        filename = getattr(game.images, field, None)
-        if not filename:
-            continue
-        img_path = os.path.join(str(game.game_dir), CARTOUCHE_DIR, filename)
-        if not os.path.isfile(img_path):
-            continue
-
-        tex_tag = f"tex_{game.folder_name}_{filename}"
-        if tex_tag not in _loaded_textures:
-            try:
-                iw, ih, _ch, data = dpg.load_image(img_path)
-                if iw <= 0 or ih <= 0:
-                    continue
-                texture_id = dpg.add_static_texture(
-                    iw, ih, data,
-                    parent=_texture_registry_tag,
-                    tag=tex_tag,
-                )
-                _loaded_textures[tex_tag] = texture_id
-            except Exception:
-                continue
-
+    for field in _ARTWORK_ORDER:
+        w, h = _ARTWORK_SIZES[field]
         col = dpg.add_group(parent=artwork_row)
+
         dpg.add_text(field, parent=col, color=TEXT_MUTED)
-        dpg.add_image(_loaded_textures[tex_tag], parent=col, width=w, height=h)
+
+        slot = dpg.add_child_window(
+            parent=col, width=w, height=h,
+            border=True, no_scrollbar=True,
+        )
+        dpg.bind_item_theme(slot, TAG_IMG_SLOT_THEME)
+
+        filename = getattr(game.images, field, None)
+        loaded = False
+        file_missing = False
+        if filename:
+            img_path = os.path.join(str(game.game_dir), CARTOUCHE_DIR, filename)
+            if not os.path.isfile(img_path):
+                file_missing = True
+                dpg.add_dummy(width=w, height=h // 2 - 8, parent=slot)
+                dpg.add_text("file missing", parent=slot, color=WARNING)
+            else:
+                tex_tag = f"tex_{game.folder_name}_{filename}"
+                if tex_tag not in _loaded_textures:
+                    # Try dpg native loader first, fall back to Pillow (.ico etc.)
+                    tex_data = None
+                    try:
+                        iw, ih, _ch, data = dpg.load_image(img_path)
+                        if iw > 0 and ih > 0:
+                            tex_data = (iw, ih, data)
+                    except Exception:
+                        pass
+                    if tex_data is None:
+                        pil_result = _load_image_pil(img_path)
+                        if pil_result:
+                            tex_data = pil_result
+                    if tex_data:
+                        iw, ih, data = tex_data
+                        texture_id = dpg.add_static_texture(
+                            iw, ih, data,
+                            parent=_texture_registry_tag,
+                            tag=tex_tag,
+                        )
+                        _loaded_textures[tex_tag] = texture_id
+                if tex_tag in _loaded_textures:
+                    dpg.add_image(_loaded_textures[tex_tag], parent=slot, width=w, height=h)
+                    loaded = True
+                if not loaded:
+                    ext = os.path.splitext(filename)[1]
+                    dpg.add_dummy(width=w, height=h // 2 - 8, parent=slot)
+                    dpg.add_text(f"{ext} file", parent=slot, color=WARNING)
+        else:
+            dpg.add_dummy(width=w, height=h // 2 - 8, parent=slot)
+            dpg.add_text("empty", parent=slot, color=TEXT_MUTED)
+
+        # Delete button below the bordered image; hidden when file is missing
+        if not file_missing:
+            bar = dpg.add_group(horizontal=True, parent=col)
+            dpg.add_dummy(width=w - 24, parent=bar)
+            del_btn = dpg.add_button(
+                label="X", width=24, parent=bar,
+                callback=_on_image_delete_click,
+                user_data=field,
+            )
+            dpg.bind_item_theme(del_btn, TAG_DELETE_BTN_THEME)
+
+
+def _invalidate_game_textures(game: Game) -> None:
+    """Remove cached textures for a game so they reload from disk."""
+    prefix = f"tex_{game.folder_name}_"
+    stale = [k for k in _loaded_textures if k.startswith(prefix)]
+    for key in stale:
+        try:
+            if dpg.does_item_exist(key):
+                dpg.delete_item(key)
+        except Exception:
+            pass
+        del _loaded_textures[key]
+
+
+def _on_image_delete_click(sender=None, app_data=None, user_data=None) -> None:
+    """Show the delete confirmation popup for an image slot."""
+    global _pending_delete_field
+    _pending_delete_field = user_data
+    if dpg.does_item_exist(TAG_IMG_DELETE_POPUP):
+        dpg.set_value(f"{TAG_IMG_DELETE_POPUP}_text",
+                      f"Remove '{_pending_delete_field}' image?")
+        # Center the popup in the viewport
+        vw = dpg.get_viewport_width()
+        vh = dpg.get_viewport_height()
+        dpg.set_item_pos(TAG_IMG_DELETE_POPUP, [vw // 2 - 150, vh // 2 - 90])
+        dpg.configure_item(TAG_IMG_DELETE_POPUP, show=True)
+
+
+def _on_image_delete_entry_only(sender=None, app_data=None, user_data=None) -> None:
+    """Delete the image entry from game.images but leave the file on disk."""
+    global _pending_delete_field
+    if _selected_game is None or _pending_delete_field is None:
+        return
+    field = _pending_delete_field
+    _pending_delete_field = None
+    dpg.configure_item(TAG_IMG_DELETE_POPUP, show=False)
+
+    setattr(_selected_game.images, field, None)
+    _selected_game.needs_persist = True
+    _save_game_from_detail()
+
+    _clear_image_group()
+    _try_load_all_artwork(_selected_game)
+
+
+def _on_image_delete_entry_and_file(sender=None, app_data=None, user_data=None) -> None:
+    """Delete the image entry AND remove the file from .cartouche/."""
+    global _pending_delete_field
+    if _selected_game is None or _pending_delete_field is None:
+        return
+    field = _pending_delete_field
+    _pending_delete_field = None
+    dpg.configure_item(TAG_IMG_DELETE_POPUP, show=False)
+
+    filename = getattr(_selected_game.images, field, None)
+    if filename:
+        file_path = os.path.join(
+            str(_selected_game.game_dir), CARTOUCHE_DIR, filename,
+        )
+        try:
+            if os.path.isfile(file_path):
+                os.remove(file_path)
+                logger.info("Deleted image file: %s", file_path)
+        except OSError as exc:
+            logger.error("Failed to delete %s: %s", file_path, exc)
+
+    setattr(_selected_game.images, field, None)
+    _selected_game.needs_persist = True
+    _save_game_from_detail()
+
+    _clear_image_group()
+    _try_load_all_artwork(_selected_game)
+
+
+def _on_fetch_images(sender=None, app_data=None, user_data=None) -> None:
+    """Fetch ALL images from SteamGridDB, overwriting existing ones."""
+    if _selected_game is None:
+        return
+
+    game = _selected_game
+    api_key = get_steamgriddb_key(_cfg)
+    if not api_key:
+        if dpg.does_item_exist(TAG_FETCH_STATUS):
+            dpg.set_value(TAG_FETCH_STATUS, "No API key configured.")
+            dpg.configure_item(TAG_FETCH_STATUS, color=WARNING)
+        return
+
+    if not game.steamgriddb_id:
+        if dpg.does_item_exist(TAG_FETCH_STATUS):
+            dpg.set_value(TAG_FETCH_STATUS, "No SteamGridDB ID set.")
+            dpg.configure_item(TAG_FETCH_STATUS, color=WARNING)
+        return
+
+    if dpg.does_item_exist(TAG_FETCH_STATUS):
+        dpg.set_value(TAG_FETCH_STATUS, "Fetching...")
+        dpg.configure_item(TAG_FETCH_STATUS, color=TEXT_MUTED)
+
+    try:
+        urls = _enricher.fetch_artwork_urls(game.steamgriddb_id, api_key)
+        new_images = _enricher._urls_to_image_filenames(urls)
+
+        any_found = False
+        for field in ("cover", "icon", "hero", "logo", "header"):
+            new_val = getattr(new_images, field)
+            if new_val:
+                setattr(game.images, field, new_val)
+                any_found = True
+
+        if urls:
+            game._artwork_urls = urls  # type: ignore[attr-defined]
+
+        if any_found:
+            game.needs_persist = True
+            os.makedirs(str(game.cartouche_dir), exist_ok=True)
+            _persister._download_images(game, str(game.cartouche_dir), force=True)
+            _save_game_from_detail()
+            if dpg.does_item_exist(TAG_FETCH_STATUS):
+                dpg.set_value(TAG_FETCH_STATUS, "Done.")
+                dpg.configure_item(TAG_FETCH_STATUS, color=SUCCESS)
+        else:
+            if dpg.does_item_exist(TAG_FETCH_STATUS):
+                dpg.set_value(TAG_FETCH_STATUS, "No images found on SteamGridDB.")
+                dpg.configure_item(TAG_FETCH_STATUS, color=WARNING)
+
+        _invalidate_game_textures(game)
+        _clear_image_group()
+        _try_load_all_artwork(game)
+
+    except Exception as exc:
+        logger.error("Fetch images failed: %s", exc)
+        if dpg.does_item_exist(TAG_FETCH_STATUS):
+            dpg.set_value(TAG_FETCH_STATUS, f"Error: {exc}")
+            dpg.configure_item(TAG_FETCH_STATUS, color=ERROR)
