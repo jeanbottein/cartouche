@@ -29,10 +29,49 @@ from lib.models import CARTOUCHE_DIR, GAME_JSON
 logger = logging.getLogger(__name__)
 
 
+# ── Format detection ─────────────────────────────────────────────────────
+
+def _is_new_format(save_paths: list) -> bool:
+    """Return True if save paths are already in the flat {"os", "path"} format."""
+    if not save_paths:
+        return False
+    first = save_paths[0]
+    return isinstance(first, dict) and "os" in first and "path" in first
+
+
+# ── Format conversion ────────────────────────────────────────────────────
+
+def _extract_flat_entries(entry: dict) -> list[dict]:
+    """Extract flat {"os", "path"} entries from one old-format block."""
+    nested_paths = entry.get("paths", [])
+    if nested_paths:
+        return [
+            {"os": p["os"], "path": p["path"]}
+            for p in nested_paths
+            if isinstance(p, dict) and "os" in p and "path" in p
+        ]
+    if "os" in entry and "path" in entry:
+        return [entry]
+    return []
+
+
+def _flatten_save_paths(old_format: list) -> list | None:
+    """Convert old nested format to flat format. Returns migrated list or None if invalid."""
+    flattened = []
+    for entry in old_format:
+        if not isinstance(entry, dict):
+            logger.warning(f"Invalid save path entry (not dict): {entry}")
+            continue
+        flattened.extend(_extract_flat_entries(entry))
+    return flattened if flattened else None
+
+
+# ── Per-game migration ───────────────────────────────────────────────────
+
 def migrate_game_json(game_dir: Path) -> bool:
     """
     Migrate a single game.json from old to new save paths format.
-    Returns True if migration was performed, False if no migration needed or error.
+    Returns True if migration was performed, False otherwise.
     """
     game_json_path = game_dir / CARTOUCHE_DIR / GAME_JSON
     if not game_json_path.exists():
@@ -46,20 +85,14 @@ def migrate_game_json(game_dir: Path) -> bool:
         return False
 
     save_paths = data.get("savePaths", [])
-    if not save_paths:
+    if not save_paths or _is_new_format(save_paths):
         return False
 
-    # Check if already in new format (list of dicts with "os" and "path")
-    if _is_new_format(save_paths):
-        return False
-
-    # Migrate old format to new
     migrated = _flatten_save_paths(save_paths)
     if migrated is None:
         return False
 
     data["savePaths"] = migrated
-
     try:
         with open(game_json_path, "w") as fh:
             json.dump(data, fh, indent=4)
@@ -70,66 +103,20 @@ def migrate_game_json(game_dir: Path) -> bool:
         return False
 
 
+# ── Public entry point ───────────────────────────────────────────────────
+
 def migrate_all_games(games_dir: str) -> int:
-    """
-    Scan all games and migrate save paths format. Returns count of migrated games.
-    """
+    """Scan all games and migrate save paths format. Returns count of migrated games."""
     if not games_dir or not os.path.isdir(games_dir):
         return 0
 
-    count = 0
-    for item in os.listdir(games_dir):
-        game_path = Path(games_dir) / item
-        if not game_path.is_dir() or item.startswith("."):
-            continue
-        if migrate_game_json(game_path):
-            count += 1
+    count = sum(
+        1 for item in os.listdir(games_dir)
+        if not item.startswith(".")
+        and (game_path := Path(games_dir) / item).is_dir()
+        and migrate_game_json(game_path)
+    )
 
     if count > 0:
         logger.info(f"Migrated {count} game(s)")
     return count
-
-
-# -- Helpers ------------------------------------------------------------------
-
-def _is_new_format(save_paths: list) -> bool:
-    """Check if save paths are already in new format."""
-    if not save_paths:
-        return False
-    first = save_paths[0]
-    if not isinstance(first, dict):
-        return False
-    # New format: each entry has "os" and "path"
-    return "os" in first and "path" in first
-
-
-def _flatten_save_paths(old_format: list) -> list | None:
-    """
-    Convert old nested format to new flat format.
-    Returns migrated list, or None if format is invalid.
-    """
-    flattened = []
-
-    for entry in old_format:
-        if not isinstance(entry, dict):
-            logger.warning(f"Invalid save path entry (not dict): {entry}")
-            continue
-
-        # Old format has "name" and "paths"
-        # But we only care about the paths
-        paths = entry.get("paths", [])
-        if not paths:
-            # Maybe it's already flat? Check for "os" and "path"
-            if "os" in entry and "path" in entry:
-                flattened.append(entry)
-            continue
-
-        # Flatten each path in the nested "paths" array
-        for path_entry in paths:
-            if isinstance(path_entry, dict) and "os" in path_entry and "path" in path_entry:
-                flattened.append({
-                    "os": path_entry["os"],
-                    "path": path_entry["path"],
-                })
-
-    return flattened if flattened else None

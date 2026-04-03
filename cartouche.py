@@ -23,22 +23,22 @@ from lib.pipeline import PipelineRunner
 logger = logging.getLogger(__name__)
 
 
+def _strip_inline_comment(value: str) -> str:
+    return value.split('#')[0].strip() if '#' in value else value.strip()
+
+
 def load_config_map(config_path: Path) -> Dict[str, str]:
     if not config_path.exists():
         logger.warning("Config file %s not found; continuing with empty configuration", config_path)
         return {}
-    lines = (l.strip() for l in config_path.read_text().splitlines())
-    pairs = (l.split('=', 1) for l in lines if l and not l.startswith('#') and '=' in l)
-    config_map = {}
-    for k, v in pairs:
-        k = k.strip()
-        if k:
-            if '#' in v:
-                v = v.split('#')[0]
-            val = v.strip()
-            if val:
-                config_map[k] = val
-    return config_map
+    raw_lines  = config_path.read_text().splitlines()
+    candidates = (l.strip() for l in raw_lines)
+    key_value_lines = (l.split('=', 1) for l in candidates if l and not l.startswith('#') and '=' in l)
+    return {
+        k.strip(): v
+        for raw_k, raw_v in key_value_lines
+        if (k := raw_k.strip()) and (v := _strip_inline_comment(raw_v))
+    }
 
 
 # Keys whose values may be stored as relative paths (relative to .cartouche parent)
@@ -122,34 +122,39 @@ def resolve_config_path(cli_dir: Path | None) -> Path:
     return conf_path
 
 
+def _expand_template_vars(cmd: str, config: Dict[str, str]) -> str:
+    for key, val in config.items():
+        cmd = cmd.replace(f"${{{key}}}", val)
+    return cmd
+
+
+def _run_command(label: str, cmd: str) -> None:
+    logger.info("  %s: %s", label, cmd)
+    try:
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+        if result.stdout.strip():
+            logger.info(result.stdout.strip())
+        if result.returncode != 0:
+            logger.warning("  %s: exited with code %d", label, result.returncode)
+            if result.stderr.strip():
+                logger.warning("   %s", result.stderr.strip())
+        else:
+            logger.info("  %s: done", label)
+    except (OSError, subprocess.SubprocessError) as e:
+        logger.error("  %s: failed to execute: %s", label, e)
+
+
 def run_post_commands(config: Dict[str, str]) -> None:
     """Run commands defined by RUN_AFTER_<name>=<command> entries, sorted by key."""
     commands = sorted(
-        [(k, v) for k, v in config.items() if k.startswith("RUN_AFTER_") and v],
-        key=lambda x: x[0],
+        [(k, v) for k, v in config.items() if k.startswith("RUN_AFTER_") and v]
     )
     if not commands:
         return
-
     logger.info("Running %d post-command(s)", len(commands))
     for key, cmd in commands:
         label = key[len("RUN_AFTER_"):]
-        for cfg_key, cfg_val in config.items():
-            cmd = cmd.replace(f"${{{cfg_key}}}", cfg_val)
-
-        logger.info("  %s: %s", label, cmd)
-        try:
-            result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-            if result.stdout.strip():
-                logger.info(result.stdout.strip())
-            if result.returncode != 0:
-                logger.warning("  %s: exited with code %d", label, result.returncode)
-                if result.stderr.strip():
-                    logger.warning("   %s", result.stderr.strip())
-            else:
-                logger.info("  %s: done", label)
-        except (OSError, subprocess.SubprocessError) as e:
-            logger.error("  %s: failed to execute: %s", label, e)
+        _run_command(label, _expand_template_vars(cmd, config))
 
 
 def test_steam(cfg: dict):

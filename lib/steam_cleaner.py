@@ -36,25 +36,29 @@ def _get_shortcuts_path(config_dir):
     return os.path.join(config_dir, "shortcuts.vdf")
 
 
-def find_steam_userdata_dirs():
+def _config_dirs_from_base(base: str, seen: set) -> list[str]:
+    if not os.path.isdir(base):
+        return []
+    results = []
+    for uid in os.listdir(base):
+        config_dir = os.path.join(base, uid, "config")
+        if not os.path.isdir(config_dir):
+            continue
+        real_dir = os.path.realpath(config_dir)
+        if real_dir not in seen:
+            seen.add(real_dir)
+            results.append(config_dir)
+    return results
+
+
+def find_steam_userdata_dirs() -> list[str]:
     """Return a list of all Steam userdata/<id>/config directories found."""
-    candidates = [
+    bases = [
         os.path.expanduser("~/.steam/steam/userdata"),
         os.path.expanduser("~/.local/share/Steam/userdata"),
     ]
-    results = []
     seen = set()
-    for base in candidates:
-        if not os.path.isdir(base):
-            continue
-        for uid in os.listdir(base):
-            config_dir = os.path.join(base, uid, "config")
-            if os.path.isdir(config_dir):
-                real_dir = os.path.realpath(config_dir)
-                if real_dir not in seen:
-                    seen.add(real_dir)
-                    results.append(config_dir)
-    return results
+    return [d for base in bases for d in _config_dirs_from_base(base, seen)]
 
 
 def load_shortcuts(shortcuts_path):
