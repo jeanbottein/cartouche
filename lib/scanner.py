@@ -39,19 +39,21 @@ def _pick_target_entry(targets: list) -> dict | None:
     return pool[0]
 
 
-def _collect_save_paths(sp_list, os_tag, game_dir, result):
+def _collect_save_paths(sp_list, current_os_tag, game_dir, _result=None):
+    result = [] if _result is None else _result
     for sp in sp_list:
         if not isinstance(sp, dict):
             continue
         if "paths" in sp and isinstance(sp["paths"], list):
-            _collect_save_paths(sp["paths"], os_tag, game_dir, result)
+            _collect_save_paths(sp["paths"], current_os_tag, game_dir, result)
             continue
         sp_os = (sp.get("os") or "").lower().strip()
-        if sp_os and sp_os != os_tag and sp_os != "any":
+        if sp_os and sp_os != current_os_tag and sp_os != "any":
             continue
         abs_path = _resolve_save_path(sp.get("path", ""), game_dir)
         if abs_path:
             result.append(abs_path)
+    return result
 
 
 def _resolve_save_path(save_path: str, game_dir: str) -> str:
@@ -124,9 +126,7 @@ def _resolve_runtime_fields(game: Game):
             game.resolved_launch_options = best.get("launchOptions", "")
             game.resolved_target_os = (best.get("os") or "").lower()
 
-    paths = []
-    _collect_save_paths(game.save_paths, os_tag(), game_dir, paths)
-    game.resolved_save_paths = paths
+    game.resolved_save_paths = _collect_save_paths(game.save_paths, os_tag(), game_dir)
 
 
 def scan(games_dir: str) -> GameDatabase:

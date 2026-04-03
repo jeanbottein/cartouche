@@ -26,71 +26,77 @@ OWNERSHIP_TAG = APP_NAME
 
 # ── AppID generation ─────────────────────────────────────────────────────
 
-def generate_appid(app_name, exe_path):
+def generate_appid(app_name: str, exe_path: str) -> int:
     """Generate a stable non-Steam shortcut appid (unsigned 32-bit)."""
     unique = (str(exe_path or "") + str(app_name or "")).encode('utf-8')
     crc = zlib.crc32(unique) & 0xFFFFFFFF
     return (crc | 0x80000000) & 0xFFFFFFFF
 
 
-def _signed32(val):
+def _signed32(val: int) -> int:
     """Convert an unsigned 32-bit int to a signed 32-bit int."""
-    if val >= 0x80000000:
-        return val - 0x100000000
-    return val
+    return val - 0x100000000 if val >= 0x80000000 else val
 
 
 # ── Shortcut helpers ─────────────────────────────────────────────────────
 
-def _next_index(shortcuts_dict):
-    if not shortcuts_dict:
-        return "0"
+def _next_index(shortcuts_dict: dict) -> str:
     indices = [int(k) for k in shortcuts_dict if k.isdigit()]
     return str(max(indices) + 1) if indices else "0"
 
 
-def _make_shortcut_entry(app_name, exe_path, start_dir, launch_options="", icon_path=""):
+def _make_shortcut_entry(app_name: str, exe_path: str, start_dir: str,
+                          launch_options: str = "", icon_path: str = "") -> dict:
     """Build a shortcut dict entry in the format Steam expects."""
     appid = generate_appid(app_name, exe_path)
-    tags = {"0": OWNERSHIP_TAG}
     return {
-        "appid": _signed32(appid),
-        "AppName": app_name,
-        "Exe": f'"{exe_path}"',
-        "StartDir": f'"{start_dir}"',
-        "icon": icon_path,
-        "ShortcutPath": "",
-        "LaunchOptions": launch_options,
-        "IsHidden": 0,
+        "appid":              _signed32(appid),
+        "AppName":            app_name,
+        "Exe":                f'"{exe_path}"',
+        "StartDir":           f'"{start_dir}"',
+        "icon":               icon_path,
+        "ShortcutPath":       "",
+        "LaunchOptions":      launch_options,
+        "IsHidden":           0,
         "AllowDesktopConfig": 1,
-        "AllowOverlay": 1,
-        "OpenVR": 0,
-        "Devkit": 0,
-        "DevkitGameID": "",
+        "AllowOverlay":       1,
+        "OpenVR":             0,
+        "Devkit":             0,
+        "DevkitGameID":       "",
         "DevkitOverrideAppID": 0,
-        "LastPlayTime": 0,
-        "tags": tags,
+        "LastPlayTime":       0,
+        "tags":               {"0": OWNERSHIP_TAG},
     }
 
 
-def _get_grid_dir(config_dir):
+def _get_grid_dir(config_dir: str) -> str:
     """Return the grid folder path for storing artwork images."""
     return os.path.join(os.path.dirname(config_dir), "config", "grid")
 
 
-def _copy_artwork_to_grid(game, grid_dir, appid):
+# ── Artwork copying ──────────────────────────────────────────────────────
+
+def _copy_artwork_item(src: str, dest: str) -> None:
+    if os.path.isfile(dest):
+        return
+    try:
+        shutil.copy2(src, dest)
+    except OSError as e:
+        logger.warning(f"    Failed to copy artwork {src} -> {dest}: {e}")
+
+
+def _copy_artwork_to_grid(game, grid_dir: str, appid: int) -> None:
     """Copy artwork from .cartouche/ to Steam's grid directory."""
     os.makedirs(grid_dir, exist_ok=True)
     cartouche_dir = str(game.cartouche_dir)
 
-    name_map = {
-        "cover": f"{appid}p",       # poster format
-        "hero": f"{appid}_hero",
-        "logo": f"{appid}_logo",
-        "icon": f"{appid}_icon",
+    field_prefixes = {
+        "cover": f"{appid}p",
+        "hero":  f"{appid}_hero",
+        "logo":  f"{appid}_logo",
+        "icon":  f"{appid}_icon",
     }
-
-    for field_name, prefix in name_map.items():
+    for field_name, prefix in field_prefixes.items():
         filename = getattr(game.images, field_name)
         if not filename:
             continue
@@ -98,34 +104,77 @@ def _copy_artwork_to_grid(game, grid_dir, appid):
         if not os.path.isfile(src):
             continue
         _, ext = os.path.splitext(filename)
-        dest = os.path.join(grid_dir, f"{prefix}{ext}")
-        if os.path.isfile(dest):
-            continue
-        try:
-            shutil.copy2(src, dest)
-        except OSError as e:
-            logger.warning(f"    Failed to copy artwork {src} -> {dest}: {e}")
+        _copy_artwork_item(src, os.path.join(grid_dir, f"{prefix}{ext}"))
 
+    # Also copy cover as horizontal grid image (no suffix)
     cover = game.images.cover
     if cover:
         src = os.path.join(cartouche_dir, cover)
         if os.path.isfile(src):
             _, ext = os.path.splitext(cover)
-            dest = os.path.join(grid_dir, f"{appid}{ext}")
-            if not os.path.isfile(dest):
-                try:
-                    shutil.copy2(src, dest)
-                except OSError:
-                    pass
+            _copy_artwork_item(src, os.path.join(grid_dir, f"{appid}{ext}"))
+
+
+# ── Per-user export ──────────────────────────────────────────────────────
+
+def _build_owned_exe_map(shortcuts: dict) -> dict:
+    return {
+        shortcut.get("Exe", shortcut.get("exe", "")).strip('"'): key
+        for key, shortcut in shortcuts.items()
+        if _has_ownership_tag(shortcut)
+    }
+
+
+def _resolve_icon_path(game, grid_dir: str, appid: int) -> str:
+    if not game.images.icon:
+        return ""
+    _, ext = os.path.splitext(game.images.icon)
+    return os.path.join(grid_dir, f"{appid}_icon{ext}")
+
+
+def _export_to_config_dir(config_dir: str, games: list, game_appids: dict) -> tuple[int, int]:
+    """Export shortcuts to a single Steam user directory. Returns (added, updated)."""
+    shortcuts_path = os.path.join(config_dir, "shortcuts.vdf")
+    grid_dir       = _get_grid_dir(config_dir)
+    shortcuts      = load_shortcuts(shortcuts_path)
+    owned_exes     = _build_owned_exe_map(shortcuts)
+
+    added = updated = 0
+
+    for game in games:
+        target      = game.resolved_target
+        start_in    = game.resolved_start_in or os.path.dirname(target)
+        launch_opts = game.resolved_launch_options
+        name        = game.title
+        appid       = game_appids[game]
+        icon_path   = _resolve_icon_path(game, grid_dir, appid)
+
+        if target in owned_exes:
+            key = owned_exes[target]
+            existing = shortcuts[key]
+            if _get_appname(existing) != name or existing.get("icon", "") != icon_path:
+                shortcuts[key] = _make_shortcut_entry(name, target, start_in, launch_opts, icon_path)
+                updated += 1
+        else:
+            idx = _next_index(shortcuts)
+            shortcuts[idx] = _make_shortcut_entry(name, target, start_in, launch_opts, icon_path)
+            owned_exes[target] = idx
+            added += 1
+
+        _copy_artwork_to_grid(game, grid_dir, appid)
+
+    if added or updated:
+        save_shortcuts(shortcuts_path, shortcuts)
+        uid = os.path.basename(os.path.dirname(config_dir))
+        logger.info(f"  Steam user {uid}: +{added} added, ~{updated} updated")
+
+    return added, updated
 
 
 # ── Main entry point ─────────────────────────────────────────────────────
 
-def export(db: GameDatabase, cfg: dict):
-    """
-    Create or update Steam shortcuts for all games with resolved targets.
-    Copies artwork from .cartouche/ to Steam's grid directory.
-    """
+def export(db: GameDatabase, cfg: dict) -> None:
+    """Create or update Steam shortcuts for all games with resolved targets."""
     if cfg.get("STEAM_EXPOSE", "False").lower() != "true":
         return
 
@@ -145,58 +194,12 @@ def export(db: GameDatabase, cfg: dict):
     if not games:
         return
 
-    game_appids = {g: generate_appid(g.title, g.resolved_target) for g in games}
-
-    total_added = 0
-    total_updated = 0
+    game_appids    = {g: generate_appid(g.title, g.resolved_target) for g in games}
+    total_added    = total_updated = 0
 
     for config_dir in config_dirs:
-        shortcuts_path = os.path.join(config_dir, "shortcuts.vdf")
-        grid_dir = _get_grid_dir(config_dir)
-        shortcuts = load_shortcuts(shortcuts_path)
-
-        # Build map of existing owned shortcuts by exe path
-        owned_exes = {}
-        for key, shortcut in shortcuts.items():
-            if _has_ownership_tag(shortcut):
-                exe = shortcut.get("Exe", shortcut.get("exe", "")).strip('"')
-                owned_exes[exe] = key
-
-        added = 0
-        updated = 0
-
-        for game in games:
-            target = game.resolved_target
-            start_in = game.resolved_start_in or os.path.dirname(target)
-            launch_opts = game.resolved_launch_options
-            name = game.title
-            appid = game_appids[game]
-
-            icon_path = ""
-            if game.images.icon:
-                _, ext = os.path.splitext(game.images.icon)
-                icon_path = os.path.join(grid_dir, f"{appid}_icon{ext}")
-
-            if target in owned_exes:
-                key = owned_exes[target]
-                existing = shortcuts[key]
-                if _get_appname(existing) != name or existing.get("icon", "") != icon_path:
-                    shortcuts[key] = _make_shortcut_entry(name, target, start_in, launch_opts, icon_path)
-                    updated += 1
-            else:
-                idx = _next_index(shortcuts)
-                shortcuts[idx] = _make_shortcut_entry(name, target, start_in, launch_opts, icon_path)
-                owned_exes[target] = idx
-                added += 1
-
-            _copy_artwork_to_grid(game, grid_dir, appid)
-
-        if added or updated:
-            save_shortcuts(shortcuts_path, shortcuts)
-            uid = os.path.basename(os.path.dirname(config_dir))
-            logger.info(f"  Steam user {uid}: +{added} added, ~{updated} updated")
-
-        total_added += added
+        added, updated = _export_to_config_dir(config_dir, games, game_appids)
+        total_added   += added
         total_updated += updated
 
     if total_added or total_updated:
@@ -204,7 +207,7 @@ def export(db: GameDatabase, cfg: dict):
     else:
         logger.info("Steam shortcuts already up to date")
 
-    compat_tool = cfg.get("PROTON_VERSION", "proton_experimental").strip()
+    compat_tool    = cfg.get("PROTON_VERSION", "proton_experimental").strip()
     windows_appids = [game_appids[g] for g in games if g.resolved_target_os == "windows"]
     if windows_appids:
         for config_dir in config_dirs:

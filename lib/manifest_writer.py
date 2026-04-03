@@ -15,47 +15,34 @@ from .app import APP_NAME
 logger = logging.getLogger(f"{APP_NAME}.manifest_writer")
 
 
-def write(db: GameDatabase, output_path: str):
+def _game_to_manifest_entry(game) -> dict:
+    """Serialize a single game to the manifests.json entry format."""
+    entry = {
+        "title":         game.title,
+        "target":        game.resolved_target,
+        "startIn":       game.resolved_start_in,
+        "launchOptions": game.resolved_launch_options,
+        "savePath":      game.resolved_save_paths[0] if game.resolved_save_paths else "",
+    }
+    if game.steamgriddb_id is not None:
+        entry["steamgriddb_id"] = game.steamgriddb_id
+    return entry
+
+
+def write(db: GameDatabase, output_path: str) -> None:
     """
     Write manifests.json from the GameDatabase.
 
     Output format matches the old manifests.json for backward compatibility:
-    [
-        {
-            "title": "Game Name",
-            "target": "/absolute/path/to/exe",
-            "startIn": "/absolute/path/to/dir",
-            "launchOptions": "",
-            "savePath": "/absolute/path/to/saves",
-            "steamgriddb_id": 12345
-        },
-        ...
-    ]
+    [{"title": ..., "target": ..., "startIn": ..., "launchOptions": ...,
+      "savePath": ..., "steamgriddb_id": ...}, ...]
     """
     games = db.games_with_targets()
     if not games:
         logger.info("No games with targets to write to manifests.json")
         return
 
-    manifests = []
-    for game in games:
-        entry = {
-            "title": game.title,
-            "target": game.resolved_target,
-            "startIn": game.resolved_start_in,
-            "launchOptions": game.resolved_launch_options,
-        }
-
-        # Use first resolved save path for backward compat
-        if game.resolved_save_paths:
-            entry["savePath"] = game.resolved_save_paths[0]
-        else:
-            entry["savePath"] = ""
-
-        if game.steamgriddb_id is not None:
-            entry["steamgriddb_id"] = game.steamgriddb_id
-
-        manifests.append(entry)
+    manifests = [_game_to_manifest_entry(g) for g in games]
 
     try:
         os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)

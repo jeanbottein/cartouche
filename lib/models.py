@@ -55,18 +55,8 @@ class GameImages:
     header: Optional[str] = None   # Horizontal header/grid artwork
 
     def to_dict(self) -> dict:
-        d = {}
-        if self.cover:
-            d["cover"] = self.cover
-        if self.icon:
-            d["icon"] = self.icon
-        if self.hero:
-            d["hero"] = self.hero
-        if self.logo:
-            d["logo"] = self.logo
-        if self.header:
-            d["header"] = self.header
-        return d
+        fields = ("cover", "icon", "hero", "logo", "header")
+        return {f: getattr(self, f) for f in fields if getattr(self, f)}
 
     @classmethod
     def from_dict(cls, d: dict) -> "GameImages":
