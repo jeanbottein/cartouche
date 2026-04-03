@@ -41,13 +41,16 @@ def get_game_dirs():
 
 def check_file_status(file_path, target_crc32, patched_crc32):
     actual_crc32 = calculate_crc32(file_path)
-    
-    if patched_crc32 and actual_crc32 == int(patched_crc32, 16):
-        return "already_patched"
-    
-    if not target_crc32 or actual_crc32 == int(target_crc32, 16):
-        return "ready"
-    
+    try:
+        if patched_crc32 and actual_crc32 == int(patched_crc32, 16):
+            return "already_patched"
+
+        if not target_crc32 or actual_crc32 == int(target_crc32, 16):
+            return "ready"
+    except ValueError:
+        logger.error(f"❌ Invalid CRC hex value — target={target_crc32!r} patched={patched_crc32!r}")
+        return "mismatch"
+
     logger.warning(f"❌ CRC mismatch. Expected: {target_crc32}, Got: {actual_crc32:08X}")
     return "mismatch"
 
@@ -78,7 +81,11 @@ def patch_file_with_backup_check(patch_info, source_file, target_file):
     target_crc32_expected = patch_info.get('target_crc32')
     if target_crc32_expected:
         actual_crc32 = calculate_crc32(target_file)
-        expected_crc32 = int(target_crc32_expected, 16)
+        try:
+            expected_crc32 = int(target_crc32_expected, 16)
+        except ValueError:
+            logger.error(f"❌ Invalid target_crc32 hex value: {target_crc32_expected!r}")
+            return
         if actual_crc32 != expected_crc32:
             logger.error(f"❌ CRC32 mismatch for {target_file}. Expected: {target_crc32_expected}, Got: {actual_crc32:08X}")
             return
@@ -89,7 +96,12 @@ def patch_file_with_backup_check(patch_info, source_file, target_file):
 
         if target_crc32 != backup_crc32:
             patched_crc32 = patch_info.get('patched_crc32')
-            if patched_crc32 and target_crc32 == int(patched_crc32, 16):
+            try:
+                patched_crc32_int = int(patched_crc32, 16) if patched_crc32 else None
+            except ValueError:
+                logger.error(f"❌ Invalid patched_crc32 hex value: {patched_crc32!r}")
+                return
+            if patched_crc32_int and target_crc32 == patched_crc32_int:
                 logger.info(f"✅ {target_file} already patched")
                 return
             else:
@@ -135,7 +147,9 @@ def process_single_patch(patch_info, patch_folder):
             logger.info(f"✅ {target_file} already patched")
         elif status == "ready":
             apply_patch_to_file(patch_info, source_file, target_file)
-        
+        else:
+            logger.warning(f"❌ {target_file}: skipping patch due to CRC mismatch")
+
         return
     
     logger.info(f"❌ {patch_info['target']} not found")

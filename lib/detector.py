@@ -139,6 +139,7 @@ def _get_bin_windows(game_dir, maxdepth):
         depth = dirpath.rstrip(os.sep).count(os.sep) - root_depth
         if depth >= maxdepth:
             dirnames[:] = []
+            continue
         for name in filenames:
             if not name.lower().endswith(".exe"):
                 continue
@@ -168,8 +169,10 @@ def _get_bin(game_dir, maxdepth, arch_filter=""):
     return _get_bin_posix(game_dir, maxdepth, arch_filter)
 
 
-def _get_real_first_path(game_dir):
+def _get_real_first_path(game_dir, _depth=0):
     """Recursively descend if directory contains a single subfolder and no files."""
+    if _depth > 10:
+        return game_dir
     from .models import CARTOUCHE_DIR
     game_dir = os.path.normpath(game_dir)
     entries = [
@@ -180,7 +183,7 @@ def _get_real_first_path(game_dir):
     files = [e for e in entries if os.path.isfile(os.path.join(game_dir, e))]
 
     if len(directories) == 1 and len(files) == 0:
-        return _get_real_first_path(os.path.join(game_dir, directories[0]))
+        return _get_real_first_path(os.path.join(game_dir, directories[0]), _depth + 1)
 
     return game_dir
 

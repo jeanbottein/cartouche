@@ -87,3 +87,20 @@ class TestCheckFileStatus:
         path = self._write_file(tmp_path, content)
         status = check_file_status(path, None, None)
         assert status in ("ready", "already_patched", "mismatch")
+
+    def test_invalid_hex_target_crc_returns_mismatch_not_crash(self, tmp_path):
+        """Malformed hex string must not raise ValueError — returns mismatch instead."""
+        path = self._write_file(tmp_path, b"data")
+        status = check_file_status(path, "0xINVALID", None)
+        assert status == "mismatch"
+
+    def test_invalid_hex_patched_crc_returns_mismatch_not_crash(self, tmp_path):
+        path = self._write_file(tmp_path, b"data")
+        status = check_file_status(path, None, "NOT_HEX!")
+        assert status == "mismatch"
+
+    def test_crc_with_0x_prefix_returns_mismatch_not_crash(self, tmp_path):
+        """patch.json authors sometimes write '0x' prefixed values — must not crash."""
+        path = self._write_file(tmp_path, b"data")
+        status = check_file_status(path, "0xDEADBEEF", None)
+        assert status == "mismatch"

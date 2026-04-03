@@ -213,7 +213,7 @@ def enrich(db: GameDatabase, cfg: dict):
         project_root = os.getcwd()
 
     sgdb_cache = load_sgdb_cache(project_root)
-    cache_start_len = len(json.dumps(sgdb_cache))
+    cache_snapshot = json.dumps(sgdb_cache, sort_keys=True)
 
     games = db.games_needing_enrichment()
     if not games:
@@ -261,6 +261,5 @@ def enrich(db: GameDatabase, cfg: dict):
             if not game.images.cover:
                 logger.info(f"  No artwork found on SteamGridDB for: {game.title}")
 
-    cache_json = json.dumps(sgdb_cache)
-    if len(cache_json) != cache_start_len:
+    if json.dumps(sgdb_cache, sort_keys=True) != cache_snapshot:
         save_sgdb_cache(project_root, sgdb_cache)

@@ -101,6 +101,15 @@ class TestApplyTextReplacements:
         assert "b=20" in result
         assert modified is True
 
+    def test_replaces_only_first_occurrence(self):
+        """re.sub must use count=1 — only the first match is replaced."""
+        content = "lang = en\n# comment: lang = en\nlang = en\n"
+        reps = [{"name": "lang", "pattern": "lang = en", "value": "lang = fr", "insert": False}]
+        result, modified = apply_text_replacements(content, reps)
+        assert result.count("lang = fr") == 1
+        assert result.count("lang = en") == 2  # the other two untouched
+        assert modified is True
+
 
 # ── apply_hex_replacements ────────────────────────────────────────────────
 
@@ -122,5 +131,21 @@ class TestApplyHexReplacements:
     def test_empty_replacements_list(self):
         content = b"unchanged"
         result, modified = apply_hex_replacements(content, [])
+        assert result == content
+        assert modified is False
+
+    def test_single_wildcard_at_end_matches_correctly(self):
+        """Single trailing wildcard replaces the byte after the prefix."""
+        content = b"IPL.LNG\x00rest"
+        reps = [{"name": "wii lang", "pattern": "IPL.LNG?", "value": "IPL.LNG\x01"}]
+        result, modified = apply_hex_replacements(content, reps)
+        assert result == b"IPL.LNG\x01rest"
+        assert modified is True
+
+    def test_multi_wildcard_pattern_is_skipped_with_no_crash(self):
+        """Multi-wildcard patterns are unsupported and should be skipped gracefully."""
+        content = b"ABC\x00DEF\x00GHI"
+        reps = [{"name": "multi", "pattern": "ABC?DEF?GHI", "value": "REPLACED__"}]
+        result, modified = apply_hex_replacements(content, reps)
         assert result == content
         assert modified is False

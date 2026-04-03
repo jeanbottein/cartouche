@@ -92,7 +92,7 @@ def apply_text_replacements(content, replacements):
     for rep in replacements:
         pattern, value = rep['pattern'], rep['value']
         if re.search(pattern, content):
-            content = re.sub(pattern, value, content)
+            content = re.sub(pattern, value, content, count=1)
             logger.info(f"✅ {rep['name']} -> {value}")
             modified = True
         elif rep.get('insert', False):
@@ -130,13 +130,17 @@ def apply_hex_replacements(content, replacements):
         pattern, value = rep['pattern'], rep['value']
         
         if '?' in pattern:
+            if pattern.count('?') > 1:
+                logger.warning(f"  Skipping hex replacement with unsupported multi-wildcard pattern: {rep['name']!r}")
+                continue
+
             # Wildcard pattern - find and replace
             prefix = pattern.split('?')[0]
-            suffix = pattern.split('?')[-1] if '?' in pattern else ''
-            
+            suffix = pattern.split('?', 1)[1]
+
             prefix_bytes = prefix.encode('ascii') if prefix else b''
             suffix_bytes = suffix.encode('ascii') if suffix else b''
-            
+
             pattern_len = len(prefix_bytes) + 1 + len(suffix_bytes)
             for i in range(len(content) - pattern_len + 1):
                 if (content[i:i+len(prefix_bytes)] == prefix_bytes and 

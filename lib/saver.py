@@ -44,7 +44,9 @@ def _sanitize_title(title: str) -> str:
     if upper in WINDOWS_RESERVED_NAMES:
         name = f"{name}_game"
     if len(name) > 100:
-        name = name[:100]
+        name = name[:100].rstrip(". ")
+    if not name:
+        name = "game"
     return name
 
 
@@ -277,4 +279,4 @@ def run(db: GameDatabase, config: dict) -> None:
 
         if config_backup_name and config_path and os.path.isfile(config_path):
             config_link_dst = os.path.join(link_root, config_backup_name)
-            _copy_file(config_path, config_link_dst)
+            _create_symlink(config_link_dst, config_path)

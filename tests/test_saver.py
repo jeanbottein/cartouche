@@ -34,6 +34,18 @@ class TestSanitizeTitle:
         result = _sanitize_title(long_title)
         assert len(result) <= 100
 
+    def test_truncation_does_not_reintroduce_trailing_period(self):
+        """Truncating at 100 chars must not leave a trailing period."""
+        # 99 'A's + '.' + 'B' = 101 chars — after [:100] ends in '.'
+        title = "A" * 99 + ".B"
+        result = _sanitize_title(title)
+        assert not result.endswith(".")
+
+    def test_truncation_does_not_reintroduce_trailing_space(self):
+        title = "A" * 99 + " B"
+        result = _sanitize_title(title)
+        assert not result.endswith(" ")
+
     def test_empty_string_becomes_game(self):
         assert _sanitize_title("") == "game"
 
