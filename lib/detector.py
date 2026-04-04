@@ -259,6 +259,81 @@ def collect_targets(game_dir: str) -> list[GameTarget]:
     return _collect_targets(game_dir)
 
 
+# ── Save Path Auto-Detection ─────────────────────────────────────────────
+
+def detect_proton_save_paths(game_title: str, exe_path: str) -> list[dict]:
+    """
+    Attempt to auto-detect game save locations within the corresponding Proton prefix.
+    Returns a list of dicts with 'os' and 'path' mapping to standard Windows environments.
+    """
+    if not game_title or not exe_path:
+        return []
+        
+    from .steam_exporter import generate_appid
+    appid = generate_appid(game_title, exe_path)
+    
+    proton_c_var = "${proton_c}"
+    proton_c_disk = os.path.expanduser(f"~/.local/share/Steam/steamapps/compatdata/{appid}/pfx/drive_c")
+    if not os.path.isdir(proton_c_disk):
+        return []
+        
+    search_dirs = [
+        ("users/steamuser/AppData/LocalLow", "%USERPROFILE%/AppData/LocalLow"),
+        ("users/steamuser/AppData/Local", "%LOCALAPPDATA%"),
+        ("users/steamuser/AppData/Roaming", "%APPDATA%"),
+        ("users/steamuser/Documents", "%USERPROFILE%/Documents"),
+        ("users/steamuser/Saved Games", "%USERPROFILE%/Saved Games"),
+    ]
+    
+    ignore_dirs = {
+        "Microsoft", "Temp", "dxvk", "CrashDumps", ".cef", "CEF",
+        "desktop.ini", "Public", "Windows", "Contacts", "Favorites",
+        "Links", "Pictures", "Music", "Videos", "Searches",
+        "Steam", "SteamVR"
+    }
+
+    def _clean_str(s: str) -> str:
+        return "".join(c for c in s.lower() if c.isalnum())
+
+    title_clean = _clean_str(game_title)
+    if not title_clean:
+        return []
+        
+    results = []
+    
+    for base_dir, win_pattern in search_dirs:
+        full_base = os.path.join(proton_c_disk, base_dir)
+        if not os.path.isdir(full_base):
+            continue
+            
+        root_depth = full_base.rstrip(os.sep).count(os.sep)
+        for dirpath, dirnames, filenames in os.walk(full_base):
+            depth = dirpath.rstrip(os.sep).count(os.sep) - root_depth
+            if depth >= 2:
+                dirnames[:] = []
+                
+            dirnames[:] = [d for d in dirnames if d not in ignore_dirs and not d.startswith('.')]
+            
+            # Substring match on the raw token so "SkateStory" matches "skatestory" cleanly
+            current_dirname = os.path.basename(dirpath)
+            clean_curr = _clean_str(current_dirname)
+            
+            if clean_curr and (title_clean == clean_curr or title_clean in clean_curr):
+                rel_match = os.path.relpath(dirpath, full_base).replace('\\', '/')
+                if rel_match != ".":
+                    win_path = f"{win_pattern}/{rel_match}"
+                else:
+                    win_path = win_pattern
+                results.append({"os": "windows", "path": win_path})
+
+    unique_results = []
+    for r in results:
+        if r not in unique_results:
+            unique_results.append(r)
+            
+    return unique_results
+
+
 # ── Main entry point ─────────────────────────────────────────────────────
 
 def detect(db: GameDatabase) -> None:

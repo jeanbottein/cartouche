@@ -8,6 +8,7 @@ files, and builds a GameDatabase.
 import json
 import logging
 import os
+import re
 
 from .models import (
     Game, GameTarget, GameImages, GameDatabase,
@@ -39,27 +40,79 @@ def _pick_target_entry(targets: list) -> dict | None:
     return pool[0]
 
 
-def _collect_save_paths(sp_list, current_os_tag, game_dir, _result=None):
+def _translate_windows_to_proton(path: str, extra_vars: dict) -> str:
+    """Translate Windows-style paths and environment variables to Proton prefixes."""
+    if not path:
+        return path
+    proton_c = extra_vars.get("proton_c")
+    if not proton_c:
+        return path
+
+    translated = path.replace('\\', '/')
+    
+    translates = {
+        "%USERPROFILE%": f"{proton_c}/users/steamuser",
+        "%APPDATA%": f"{proton_c}/users/steamuser/AppData/Roaming",
+        "%LOCALAPPDATA%": f"{proton_c}/users/steamuser/AppData/Local",
+        "%PUBLIC%": f"{proton_c}/users/Public",
+        "%DOCUMENTS%": f"{proton_c}/users/steamuser/Documents",
+        "C:/": f"{proton_c}/",
+    }
+    
+    for win_var, lin_val in translates.items():
+        translated = re.sub(re.escape(win_var), lin_val, translated, flags=re.IGNORECASE)
+    
+    return translated
+
+
+def _collect_save_paths(sp_list, valid_os_tags, game_dir, extra_vars=None, _result=None):
+    if isinstance(valid_os_tags, str):
+        valid_os_tags = {valid_os_tags}
+    
     result = [] if _result is None else _result
     for sp in sp_list:
         if not isinstance(sp, dict):
             continue
         if "paths" in sp and isinstance(sp["paths"], list):
-            _collect_save_paths(sp["paths"], current_os_tag, game_dir, result)
+            _collect_save_paths(sp["paths"], valid_os_tags, game_dir, extra_vars, result)
             continue
         sp_os = (sp.get("os") or "").lower().strip()
-        if sp_os and sp_os != current_os_tag and sp_os != "any":
+        if sp_os and sp_os not in valid_os_tags and sp_os != "any":
             continue
-        abs_path = _resolve_save_path(sp.get("path", ""), game_dir)
-        if abs_path:
+        
+        raw_path = sp.get("path", "")
+        # On Linux, automatically translate Windows-specific paths to Proton
+        if os_tag() == "linux" and sp_os == "windows" and extra_vars:
+            raw_path = _translate_windows_to_proton(raw_path, extra_vars)
+            
+        abs_path = _resolve_save_path(raw_path, game_dir, extra_vars)
+        if abs_path and abs_path not in result:
             result.append(abs_path)
     return result
 
 
-def _resolve_save_path(save_path: str, game_dir: str) -> str:
-    """Resolve a save path (expand vars, make absolute)."""
+def _resolve_save_path(save_path: str, game_dir: str, extra_vars: dict | None = None) -> str:
+    """Resolve a save path (expand vars, make absolute).
+
+    Supports custom variable substitution before the standard os.path.expandvars
+    pass.  Variables are expressed using either ``${name}`` or ``$name`` syntax.
+    Built-in variables:
+    - ``${steamappid}``: The non-Steam shortcut AppID assigned to the game.
+    - ``${proton_c}``: Shorthand for ``~/.local/share/Steam/steamapps/compatdata/${steamappid}/pfx/drive_c``
+
+    Example save-path entry in game.json::
+
+        {"os": "linux",
+         "path": "${proton_c}/users/steamuser/AppData/LocalLow/by Sam Eng/SKATE STORY"}
+    """
     if not save_path:
         return ""
+    # Substitute custom variables (${name} and $name forms) before env-var expansion
+    if extra_vars:
+        def _replace(m):
+            key = m.group(1) or m.group(2)
+            return str(extra_vars[key]) if key in extra_vars else m.group(0)
+        save_path = re.sub(r'\$\{([^}]+)\}|\$([A-Za-z_][A-Za-z0-9_]*)', _replace, save_path)
     save_path = os.path.expandvars(os.path.expanduser(save_path))
     if not os.path.isabs(save_path):
         save_path = os.path.join(game_dir, save_path)
@@ -126,7 +179,22 @@ def _resolve_runtime_fields(game: Game):
             game.resolved_launch_options = best.get("launchOptions", "")
             game.resolved_target_os = (best.get("os") or "").lower()
 
-    game.resolved_save_paths = _collect_save_paths(game.save_paths, os_tag(), game_dir)
+    # Build extra variables for save-path substitution.
+    # ${steamappid} mirrors the AppID Steam assigns to the non-Steam shortcut,
+    # which is also the folder name inside steamapps/compatdata/ for Proton games.
+    # ${proton_c} is a convenience shorthand for the C: drive in that Proton prefix.
+    extra_vars: dict = {}
+    if game.resolved_target and game.title:
+        from .steam_exporter import generate_appid
+        appid = generate_appid(game.title, game.resolved_target)
+        extra_vars["steamappid"] = appid
+        extra_vars["proton_c"] = f"~/.local/share/Steam/steamapps/compatdata/{appid}/pfx/drive_c"
+
+    valid_tags = {os_tag()}
+    if game.resolved_target_os:
+        valid_tags.add(game.resolved_target_os)
+
+    game.resolved_save_paths = _collect_save_paths(game.save_paths, valid_tags, game_dir, extra_vars)
 
 
 def scan(games_dir: str) -> GameDatabase:

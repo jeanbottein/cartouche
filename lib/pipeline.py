@@ -42,8 +42,8 @@ class PipelineRunner:
                    "steam_clean", "steam_export", "manifest",
                    "patch", "save", "configure", "post_commands"],
         "parse":  ["migrate", "scan", "detect", "enrich", "persist"],
-        "steam":  ["steam_clean", "steam_export"],
-        "backup": ["save"],
+        "steam":  ["scan", "steam_clean", "steam_export"],
+        "backup": ["scan", "save"],
         "patch":  ["patch"],
         "configure": ["configure"],
     }

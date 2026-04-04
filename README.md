@@ -21,6 +21,22 @@ Don't like the name? **Change it.** Renaming things is literally what Cartouche 
 - **Emulator config** — auto-configures Dolphin, Ryujinx, Cemu, and RetroArch from `config.txt`
 - **Manifest export** — generates `manifests.json` for [Steam ROM Manager](https://github.com/SteamGridDB/steam-rom-manager)
 
+### Save Path Variables
+
+When configuring save paths in `game.json`, you generally only need to provide the Windows path (e.g. `%APPDATA%`, `%USERPROFILE%`, or `C:\...`). If the game is run on Linux through Proton, Cartouche will automatically translate common Windows paths to their corresponding Proton prefix equivalents in `~/.local/share/Steam/steamapps/compatdata/<appid>/pfx/drive_c/`.
+
+For example, this `game.json` entry works for both Windows native and Linux Proton seamlessly:
+```json
+{
+  "os": "windows",
+  "path": "%USERPROFILE%/AppData/LocalLow/by Sam Eng/SKATE STORY"
+}
+```
+
+If you do need to write an explicit `linux` path overriding Proton, you can use the built-in variables:
+- **`${steamappid}`**: Replaced with the unique AppID Steam assigns to the non-Steam shortcut.
+- **`${proton_c}`**: A shorthand for `~/.local/share/Steam/steamapps/compatdata/${steamappid}/pfx/drive_c`
+
 Metadata and artwork are stored in a `.cartouche/` subfolder inside each game's directory — no central database, no magic, just files.
 
 ## Getting started

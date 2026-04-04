@@ -190,9 +190,14 @@ def create(cfg: dict) -> None:
                 with dpg.group(tag=TAG_SAVES_SECTION, horizontal=False) as grp:
                     dpg.bind_item_theme(grp, TAG_AUTO_WINDOW_THEME)
                     pass
-                add_save_btn = dpg.add_button(label="+ Add Save Path",
-                                              callback=_on_add_save_path)
-                dpg.bind_item_theme(add_save_btn, TAG_ADD_BTN_THEME)
+                with dpg.group(horizontal=True):
+                    add_save_btn = dpg.add_button(label="+ Add Save Path",
+                                                  callback=_on_add_save_path)
+                    dpg.bind_item_theme(add_save_btn, TAG_ADD_BTN_THEME)
+                    auto_detect_save_btn = dpg.add_button(label="Auto-Detect",
+                                                          callback=_on_auto_detect_saves)
+                    dpg.bind_item_theme(auto_detect_save_btn, TAG_ADD_BTN_THEME)
+                    dpg.add_text("", tag="edit_save_status", color=SUCCESS)
 
                 dpg.add_separator()
                 dpg.add_text("Images", color=TEXT_SECONDARY)
@@ -312,6 +317,8 @@ def _show_detail(game: Game) -> None:
         dpg.set_value(TAG_EDIT_SGDB, str(game.steamgriddb_id or ""))
     if dpg.does_item_exist(TAG_EDIT_STATUS):
         dpg.set_value(TAG_EDIT_STATUS, "")
+    if dpg.does_item_exist("edit_save_status"):
+        dpg.set_value("edit_save_status", "")
 
     _build_targets_section(game)
     _build_saves_section(game)
@@ -473,6 +480,7 @@ def _add_save_row(sp: dict | None = None) -> None:
     tags = {
         "os":     f"sp_{rid}_os",
         "path":   f"sp_{rid}_path",
+        "open":   f"sp_{rid}_open",
         "delete": f"sp_{rid}_delete",
         "row":    f"sp_{rid}_row",
     }
@@ -495,6 +503,11 @@ def _add_save_row(sp: dict | None = None) -> None:
                 callback=lambda s, a, u: _show_dir_dialog(u),
                 user_data=tags["path"],
             )
+            dpg.add_button(
+                tag=tags["open"], label="Open", width=40,
+                callback=lambda s, a, u: _on_open_save_path(u),
+                user_data=tags,
+            )
         dpg.bind_item_theme(grp_path, TAG_TIGHT_THEME)
         del_btn = dpg.add_button(
             tag=tags["delete"], label="X", width=28,
@@ -514,6 +527,98 @@ def _delete_save_row(tags: dict) -> None:
 def _on_add_save_path(sender=None, app_data=None, user_data=None) -> None:
     if _selected_game is not None:
         _add_save_row()
+
+
+def _set_save_status(text: str, color: tuple[int, ...]) -> None:
+    if dpg.does_item_exist("edit_save_status"):
+        dpg.set_value("edit_save_status", text)
+        dpg.configure_item("edit_save_status", color=color)
+
+
+def _on_auto_detect_saves(sender=None, app_data=None, user_data=None) -> None:
+    if _selected_game is None:
+        return
+        
+    from .. import detector
+    
+    # Use resolved executable, or fall back to whatever is currently in the UI
+    exe = _selected_game.resolved_target
+    if not exe:
+        for tags in _target_row_tags:
+            if dpg.does_item_exist(tags["target"]):
+                t = dpg.get_value(tags["target"]).strip()
+                if t:
+                    exe = os.path.join(str(_selected_game.game_dir), t)
+                    break
+                    
+    if not exe:
+        _set_save_status("No executable found to get app ID.", WARNING)
+        return
+        
+    paths = detector.detect_proton_save_paths(_selected_game.title, exe)
+    if not paths:
+        _set_save_status("No saves found in Proton prefix.", WARNING)
+        return
+        
+    existing = set()
+    for tags in _save_row_tags:
+        if dpg.does_item_exist(tags["path"]):
+            existing.add(dpg.get_value(tags["path"]).strip())
+            
+            
+    added = 0
+    for p_dict in paths:
+        path_str = p_dict["path"]
+        if path_str not in existing:
+            _add_save_row({"os": p_dict.get("os", "windows"), "path": path_str})
+            existing.add(path_str)
+            added += 1
+            
+    if added:
+        _set_save_status(f"Detected {added} new save path(s).", SUCCESS)
+    else:
+        _set_save_status("Save path(s) already exist.", WARNING)
+
+
+def _on_open_save_path(tags: dict) -> None:
+    """Resolve the path accurately using the current OS mapping and open it locally."""
+    if _selected_game is None or not dpg.does_item_exist(tags["path"]):
+        return
+        
+    path_val = dpg.get_value(tags["path"]).strip()
+    if not path_val:
+        return
+        
+    from .. import scanner
+    
+    extra_vars = {}
+    if _selected_game.resolved_target and _selected_game.title:
+        from ..steam_exporter import generate_appid
+        appid = generate_appid(_selected_game.title, _selected_game.resolved_target)
+        extra_vars["steamappid"] = appid
+        extra_vars["proton_c"] = f"~/.local/share/Steam/steamapps/compatdata/{appid}/pfx/drive_c"
+        
+    os_val = dpg.get_value(tags["os"]) if dpg.does_item_exist(tags["os"]) else "linux"
+    
+    # On Linux, translate typical Windows variable tokens silently to Proton path before resolving
+    if scanner.os_tag() == "linux" and os_val == "windows":
+        path_val = scanner._translate_windows_to_proton(path_val, extra_vars)
+        
+    resolved = scanner._resolve_save_path(path_val, str(_selected_game.game_dir), extra_vars)
+    
+    # Check physical existence before launching
+    if not os.path.isdir(resolved) and not os.path.isfile(resolved):
+         _set_save_status(f"Directory not found on disk: {resolved}", WARNING)
+         return
+         
+    # Launch file browser
+    import sys, subprocess
+    if sys.platform.startswith("win"):
+        os.startfile(resolved)
+    else:
+        subprocess.run(["xdg-open", resolved])
+        
+    _set_save_status("Opened file browser.", SUCCESS)
 
 
 # =========================================================================
