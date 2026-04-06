@@ -140,16 +140,24 @@ def patch_file_with_backup_check(patch_info: dict, source_file: str, target_file
         _report_backup_state(target_file, patch_info.get('patched_crc32'))
         return
 
+    _ensure_backup(target_file, backup_file)
+    _apply_bps_and_replace(source_file, target_file)
+
+
+def _ensure_backup(target_file: str, backup_file: str) -> None:
+    """Create a backup of the target file if one does not already exist."""
     if not _backup_exists(backup_file):
         shutil.copy2(target_file, backup_file)
 
+
+def _apply_bps_and_replace(source_file: str, target_file: str) -> None:
+    """Apply BPS patch to a temporary file, then atomically replace the target."""
     patched_file = f"{target_file}.patched"
     if _apply_bps_patch(source_file, target_file, patched_file):
         os.replace(patched_file, target_file)
         logger.info(f"✅ {target_file} patched")
-    else:
-        if os.path.exists(patched_file):
-            os.remove(patched_file)
+    elif os.path.exists(patched_file):
+        os.remove(patched_file)
 
 
 def apply_patch_to_file(patch_info: dict, source_file: str, target_file: str) -> None:

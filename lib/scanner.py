@@ -20,23 +20,21 @@ from .platform_info import os_tag, arch_tag
 logger = logging.getLogger(f"{APP_NAME}.scanner")
 
 
+def _filter_by_field(targets: list, field: str, value: str) -> list:
+    """Narrow targets by exact field match, falling back to blank/any, then to the full list."""
+    exact = [t for t in targets if (t.get(field) or "").lower() == value]
+    if exact:
+        return exact
+    fallback = [t for t in targets if not (t.get(field) or "").strip() or (t.get(field) or "").lower() == "any"]
+    return fallback or targets
+
+
 def _pick_target_entry(targets: list) -> dict | None:
     """Select the best target entry for the current OS/arch."""
     if not targets:
         return None
-    cur_os = os_tag()
-    cur_arch = arch_tag()
-
-    same_os = [t for t in targets if (t.get("os") or "").lower() == cur_os]
-    if not same_os:
-        same_os = [t for t in targets if not (t.get("os") or "").strip() or (t.get("os") or "").lower() == "any"]
-    pool = same_os or targets
-
-    same_arch = [t for t in pool if (t.get("arch") or "").lower() == cur_arch]
-    if not same_arch:
-        same_arch = [t for t in pool if not (t.get("arch") or "").strip() or (t.get("arch") or "").lower() == "any"]
-    pool = same_arch or pool
-
+    pool = _filter_by_field(targets, "os", os_tag())
+    pool = _filter_by_field(pool, "arch", arch_tag())
     return pool[0]
 
 
@@ -65,54 +63,50 @@ def _translate_windows_to_proton(path: str, extra_vars: dict) -> str:
     return translated
 
 
-def _collect_save_paths(sp_list, valid_os_tags, game_dir, extra_vars=None, _result=None):
+def _collect_save_paths(sp_list, valid_os_tags, game_dir, extra_vars=None):
     if isinstance(valid_os_tags, str):
         valid_os_tags = {valid_os_tags}
-    
-    result = [] if _result is None else _result
+
+    result = []
     for sp in sp_list:
         if not isinstance(sp, dict):
             continue
         if "paths" in sp and isinstance(sp["paths"], list):
-            _collect_save_paths(sp["paths"], valid_os_tags, game_dir, extra_vars, result)
+            result.extend(_collect_save_paths(sp["paths"], valid_os_tags, game_dir, extra_vars))
             continue
         sp_os = (sp.get("os") or "").lower().strip()
         if sp_os and sp_os not in valid_os_tags and sp_os != "any":
             continue
-        
+
         raw_path = sp.get("path", "")
-        # On Linux, automatically translate Windows-specific paths to Proton
         if os_tag() == "linux" and sp_os == "windows" and extra_vars:
             raw_path = _translate_windows_to_proton(raw_path, extra_vars)
-            
+
         abs_path = _resolve_save_path(raw_path, game_dir, extra_vars)
         if abs_path and abs_path not in result:
             result.append(abs_path)
     return result
 
 
+def _substitute_custom_vars(text: str, extra_vars: dict) -> str:
+    """Replace ``${name}`` and ``$name`` placeholders with values from extra_vars."""
+    def _replace(m):
+        key = m.group(1) or m.group(2)
+        return str(extra_vars[key]) if key in extra_vars else m.group(0)
+    return re.sub(r'\$\{([^}]+)\}|\$([A-Za-z_][A-Za-z0-9_]*)', _replace, text)
+
+
 def _resolve_save_path(save_path: str, game_dir: str, extra_vars: dict | None = None) -> str:
-    """Resolve a save path (expand vars, make absolute).
+    """Resolve a save path: substitute custom vars, expand env vars, make absolute.
 
-    Supports custom variable substitution before the standard os.path.expandvars
-    pass.  Variables are expressed using either ``${name}`` or ``$name`` syntax.
-    Built-in variables:
+    Built-in variables (via extra_vars):
     - ``${steamappid}``: The non-Steam shortcut AppID assigned to the game.
-    - ``${proton_c}``: Shorthand for ``~/.local/share/Steam/steamapps/compatdata/${steamappid}/pfx/drive_c``
-
-    Example save-path entry in game.json::
-
-        {"os": "linux",
-         "path": "${proton_c}/users/steamuser/AppData/LocalLow/by Sam Eng/SKATE STORY"}
+    - ``${proton_c}``: The Proton C: drive prefix for the game.
     """
     if not save_path:
         return ""
-    # Substitute custom variables (${name} and $name forms) before env-var expansion
     if extra_vars:
-        def _replace(m):
-            key = m.group(1) or m.group(2)
-            return str(extra_vars[key]) if key in extra_vars else m.group(0)
-        save_path = re.sub(r'\$\{([^}]+)\}|\$([A-Za-z_][A-Za-z0-9_]*)', _replace, save_path)
+        save_path = _substitute_custom_vars(save_path, extra_vars)
     save_path = os.path.expandvars(os.path.expanduser(save_path))
     if not os.path.isabs(save_path):
         save_path = os.path.join(game_dir, save_path)
@@ -188,7 +182,8 @@ def _resolve_runtime_fields(game: Game):
         from .steam_exporter import generate_appid
         appid = generate_appid(game.title, game.resolved_target)
         extra_vars["steamappid"] = appid
-        extra_vars["proton_c"] = f"~/.local/share/Steam/steamapps/compatdata/{appid}/pfx/drive_c"
+        from .steam_helpers import PROTON_PREFIX_TEMPLATE
+        extra_vars["proton_c"] = PROTON_PREFIX_TEMPLATE.format(appid=appid)
 
     valid_tags = {os_tag()}
     if game.resolved_target_os:

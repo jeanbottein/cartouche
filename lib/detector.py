@@ -91,23 +91,30 @@ def _walk_executables(game_dir: str, maxdepth: int):
         yield dirpath, filenames
 
 
+def _is_matching_arch(exe_path: str, arch_filter: str) -> bool:
+    """Check whether an executable matches the desired architecture filter."""
+    if not arch_filter:
+        return True
+    bin_arch = detect_binary_arch(exe_path)
+    return (bin_arch or _arch_from_binary(exe_path)) == arch_filter
+
+
+def _is_runnable(name: str, full_path: str) -> bool:
+    """Check whether a file looks like a runnable executable."""
+    if name.lower().endswith(".exe"):
+        return is_executable(full_path)
+    return os.access(full_path, os.X_OK) and is_executable(full_path)
+
+
 def _get_bin_posix(game_dir: str, maxdepth: int, arch_filter: str = "") -> str | None:
-    candidates = []
-    for dirpath, filenames in _walk_executables(game_dir, maxdepth):
-        for name in filenames:
-            full = os.path.join(dirpath, name)
-            is_exe = name.lower().endswith(".exe")
-            if not is_exe and not os.access(full, os.X_OK):
-                continue
-            if not is_executable(full):
-                continue
-            if arch_filter:
-                bin_arch = detect_binary_arch(full)
-                if bin_arch and bin_arch != arch_filter:
-                    continue
-                if not bin_arch and _arch_from_binary(full) != arch_filter:
-                    continue
-            candidates.append(full)
+    candidates = [
+        full
+        for dirpath, filenames in _walk_executables(game_dir, maxdepth)
+        for name in filenames
+        if (full := os.path.join(dirpath, name))
+        and _is_runnable(name, full)
+        and _is_matching_arch(full, arch_filter)
+    ]
     return _find_best(game_dir, candidates or None)
 
 
@@ -233,22 +240,20 @@ def _collect_targets(game_dir: str) -> list[GameTarget]:
 
 # ── Pick best target for current platform ────────────────────────────────
 
+def _filter_targets(targets: list[GameTarget], key_fn, value: str) -> list[GameTarget]:
+    """Narrow targets by exact match on key_fn, falling back to blank/any, then the full list."""
+    exact = [t for t in targets if key_fn(t).lower() == value]
+    if exact:
+        return exact
+    fallback = [t for t in targets if not key_fn(t).strip() or key_fn(t).lower() == "any"]
+    return fallback or targets
+
+
 def _pick_target_entry(targets: list[GameTarget]) -> GameTarget | None:
     if not targets:
         return None
-    cur_os   = os_tag()
-    cur_arch = arch_tag()
-
-    same_os = [t for t in targets if t.os.lower() == cur_os]
-    if not same_os:
-        same_os = [t for t in targets if not t.os.strip() or t.os.lower() == "any"]
-    pool = same_os or targets
-
-    same_arch = [t for t in pool if t.arch.lower() == cur_arch]
-    if not same_arch:
-        same_arch = [t for t in pool if not t.arch.strip() or t.arch.lower() == "any"]
-    pool = same_arch or pool
-
+    pool = _filter_targets(targets, lambda t: t.os, os_tag())
+    pool = _filter_targets(pool, lambda t: t.arch, arch_tag())
     return pool[0]
 
 
@@ -261,77 +266,94 @@ def collect_targets(game_dir: str) -> list[GameTarget]:
 
 # ── Save Path Auto-Detection ─────────────────────────────────────────────
 
+_PROTON_SEARCH_DIRS = [
+    ("users/steamuser/AppData/LocalLow", "%USERPROFILE%/AppData/LocalLow"),
+    ("users/steamuser/AppData/Local", "%LOCALAPPDATA%"),
+    ("users/steamuser/AppData/Roaming", "%APPDATA%"),
+    ("users/steamuser/Documents", "%USERPROFILE%/Documents"),
+    ("users/steamuser/Saved Games", "%USERPROFILE%/Saved Games"),
+]
+
+_PROTON_IGNORE_DIRS = {
+    "Microsoft", "Temp", "dxvk", "CrashDumps", ".cef", "CEF",
+    "desktop.ini", "Public", "Windows", "Contacts", "Favorites",
+    "Links", "Pictures", "Music", "Videos", "Searches",
+    "Steam", "SteamVR",
+}
+
+_MAX_PROTON_SEARCH_DEPTH = 2
+
+
+def _alphanum_key(text: str) -> str:
+    """Reduce a string to lowercase alphanumerics for fuzzy matching."""
+    return "".join(c for c in text.lower() if c.isalnum())
+
+
+def _resolve_proton_c_path(game_title: str, exe_path: str) -> str | None:
+    """Build and validate the Proton C: drive path for a game."""
+    from .steam_exporter import generate_appid
+    from .steam_helpers import PROTON_PREFIX_TEMPLATE
+    appid = generate_appid(game_title, exe_path)
+    proton_c = os.path.expanduser(PROTON_PREFIX_TEMPLATE.format(appid=appid))
+    return proton_c if os.path.isdir(proton_c) else None
+
+
+def _search_proton_dir(proton_c_disk: str, title_clean: str,
+                       base_dir: str, win_pattern: str) -> list[dict]:
+    """Walk one Proton search directory for folders matching the game title."""
+    full_base = os.path.join(proton_c_disk, base_dir)
+    if not os.path.isdir(full_base):
+        return []
+
+    results = []
+    root_depth = full_base.rstrip(os.sep).count(os.sep)
+    for dirpath, dirnames, _ in os.walk(full_base):
+        depth = dirpath.rstrip(os.sep).count(os.sep) - root_depth
+        if depth >= _MAX_PROTON_SEARCH_DEPTH:
+            dirnames[:] = []
+        dirnames[:] = [d for d in dirnames if d not in _PROTON_IGNORE_DIRS and not d.startswith('.')]
+
+        clean_curr = _alphanum_key(os.path.basename(dirpath))
+        if not clean_curr or title_clean not in clean_curr:
+            continue
+
+        rel_match = os.path.relpath(dirpath, full_base).replace('\\', '/')
+        win_path = f"{win_pattern}/{rel_match}" if rel_match != "." else win_pattern
+        results.append({"os": "windows", "path": win_path})
+    return results
+
+
+def _deduplicate(items: list[dict]) -> list[dict]:
+    """Deduplicate a list of dicts preserving insertion order."""
+    seen = []
+    for item in items:
+        if item not in seen:
+            seen.append(item)
+    return seen
+
+
 def detect_proton_save_paths(game_title: str, exe_path: str) -> list[dict]:
     """
-    Attempt to auto-detect game save locations within the corresponding Proton prefix.
+    Auto-detect game save locations within the corresponding Proton prefix.
     Returns a list of dicts with 'os' and 'path' mapping to standard Windows environments.
     """
     if not game_title or not exe_path:
         return []
-        
-    from .steam_exporter import generate_appid
-    appid = generate_appid(game_title, exe_path)
-    
-    proton_c_var = "${proton_c}"
-    proton_c_disk = os.path.expanduser(f"~/.local/share/Steam/steamapps/compatdata/{appid}/pfx/drive_c")
-    if not os.path.isdir(proton_c_disk):
+
+    proton_c_disk = _resolve_proton_c_path(game_title, exe_path)
+    if not proton_c_disk:
         return []
-        
-    search_dirs = [
-        ("users/steamuser/AppData/LocalLow", "%USERPROFILE%/AppData/LocalLow"),
-        ("users/steamuser/AppData/Local", "%LOCALAPPDATA%"),
-        ("users/steamuser/AppData/Roaming", "%APPDATA%"),
-        ("users/steamuser/Documents", "%USERPROFILE%/Documents"),
-        ("users/steamuser/Saved Games", "%USERPROFILE%/Saved Games"),
-    ]
-    
-    ignore_dirs = {
-        "Microsoft", "Temp", "dxvk", "CrashDumps", ".cef", "CEF",
-        "desktop.ini", "Public", "Windows", "Contacts", "Favorites",
-        "Links", "Pictures", "Music", "Videos", "Searches",
-        "Steam", "SteamVR"
-    }
 
-    def _clean_str(s: str) -> str:
-        return "".join(c for c in s.lower() if c.isalnum())
-
-    title_clean = _clean_str(game_title)
+    title_clean = _alphanum_key(game_title)
     if not title_clean:
         return []
-        
-    results = []
-    
-    for base_dir, win_pattern in search_dirs:
-        full_base = os.path.join(proton_c_disk, base_dir)
-        if not os.path.isdir(full_base):
-            continue
-            
-        root_depth = full_base.rstrip(os.sep).count(os.sep)
-        for dirpath, dirnames, filenames in os.walk(full_base):
-            depth = dirpath.rstrip(os.sep).count(os.sep) - root_depth
-            if depth >= 2:
-                dirnames[:] = []
-                
-            dirnames[:] = [d for d in dirnames if d not in ignore_dirs and not d.startswith('.')]
-            
-            # Substring match on the raw token so "SkateStory" matches "skatestory" cleanly
-            current_dirname = os.path.basename(dirpath)
-            clean_curr = _clean_str(current_dirname)
-            
-            if clean_curr and (title_clean == clean_curr or title_clean in clean_curr):
-                rel_match = os.path.relpath(dirpath, full_base).replace('\\', '/')
-                if rel_match != ".":
-                    win_path = f"{win_pattern}/{rel_match}"
-                else:
-                    win_path = win_pattern
-                results.append({"os": "windows", "path": win_path})
 
-    unique_results = []
-    for r in results:
-        if r not in unique_results:
-            unique_results.append(r)
-            
-    return unique_results
+    results = [
+        match
+        for base_dir, win_pattern in _PROTON_SEARCH_DIRS
+        for match in _search_proton_dir(proton_c_disk, title_clean, base_dir, win_pattern)
+    ]
+    return _deduplicate(results)
 
 
 # ── Main entry point ─────────────────────────────────────────────────────

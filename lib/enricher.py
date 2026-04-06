@@ -119,20 +119,16 @@ def _cache_is_complete(cached: dict) -> bool:
     return "name" in cached and "icon" in urls and "poster" in urls
 
 
-def _refresh_cached_entry(key: str, cached: dict, api_key: str, cfg) -> tuple:
-    """Fill missing fields in a partial cache entry; returns (game_id, urls, name)."""
-    game_id = cached.get("game_id")
-    urls = cached.get("urls", {})
-
+def _refresh_cached_entry(key: str, cached: dict, api_key: str, cfg) -> None:
+    """Fill missing fields in a partial cache entry (command — modifies cached in-place)."""
     if "name" not in cached:
         _, official_name = search_game_id(key, api_key)
         if official_name:
             cached["name"] = official_name
 
+    urls = cached.get("urls", {})
     if "icon" not in urls or "poster" not in urls:
-        cached["urls"] = fetch_artwork_urls(game_id, api_key, cfg)
-
-    return game_id, cached.get("urls", {}), cached.get("name")
+        cached["urls"] = fetch_artwork_urls(cached.get("game_id"), api_key, cfg)
 
 
 def _fetch_and_cache(name: str, key: str, cache: dict, api_key: str, manifest_id, cfg) -> tuple:
@@ -151,6 +147,11 @@ def _fetch_and_cache(name: str, key: str, cache: dict, api_key: str, manifest_id
     return None, {}, None
 
 
+def _read_cache_entry(cached: dict) -> tuple:
+    """Query: extract (game_id, urls, name) from a cache entry."""
+    return cached.get("game_id"), cached.get("urls", {}), cached.get("name")
+
+
 def get_sgdb_info(name: str, api_key: str, cache: dict, manifest_id=None, cfg=None) -> tuple:
     """
     Returns (game_id, urls_dict, official_name). Uses cache to prevent API calls.
@@ -159,16 +160,16 @@ def get_sgdb_info(name: str, api_key: str, cache: dict, manifest_id=None, cfg=No
     """
     key = name.lower()
 
-    if key in cache:
-        cached = cache[key]
-        if _cache_is_complete(cached):
-            return cached.get("game_id"), cached.get("urls", {}), cached.get("name")
-        if cached.get("game_id"):
-            return _refresh_cached_entry(key, cached, api_key, cfg)
-        if "game_id" in cached and cached["game_id"] is None:
-            return None, {}, None
+    if key not in cache:
+        return _fetch_and_cache(name, key, cache, api_key, manifest_id, cfg)
 
-    return _fetch_and_cache(name, key, cache, api_key, manifest_id, cfg)
+    cached = cache[key]
+    if _cache_is_complete(cached):
+        return _read_cache_entry(cached)
+    if cached.get("game_id"):
+        _refresh_cached_entry(key, cached, api_key, cfg)
+        return _read_cache_entry(cached)
+    return None, {}, None
 
 
 # ── Image filename mapping ───────────────────────────────────────────────
@@ -201,29 +202,34 @@ def _urls_to_image_filenames(urls: dict) -> GameImages:
 
 # ── Game enrichment ──────────────────────────────────────────────────────
 
-def _apply_sgdb_data(game, game_id: int, urls: dict, official_name: str | None) -> bool:
-    """Update game fields from SGDB data. Returns True if any field changed."""
-    changed = False
-
+def _has_sgdb_changes(game, game_id: int, urls: dict, official_name: str | None) -> bool:
+    """Query: check whether SGDB data would change any game fields."""
     if game.steamgriddb_id != game_id:
-        game.steamgriddb_id = game_id
-        changed = True
+        return True
+    if official_name and game.title != official_name:
+        return True
+    new_images = _urls_to_image_filenames(urls)
+    return any(
+        getattr(new_images, field) and not getattr(game.images, field)
+        for field in ("cover", "icon", "hero", "logo", "header")
+    )
+
+
+def _apply_sgdb_data(game, game_id: int, urls: dict, official_name: str | None) -> None:
+    """Command: update game fields from SGDB data."""
+    game.steamgriddb_id = game_id
 
     if official_name and game.title != official_name:
         game.title = official_name
-        changed = True
 
     new_images = _urls_to_image_filenames(urls)
     for field in ("cover", "icon", "hero", "logo", "header"):
         new_val = getattr(new_images, field)
         if new_val and not getattr(game.images, field):
             setattr(game.images, field, new_val)
-            changed = True
 
     if urls:
-        game._artwork_urls = urls  # type: ignore[attr-defined]
-
-    return changed
+        game._artwork_urls = urls
 
 
 # ── Main entry point ─────────────────────────────────────────────────────
@@ -255,7 +261,8 @@ def enrich(db: GameDatabase, cfg: dict) -> None:
             logger.info(f"  Not found: {game.title}")
             continue
 
-        if _apply_sgdb_data(game, game_id, urls, official_name):
+        if _has_sgdb_changes(game, game_id, urls, official_name):
+            _apply_sgdb_data(game, game_id, urls, official_name)
             game.needs_persist = True
             logger.info(f"  Enriched: {game.folder_name} -> {game.title} (SGDB #{game_id})")
         elif not game.images.cover:

@@ -116,28 +116,36 @@ def _append_to_file(content: str, value: str) -> str:
     return content + value + '\n'
 
 
+def _apply_single_text_replacement(content: str, rep: dict) -> tuple[str, bool]:
+    """Apply one text-based replacement rule. Returns (new_content, changed)."""
+    pattern, value, name = rep['pattern'], rep['value'], rep['name']
+
+    if re.search(pattern, content):
+        logger.info(f"✅ {name} -> {value}")
+        return re.sub(pattern, value, content, count=1), True
+
+    if not rep.get('insert', False):
+        return content, False
+
+    after = rep.get('after')
+    if after is not None:
+        content, inserted = _insert_after_marker(content, value, after)
+        if inserted:
+            logger.info(f"✅ {name} -> inserted after '{after}'")
+        else:
+            logger.warning(f"⚠️  {name}: marker '{after}' not found in file, skipping insert")
+        return content, inserted
+
+    logger.info(f"✅ {name} -> inserted at end of file")
+    return _append_to_file(content, value), True
+
+
 def apply_text_replacements(content: str, replacements: list) -> tuple[str, bool]:
     """Apply text-based regex replacements, with optional insert-if-missing."""
     modified = False
     for rep in replacements:
-        pattern, value = rep['pattern'], rep['value']
-        if re.search(pattern, content):
-            content = re.sub(pattern, value, content, count=1)
-            logger.info(f"✅ {rep['name']} -> {value}")
-            modified = True
-        elif rep.get('insert', False):
-            after = rep.get('after')
-            if after is not None:
-                content, inserted = _insert_after_marker(content, value, after)
-                if inserted:
-                    logger.info(f"✅ {rep['name']} -> inserted after '{after}'")
-                    modified = True
-                else:
-                    logger.warning(f"⚠️  {rep['name']}: marker '{after}' not found in file, skipping insert")
-            else:
-                content = _append_to_file(content, value)
-                logger.info(f"✅ {rep['name']} -> inserted at end of file")
-                modified = True
+        content, changed = _apply_single_text_replacement(content, rep)
+        modified = modified or changed
     return content, modified
 
 
@@ -190,6 +198,17 @@ def apply_hex_replacements(content: bytes, replacements: list) -> tuple[bytes, b
 
 # ── File mutation ────────────────────────────────────────────────────────
 
+def _read_modify_write(file_path: str, read_mode: str, write_mode: str,
+                       apply_fn, replacements: list) -> None:
+    """Read a file, apply a transformation, and write back only if changed."""
+    with open(file_path, read_mode) as f:
+        content = f.read()
+    content, modified = apply_fn(content, replacements)
+    if modified:
+        with open(file_path, write_mode) as f:
+            f.write(content)
+
+
 def modify_file(file_path: str, replacements: list) -> None:
     if not os.path.exists(file_path) or not replacements:
         return
@@ -199,20 +218,9 @@ def modify_file(file_path: str, replacements: list) -> None:
     hex_reps  = [r for r in replacements if r.get('type') == 'hexadecimal']
 
     if text_reps:
-        with open(file_path, 'r') as f:
-            content = f.read()
-        content, modified = apply_text_replacements(content, text_reps)
-        if modified:
-            with open(file_path, 'w') as f:
-                f.write(content)
-
+        _read_modify_write(file_path, 'r', 'w', apply_text_replacements, text_reps)
     if hex_reps:
-        with open(file_path, 'rb') as f:
-            content = f.read()
-        content, modified = apply_hex_replacements(content, hex_reps)
-        if modified:
-            with open(file_path, 'wb') as f:
-                f.write(content)
+        _read_modify_write(file_path, 'rb', 'wb', apply_hex_replacements, hex_reps)
 
 
 def run(config_vars: dict) -> None:
