@@ -32,21 +32,22 @@ def _download_file(url, local_path):
         return False
 
 
+_ARTWORK_URL_KEYS = {
+    "cover":  "poster",
+    "icon":   "icon",
+    "hero":   "hero",
+    "logo":   "logo",
+    "header": "grid",
+}
+
+
 def _download_images(game, cartouche_dir: str, force: bool = False) -> None:
     """Download artwork images from URLs stored during enrichment."""
-    urls = getattr(game, "_artwork_urls", None)
-    if not urls:
+    if not game._artwork_urls:
         return
 
-    url_by_field = {
-        "cover": urls.get("poster"),
-        "icon":  urls.get("icon"),
-        "hero":  urls.get("hero"),
-        "logo":  urls.get("logo"),
-        "header": urls.get("grid"),
-    }
-
-    for field_name, url in url_by_field.items():
+    for field_name, url_key in _ARTWORK_URL_KEYS.items():
+        url = game._artwork_urls.get(url_key)
         if not url:
             continue
         filename = getattr(game.images, field_name)
@@ -58,7 +59,7 @@ def _download_images(game, cartouche_dir: str, force: bool = False) -> None:
         if _download_file(url, local_path):
             logger.info(f"  Downloaded {field_name}: {filename}")
 
-    del game._artwork_urls
+    game._artwork_urls = {}
 
 
 def persist(db: GameDatabase):

@@ -56,7 +56,7 @@ class GameImages:
 
     def to_dict(self) -> dict:
         fields = ("cover", "icon", "hero", "logo", "header")
-        return {f: getattr(self, f) for f in fields if getattr(self, f)}
+        return {f: v for f in fields if (v := getattr(self, f))}
 
     @classmethod
     def from_dict(cls, d: dict) -> "GameImages":
@@ -102,6 +102,7 @@ class Game:
     resolved_launch_options: str = ""
     resolved_target_os: str = ""                                  # OS of the picked target
     resolved_save_paths: List[str] = field(default_factory=list)  # Absolute paths for current OS
+    _artwork_urls: Dict = field(default_factory=dict)             # Transient: SGDB URLs for download
 
     def __post_init__(self):
         if isinstance(self.game_dir, str):

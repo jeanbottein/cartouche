@@ -79,10 +79,44 @@ def save_shortcuts(shortcuts_path, shortcuts_dict):
 
 def _reindex(shortcuts_dict):
     """Reindex shortcuts to keep keys contiguous ("0", "1", "2", ...)."""
-    reindexed = {}
-    for i, (_, v) in enumerate(sorted(shortcuts_dict.items(), key=lambda x: int(x[0]) if x[0].isdigit() else 0)):
-        reindexed[str(i)] = v
-    return reindexed
+    sorted_by_index = sorted(
+        shortcuts_dict.items(),
+        key=lambda item: int(item[0]) if item[0].isdigit() else 0,
+    )
+    return {str(i): value for i, (_, value) in enumerate(sorted_by_index)}
+
+
+def _find_stale_keys(shortcuts: dict, valid_targets: set) -> list[str]:
+    """Identify shortcut keys whose executables are no longer in the game database."""
+    stale = []
+    for key, shortcut in shortcuts.items():
+        if not _has_ownership_tag(shortcut):
+            continue
+        exe = shortcut.get("Exe", shortcut.get("exe", "")).strip('"')
+        if exe not in valid_targets:
+            stale.append(key)
+    return stale
+
+
+def _remove_stale_shortcuts(config_dir: str, valid_targets: set) -> None:
+    """Remove stale shortcuts from a single Steam user directory."""
+    shortcuts_path = _get_shortcuts_path(config_dir)
+    shortcuts = load_shortcuts(shortcuts_path)
+    if not shortcuts:
+        return
+
+    stale_keys = _find_stale_keys(shortcuts, valid_targets)
+    if not stale_keys:
+        return
+
+    for key in stale_keys:
+        logger.info(f"  Removing stale shortcut: {_get_appname(shortcuts[key])}")
+        del shortcuts[key]
+
+    shortcuts = _reindex(shortcuts)
+    save_shortcuts(shortcuts_path, shortcuts)
+    uid = os.path.basename(os.path.dirname(config_dir))
+    logger.info(f"  Steam user {uid}: removed {len(stale_keys)} stale shortcut(s)")
 
 
 def clean(db: GameDatabase, cfg: dict):
@@ -90,41 +124,12 @@ def clean(db: GameDatabase, cfg: dict):
     Remove stale shortcuts (tagged cartouche/gamer-sidekick)
     whose EXE path is no longer in the game database.
     """
-    if cfg.get("STEAM_EXPOSE", "False").lower() != "true":
-        return
+    from .steam_helpers import resolve_steam_config_dirs
 
-    config_dirs = find_steam_userdata_dirs()
+    config_dirs = resolve_steam_config_dirs(cfg)
     if not config_dirs:
         return
 
-    steam_userid = cfg.get("STEAM_USERID", "").strip()
-    if steam_userid:
-        config_dirs = [d for d in config_dirs if f"/{steam_userid}/" in d]
-        if not config_dirs:
-            logger.warning(f"STEAM_USERID={steam_userid} not found")
-            return
-
     valid_targets = {g.resolved_target for g in db.games_with_targets()}
-
     for config_dir in config_dirs:
-        shortcuts_path = _get_shortcuts_path(config_dir)
-        shortcuts = load_shortcuts(shortcuts_path)
-        if not shortcuts:
-            continue
-
-        keys_to_remove = []
-        for key, shortcut in shortcuts.items():
-            if not _has_ownership_tag(shortcut):
-                continue
-            exe = shortcut.get("Exe", shortcut.get("exe", "")).strip('"')
-            if exe not in valid_targets:
-                keys_to_remove.append(key)
-                logger.info(f"  Removing stale shortcut: {_get_appname(shortcut)}")
-
-        if keys_to_remove:
-            for key in keys_to_remove:
-                del shortcuts[key]
-            shortcuts = _reindex(shortcuts)
-            save_shortcuts(shortcuts_path, shortcuts)
-            uid = os.path.basename(os.path.dirname(config_dir))
-            logger.info(f"  Steam user {uid}: removed {len(keys_to_remove)} stale shortcut(s)")
+        _remove_stale_shortcuts(config_dir, valid_targets)

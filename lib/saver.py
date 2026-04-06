@@ -30,24 +30,15 @@ def _resolve_base_path(path: str) -> str:
 
 
 def _sanitize_title(title: str) -> str:
-    if not title:
-        title = "game"
-    name = title.strip()
-    name = "".join(
-        c if c not in '<>:"/\\|?*' and ord(c) >= 32 else "_" for c in name
-    )
-    name = re.sub(r"\s+", "_", name)
-    name = name.rstrip(". ")
+    name = (title or "game").strip()
+    name = re.sub(r'[<>:"/\\|?*]|[\x00-\x1f]', '_', name)
+    name = re.sub(r'\s+', '_', name)
+    name = name.rstrip('. ')
     if not name:
-        name = "game"
-    upper = name.upper()
-    if upper in WINDOWS_RESERVED_NAMES:
+        return "game"
+    if name.upper() in WINDOWS_RESERVED_NAMES:
         name = f"{name}_game"
-    if len(name) > 100:
-        name = name[:100].rstrip(". ")
-    if not name:
-        name = "game"
-    return name
+    return name[:100].rstrip('. ') or "game"
 
 
 def _build_file_map(root: str) -> dict:
@@ -60,18 +51,22 @@ def _build_file_map(root: str) -> dict:
     }
 
 
+def _destination_is_current(src: str, dst: str) -> bool:
+    """Query: check whether the destination file is already up-to-date."""
+    if not os.path.exists(dst):
+        return False
+    try:
+        src_stat, dst_stat = os.stat(src), os.stat(dst)
+        return src_stat.st_size == dst_stat.st_size and src_stat.st_mtime <= dst_stat.st_mtime
+    except OSError:
+        return False
+
+
 def _copy_file(src: str, dst: str) -> None:
     os.makedirs(os.path.dirname(dst), exist_ok=True)
+    if _destination_is_current(src, dst):
+        return
     try:
-        if os.path.exists(dst):
-            try:
-                src_stat = os.stat(src)
-                dst_stat = os.stat(dst)
-            except OSError:
-                shutil.copy2(src, dst)
-                return
-            if src_stat.st_size == dst_stat.st_size and src_stat.st_mtime <= dst_stat.st_mtime:
-                return
         shutil.copy2(src, dst)
     except OSError as e:
         logger.error(f"Error copying {src} -> {dst}: {e}")

@@ -175,20 +175,11 @@ def _export_to_config_dir(config_dir: str, games: list, game_appids: dict) -> tu
 
 def export(db: GameDatabase, cfg: dict) -> None:
     """Create or update Steam shortcuts for all games with resolved targets."""
-    if cfg.get("STEAM_EXPOSE", "False").lower() != "true":
-        return
+    from .steam_helpers import resolve_steam_config_dirs
 
-    config_dirs = find_steam_userdata_dirs()
+    config_dirs = resolve_steam_config_dirs(cfg)
     if not config_dirs:
-        logger.warning("No Steam userdata directories found")
         return
-
-    steam_userid = cfg.get("STEAM_USERID", "").strip()
-    if steam_userid:
-        config_dirs = [d for d in config_dirs if f"/{steam_userid}/" in d]
-        if not config_dirs:
-            logger.warning(f"STEAM_USERID={steam_userid} not found")
-            return
 
     games = db.games_with_targets()
     if not games:

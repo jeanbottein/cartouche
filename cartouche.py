@@ -8,7 +8,7 @@ backs up save files, applies patches, and configures emulators.
 """
 
 from pathlib import Path
-from typing import Dict
+from typing import Dict, NamedTuple
 import logging
 import os
 import shutil
@@ -31,14 +31,17 @@ def load_config_map(config_path: Path) -> Dict[str, str]:
     if not config_path.exists():
         logger.warning("Config file %s not found; continuing with empty configuration", config_path)
         return {}
-    raw_lines  = config_path.read_text().splitlines()
-    candidates = (l.strip() for l in raw_lines)
-    key_value_lines = (l.split('=', 1) for l in candidates if l and not l.startswith('#') and '=' in l)
-    return {
-        k.strip(): v
-        for raw_k, raw_v in key_value_lines
-        if (k := raw_k.strip()) and (v := _strip_inline_comment(raw_v))
-    }
+    config = {}
+    for line in config_path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith('#') or '=' not in line:
+            continue
+        raw_key, raw_value = line.split('=', 1)
+        key = raw_key.strip()
+        value = _strip_inline_comment(raw_value)
+        if key and value:
+            config[key] = value
+    return config
 
 
 # Keys whose values may be stored as relative paths (relative to .cartouche parent)
@@ -62,7 +65,13 @@ def _resolve_relative_paths(cfg: Dict[str, str], config_path: Path) -> None:
             cfg[key] = str((base / p).resolve())
 
 
-def parse_args(argv: list) -> tuple:
+class ParsedArgs(NamedTuple):
+    cli_dir: Path | None
+    dry_run: bool
+    batch_mode: bool
+
+
+def parse_args(argv: list) -> ParsedArgs:
     """
     Split argv on '--' into a positional directory and mode flags.
 
@@ -90,7 +99,7 @@ def parse_args(argv: list) -> tuple:
 
     dry_run = len(after) >= 2 and after[0] == 'test' and after[1] == 'steam'
     batch_mode = len(after) >= 1 and after[0] == 'batch'
-    return cli_dir, dry_run, batch_mode
+    return ParsedArgs(cli_dir, dry_run, batch_mode)
 
 
 def _seed_conf(app_dir: Path, conf_path: Path) -> None:
