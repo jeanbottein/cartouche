@@ -10,3 +10,5 @@ __pycache__/
 /dist
 .cartouche
 .venv
+test
+.DS_Store
