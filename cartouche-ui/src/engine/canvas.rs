@@ -112,6 +112,12 @@ impl Canvas {
         (scale, offset)
     }
 
+    /// (scale, offset) mapping canvas space -> window space. Lets callers overlay
+    /// full-resolution art (e.g. cover textures) on top of the pixel canvas.
+    pub fn present_transform(&self) -> (f32, Vec2) {
+        self.layout()
+    }
+
     /// Convert a window-space point (e.g. the mouse) into canvas space, or `None`
     /// if it falls in the letterbox.
     pub fn screen_to_canvas(&self, p: Vec2) -> Option<Vec2> {

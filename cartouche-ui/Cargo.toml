@@ -7,6 +7,11 @@ description = "Retro game-like frontend for Cartouche (Rust + macroquad)"
 [dependencies]
 macroquad = "0.4"
 gilrs = { version = "0.10", optional = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Decode cover art ourselves: macroquad's loader only supports PNG and panics on
+# JPEG. image 0.24 matches macroquad's transitive version.
+image = { version = "0.24", default-features = false, features = ["png", "jpeg"] }
 
 [features]
 default = ["gamepad"]

@@ -35,3 +35,26 @@ pub fn text(s: &str, x: f32, y: f32, size: u16, color: Color, font: &Font) {
 pub fn measure(s: &str, size: u16, font: &Font) -> f32 {
     measure_text(s, Some(font), size, 1.0).width
 }
+
+/// Join `segments` with `sep`, wrapping to new lines so each stays within `max_w`.
+pub fn wrap_segments(segments: &[&str], sep: &str, max_w: f32, size: u16, font: &Font) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut cur = String::new();
+    for seg in segments {
+        let trial = if cur.is_empty() {
+            (*seg).to_string()
+        } else {
+            format!("{cur}{sep}{seg}")
+        };
+        if measure(&trial, size, font) > max_w && !cur.is_empty() {
+            lines.push(std::mem::take(&mut cur));
+            cur = (*seg).to_string();
+        } else {
+            cur = trial;
+        }
+    }
+    if !cur.is_empty() {
+        lines.push(cur);
+    }
+    lines
+}

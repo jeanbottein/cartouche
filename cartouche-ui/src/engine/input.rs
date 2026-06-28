@@ -22,9 +22,11 @@ pub enum Action {
     Back,
     Menu,
     ToggleAspect,
+    TabPrev,
+    TabNext,
 }
 
-const ALL_ACTIONS: [Action; 8] = [
+const ALL_ACTIONS: [Action; 10] = [
     Action::Up,
     Action::Down,
     Action::Left,
@@ -33,6 +35,8 @@ const ALL_ACTIONS: [Action; 8] = [
     Action::Back,
     Action::Menu,
     Action::ToggleAspect,
+    Action::TabPrev,
+    Action::TabNext,
 ];
 
 #[cfg(feature = "gamepad")]
@@ -129,6 +133,12 @@ impl Input {
         if is_key_down(KeyCode::Tab) {
             s.insert(Action::ToggleAspect);
         }
+        if is_key_down(KeyCode::Q) {
+            s.insert(Action::TabPrev);
+        }
+        if is_key_down(KeyCode::E) {
+            s.insert(Action::TabNext);
+        }
 
         // --- Gamepad (any connected pad) ---
         #[cfg(feature = "gamepad")]
@@ -173,6 +183,12 @@ impl Input {
                 }
                 if pad.is_pressed(Button::Select) {
                     s.insert(Action::ToggleAspect);
+                }
+                if pad.is_pressed(Button::LeftTrigger) {
+                    s.insert(Action::TabPrev);
+                }
+                if pad.is_pressed(Button::RightTrigger) {
+                    s.insert(Action::TabNext);
                 }
             }
         }
