@@ -1,0 +1,50 @@
+name: cartouche-ui build
+
+on:
+  push:
+    paths:
+      - "cartouche-ui/**"
+      - ".github/workflows/ui-build.yml"
+  pull_request:
+    paths:
+      - "cartouche-ui/**"
+      - ".github/workflows/ui-build.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    defaults:
+      run:
+        working-directory: cartouche-ui
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: cartouche-ui
+
+      - name: Linux build deps
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev libx11-dev libxi-dev libgl1-mesa-dev
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cartouche-ui-${{ matrix.os }}
+          path: |
+            cartouche-ui/target/release/cartouche-ui
+            cartouche-ui/target/release/cartouche-ui.exe
+          if-no-files-found: ignore

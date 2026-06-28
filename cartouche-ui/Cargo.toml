@@ -1,0 +1,21 @@
+[package]
+name = "cartouche-ui"
+version = "0.1.0"
+edition = "2021"
+description = "Retro game-like frontend for Cartouche (Rust + macroquad)"
+
+[dependencies]
+macroquad = "0.4"
+gilrs = { version = "0.10", optional = true }
+
+[features]
+default = ["gamepad"]
+# Gamepad support via gilrs. Needs libudev (+ pkg-config) at build time on Linux.
+# Disable (`--no-default-features`) to build keyboard/mouse-only on systems
+# without those, e.g. an immutable SteamOS dev box.
+gamepad = ["dep:gilrs"]
+
+[profile.release]
+opt-level = 3
+lto = true
+strip = true

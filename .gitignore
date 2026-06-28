@@ -12,3 +12,4 @@ __pycache__/
 .venv
 test
 .DS_Store
+/cartouche-ui/target
