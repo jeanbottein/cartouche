@@ -6,6 +6,7 @@ Derived from the binary/script filename: everything before the first
 suffixes (e.g. cartouche-linux-x86_64, cartouche.v2) while still
 resolving to "cartouche". Falls back to "cartouche" if the result is empty.
 """
+import os
 import re
 import sys
 from pathlib import Path
@@ -16,6 +17,13 @@ else:
     _filename = Path(sys.argv[0]).name
 
 APP_NAME = re.split(r'[-.]', _filename)[0] or "cartouche"
+
+
+def has_display() -> bool:
+    """False on Linux without X11/Wayland (e.g. over SSH), where GUI toolkits abort."""
+    if not sys.platform.startswith("linux"):
+        return True
+    return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
 
 
 def get_script_dir() -> Path:

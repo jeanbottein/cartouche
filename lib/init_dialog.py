@@ -16,7 +16,7 @@ import sys
 import shutil
 from pathlib import Path
 
-from .app import APP_NAME, get_script_dir, get_icon_path
+from .app import APP_NAME, get_script_dir, get_icon_path, has_display
 
 
 # ── Feature definitions ──────────────────────────────────────────────────────
@@ -552,6 +552,8 @@ def run_init_dialog(script_dir: Path, cwd: Path) -> Path:
     Creates and returns the chosen .{APP_NAME}/ directory.
     Calls sys.exit(0) if the user cancels.
     """
+    if not has_display():
+        return _run_cli(script_dir, cwd)
     try:
         return _run_dpg_wizard(script_dir, cwd)
     except Exception:

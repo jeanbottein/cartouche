@@ -16,7 +16,7 @@ import subprocess
 import sys
 
 from lib import scanner, detector, enricher, migrator, steam_cleaner, steam_exporter
-from lib.app import APP_NAME, get_script_dir, find_app_dir
+from lib.app import APP_NAME, get_script_dir, find_app_dir, has_display
 from lib.init_dialog import run_init_dialog
 from lib.pipeline import PipelineRunner
 
@@ -243,6 +243,11 @@ def main():
         return
 
     if batch_mode:
+        run_batch(cfg)
+        return
+
+    if not has_display():
+        logger.info("No display detected. Running in batch mode.")
         run_batch(cfg)
         return
 
