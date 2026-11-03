@@ -11,7 +11,7 @@ import os
 from typing import Callable
 
 from . import migrations, scanner, detector, enricher, persister
-from . import steam_cleaner, steam_exporter, manifest_writer
+from . import steam_cleaner, steam_exporter, steam_self, manifest_writer
 from . import patcher, saver
 from .models import GameDatabase
 from .app import APP_NAME
@@ -109,6 +109,7 @@ class PipelineRunner:
     def _phase_steam_export(self):
         if self.db:
             steam_exporter.export(self.db, self.cfg)
+        steam_self.register(self.cfg)
 
     def _phase_manifest(self):
         if self.db and self.cfg.get("MANIFEST_EXPORT", "True").lower() != "false":

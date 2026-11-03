@@ -16,6 +16,7 @@ Don't like the name? **Change it.** Renaming things is literally what Cartouche 
 - **Detect** — auto-detects executables when metadata is missing
 - **Enrich** — fetches official names and artwork from [SteamGridDB](https://www.steamgriddb.com/)
 - **Steam sync** — adds games to Steam as non-Steam shortcuts, complete with artwork
+- **Self shortcut** — `STEAM_ADD_SELF=True` adds Cartouche itself to Steam as `.cartouche`, with retro artwork
 - **Patch** — applies BPS patches or file replacements via `patch.json`
 - **Save backup** — backs up (or restores) save files, with multiple save paths per game
 - **Manifest export** — generates `manifests.json` for [Steam ROM Manager](https://github.com/SteamGridDB/steam-rom-manager)

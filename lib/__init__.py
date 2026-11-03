@@ -8,6 +8,7 @@ from . import (
     persister,
     steam_cleaner,
     steam_exporter,
+    steam_self,
     manifest_writer,
     migrator,
     patcher,

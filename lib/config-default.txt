@@ -63,6 +63,13 @@
 # Common values: proton_experimental, proton_9-0-4, proton_8-0
 #PROTON_VERSION=proton_experimental
 
+# Add Cartouche itself to Steam as ".cartouche", with its retro artwork (optional)
+# Works even when STEAM_EXPOSE is off. Launches the retro UI build if present
+# (cartouche-ui/target/release/cartouche-ui), otherwise the release binary / cartouche.sh.
+#STEAM_ADD_SELF=False
+# Optionally force what the shortcut launches
+#STEAM_SELF_TARGET=
+
 # If you want to automatically download artwork (grids, heroes, logos) from SteamGridDB,
 # you must provide a free API key from https://www.steamgriddb.com/profile/preferences/api
 #STEAMGRIDDB_API_KEY=

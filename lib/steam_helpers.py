@@ -24,7 +24,11 @@ def resolve_steam_config_dirs(cfg: dict) -> list[str]:
     """
     if cfg.get("STEAM_EXPOSE", "False").lower() != "true":
         return []
+    return select_steam_config_dirs(cfg)
 
+
+def select_steam_config_dirs(cfg: dict) -> list[str]:
+    """Steam userdata config directories, filtered by STEAM_USERID (no STEAM_EXPOSE check)."""
     config_dirs = find_steam_userdata_dirs()
     if not config_dirs:
         logger.warning("No Steam userdata directories found")

@@ -47,6 +47,7 @@ SETTINGS_SCHEMA = [
         "category": "Steam & Integration",
         "settings": [
             {"key": "STEAM_EXPOSE", "label": "Add to Steam", "type": "bool", "help": "Automatically add games as non-Steam shortcuts."},
+            {"key": "STEAM_ADD_SELF", "label": "Add Cartouche to Steam", "type": "bool", "help": "Add this app to Steam as '.cartouche' with retro artwork."},
             {"key": "STEAM_USERID", "label": "Steam User ID", "type": "text", "help": "Optional: target specific user ID."},
             {"key": "PROTON_VERSION", "label": "Proton Version", "type": "text", "help": "Tool for Windows games (e.g. proton_experimental)."},
             {"key": "STEAMGRIDDB_API_KEY", "label": "SteamGridDB API Key", "type": "password", "help": "For automatic artwork (steamgriddb.com)."},

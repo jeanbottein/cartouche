@@ -41,12 +41,14 @@ lib/
   steam_cleaner.py         # Step 5: remove stale shortcuts (uses vdf.binary_load/dump)
   steam_exporter.py        # Step 6: create/update shortcuts
   steam_compat.py          # Step 6b: set Proton compat for Windows games
+  steam_self.py            # Step 6c: add Cartouche itself to Steam (STEAM_ADD_SELF)
+  steam-art/               # Retro artwork for that shortcut (scripts/make_steam_art.py)
   manifest_writer.py       # Step 7: write manifests.json
   patcher.py               # Step 8: BPS patching + file replacement
   saver.py                 # Step 9: save backup/restore/symlink
   games_locations.json     # Known game directory search paths
 scripts/
-  backup.sh
+  make_steam_art.py        # Regenerates lib/steam-art/
 config.txt                 # User configuration (gitignored)
 config-default.txt         # Template copied to config.txt if missing
 ```
