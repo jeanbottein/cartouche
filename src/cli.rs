@@ -29,7 +29,43 @@ Options:
                        Copy GAME from PEER into the folder GAME
                        PEER: a name shown by --peers, or host[:port]
   -h, --help           Print this help
-  -V, --version        Print the version";
+  -V, --version        Print the version
+
+Files:
+  DIR/.cartouche/config.txt      Settings, KEY=value. Created on first run (UI or
+                                 terminal wizard) with every key documented in
+                                 comments; also editable in the UI's SETTINGS tab.
+  GAMES/<Game>/                  One folder per game (GAMES = FREEGAMES_PATH)
+  GAMES/<Game>/.cartouche/game.json
+                                 Title, targets (os/arch/exe), savePaths, year,
+                                 players, description, size. Filled by `-g parse`.
+  GAMES/<Game>.cartouche.tar     A packaged game: shared/copied, not playable
+                                 until unpacked (--unpack or the UI).
+
+Main settings:
+  FREEGAMES_PATH=<dir>           Games folder (required; relative to DIR allowed)
+  STEAM_EXPOSE=True              Add games to Steam as non-Steam shortcuts
+  STEAMGRIDDB_API_KEY=<key>      Artwork, names and years from SteamGridDB
+  SAVESCOPY_PATH=<dir>           Back up saves there (`-g backup`)
+  SHARE_ENABLED=True             Share games on the LAN while the UI runs
+  SHARE_PORT=47800               TCP + UDP port used for sharing
+  SHARE_PEERS=host[:port],...    Peers the LAN broadcast can't reach
+
+Share games between machines:
+  1. Sharing machine: SHARE_ENABLED=True and open the UI, or run --serve
+     (headless library). Open the port in the firewall, e.g. on Bazzite/Fedora:
+       sudo firewall-cmd --permanent --add-port=47800/tcp --add-port=47800/udp
+       sudo firewall-cmd --reload
+  2. Other machine: `cartouche --peers` lists servers and their games, then
+     `cartouche --install <PEER> <GAME>` (or --download to keep a package).
+
+Examples:
+  cartouche                      Open the UI (first run: setup)
+  cartouche -t                   Run every phase in the terminal
+  cartouche -g parse ~/games-ws  Detect, measure and enrich games only
+  cartouche -n                   Show what a Steam sync would change
+
+Exit codes: 0 success, 1 failure (see the log on stderr), 2 bad arguments.";
 
 #[derive(Debug, PartialEq)]
 pub enum Mode {
