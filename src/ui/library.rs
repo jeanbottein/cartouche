@@ -283,7 +283,8 @@ impl Library {
         let tag = match game.install {
             Install::Installed => "",
             Install::Packaged { .. } => "PKG",
-            Install::InstalledWithPackage { .. } => "+PKG",
+            // Shown only in the side panel for now, to keep the list calm.
+            Install::InstalledWithPackage { .. } => "",
         };
         match game.size.filter(|_| with_size) {
             Some(size) if tag.is_empty() => sizer::human(size),
@@ -301,7 +302,7 @@ impl Library {
             Install::Installed => format!("Installed · {}", size(game.size)),
             Install::Packaged { .. } => format!("Packaged · {package}"),
             Install::InstalledWithPackage { verified, .. } => format!(
-                "Installed {} · Package {package}{}",
+                "Installed {} + Package {package}{}",
                 size(game.size),
                 if *verified { "" } else { " (different)" }
             ),
