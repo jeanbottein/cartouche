@@ -2,98 +2,92 @@
 
 ## Project Overview
 
-Cartouche (French for "cartridge") is a Python CLI tool for managing DRM-free games on Linux (primarily Steam Deck). It uses a pipeline architecture with an in-memory GameDatabase as the central data carrier.
+Cartouche (French for "cartridge") is a Rust app for managing DRM-free games on Linux (primarily Steam Deck). One binary: a retro macroquad UI by default, terminal mode with `-t`. The backend is a pipeline of phases over an in-memory game list.
 
 ## Pipeline
 
 ```
-cartouche.py main():
- 0. migrations.run_all_migrations()     # Data migrations (coordinator)
- 1. db = scanner.scan()                 # Parse .cartouche/game.json into GameDatabase
- 2. detector.detect(db)                 # Fill missing targets (exe detection)
- 3. enricher.enrich(db, cfg)            # Fetch SteamGridDB data (if API key)
- 4. persister.persist(db)               # Write .cartouche/game.json + download images
- 5. steam_cleaner.clean()               # Remove stale Steam shortcuts
- 6. steam_exporter.export()             # Insert/update Steam shortcuts
- 7. manifest_writer.write()             # Create manifests.json (ROM manager compat)
- 8. patcher.run(cfg)                    # Apply patches
- 9. saver.run(db, cfg)                  # Backup/restore saves
-10. run_post_commands(cfg)              # RUN_AFTER_* commands
+core::pipeline::Pipeline (groups: all / parse / steam / backup / patch)
+ 0. migrations::run_all      # Idempotent data migrations
+ 1. scanner::scan            # Parse .cartouche/game.json into Vec<Game>
+ 2. detector::detect         # Fill missing targets (exe detection)
+ 3. sgdb::enrich             # SteamGridDB names/IDs/artwork (if API key)
+ 4. persister::persist       # Write game.json + download images (PERSIST_DATA)
+ 5. steam::clean             # Remove stale Steam shortcuts (STEAM_EXPOSE)
+ 6. steam::export            # Insert/update shortcuts + Proton compat
+    steam_self::register     #   + Cartouche itself (STEAM_ADD_SELF)
+ 7. manifest::write          # manifests.json (MANIFEST_EXPORT)
+ 8. patcher::run             # BPS patches / file replacements
+ 9. saver::run               # Backup/restore saves, symlink tree
+10. commands::run            # RUN_AFTER_* shell commands
 ```
 
-**Migrations** (step 0) runs before scanning and is idempotent — safe to run every time. Includes:
-- `migrator.migrate()` — One-time: `launch_manifest.json` → `.cartouche/game.json`
-- `save_paths_migrator.migrate_all_games()` — Flatten nested save paths format
+Migrations: `launch_manifest.json` → `.cartouche/game.json`, nested → flat `savePaths`, arch `x86_64` → `x64`. Add new ones to `migrations::run_all`; keep them idempotent.
 
 ## Architecture
 
 ```
-cartouche.py               # Entry point: loads config, runs pipeline
-lib/
-  models.py                # Game, GameTarget, GameImages, GameDatabase
-  migrations.py            # Step 0: coordinator for all data migrations
-  migrator.py              # (Step 0 sub-task) Legacy launch_manifest.json migration
-  save_paths_migrator.py   # (Step 0 sub-task) Save paths format migration
-  scanner.py               # Step 1: parse .cartouche/ folders
-  detector.py              # Step 2: exe detection
-  enricher.py              # Step 3: SteamGridDB API
-  persister.py             # Step 4: write .cartouche/ + download images
-  steam_cleaner.py         # Step 5: remove stale shortcuts (uses vdf.binary_load/dump)
-  steam_exporter.py        # Step 6: create/update shortcuts
-  steam_compat.py          # Step 6b: set Proton compat for Windows games
-  steam_self.py            # Step 6c: add Cartouche itself to Steam (STEAM_ADD_SELF)
-  steam-art/               # Retro artwork for that shortcut (scripts/make_steam_art.py)
-  manifest_writer.py       # Step 7: write manifests.json
-  patcher.py               # Step 8: BPS patching + file replacement
-  saver.py                 # Step 9: save backup/restore/symlink
-  games_locations.json     # Known game directory search paths
-scripts/
-  make_steam_art.py        # Regenerates lib/steam-art/
-config.txt                 # User configuration (gitignored)
-config-default.txt         # Template copied to config.txt if missing
+src/
+  main.rs, cli.rs        # Args: UI (default), -t/--terminal, -g/--group, -n/--dry-run
+  terminal.rs            # Terminal mode + Steam dry-run preview
+  core/                  # Backend, no UI code
+    app.rs               # App name (from binary filename), workspace dir lookup
+    config.rs            # config.txt parse / relative path resolution / in-place updates
+    models.rs            # Game, Target, SavePath, Images; game.json (de)serialization
+    paths.rs, platform.rs# normpath/expandvars/relpath; OS/arch tags, ELF/PE/Mach-O headers
+    migrations.rs scanner.rs detector.rs sgdb.rs persister.rs
+    vdf.rs               # Binary (shortcuts.vdf) + text (config.vdf) KeyValues
+    steam.rs steam_self.rs manifest.rs bps.rs patcher.rs saver.rs commands.rs
+    pipeline.rs init.rs logging.rs
+  ui/                    # macroquad UI
+    app.rs               # Shell: tabs, footer hints, game session lock, log sink
+    library.rs editor.rs status.rs settings.rs setup.rs
+    form.rs list.rs keyboard.rs browser.rs dialog.rs   # widgets
+    covers.rs launcher.rs engine/ (canvas, input, text, theme)
+assets/                  # Embedded: font, icon, steam-art, config-default.txt, games_locations.json
+testdata/                # Golden fixtures produced by the former Python implementation
 ```
 
 ## Data Structure
 
-Each game folder gets a `.cartouche/` subfolder:
 ```
-FREEGAMES_PATH/
-  MyGame/
-    .cartouche/
-      game.json    # Game metadata
-      cover.png    # Artwork images
-      icon.png
-      hero.png
-      logo.png
-    game-executable
+WORKSPACE/
+  .cartouche/config.txt, steamgriddb_cache.json, ui-thumbs/
+  games/MyGame/.cartouche/game.json, cover.png, icon.png, hero.png, logo.png
 ```
 
 ## Key Conventions
 
-- **Minimal dependencies:** `vdf` (Steam VDF files), `requests` (HTTP client). See `requirements.txt`.
-- **`cfg` dict** parsed from `config.txt` is the runtime config for all modules.
-- **GameDatabase** is the central in-memory data carrier (steps 1-7, 9).
-- **`.cartouche/game.json`** replaces the old `launch_manifest.json`.
-- **Multiple save paths per game** supported (named: "saves", "config", etc.).
-- **Variable substitution** uses `${VARIABLE_NAME}` syntax.
-- **`BACKUP_<name>`** config keys define custom directory backups.
-- **`RUN_AFTER_<label>`** config keys define post-run shell commands.
-- **Ownership tag** in Steam shortcuts is `"cartouche"` (also recognizes legacy `"gamer-sidekick"`).
+- **Compatibility is the contract:** game.json (4-space JSON), shortcuts.vdf, AppIDs (`crc32(exe+title) | 0x80000000`), path normalization and save layout must stay byte-compatible with existing workspaces. Golden tests in `testdata/` guard this.
+- **`Config`** keeps raw values (Settings editor) and resolved values (relative path keys + `BACKUP_*` resolved against the workspace).
+- Flags: `is_true` for opt-in keys (STEAM_EXPOSE, ...), `is_not_false` for opt-out keys (PERSIST_DATA, MANIFEST_EXPORT).
+- **Ownership tag** in Steam shortcuts is the app name (also recognizes legacy `"gamer-sidekick"`); the self shortcut uses `<app>-self`.
+- **Logging:** `log` macros; `core::logging` prints to stderr and mirrors to the UI Status log.
+- **Minimal dependencies:** macroquad, gilrs (feature `gamepad`), serde/serde_json, image, ureq, crc32fast, log.
 
 ## Dev Workflow
 
+The host (Bazzite) has no Rust toolchain on purpose: build in the container.
+
 ```bash
-python3 cartouche.py            # Run full pipeline
-python3 cartouche.py test steam # Dry-run Steam sync
-./cartouche.sh                  # Shell wrapper
+./container.sh                         # cargo build --release (any cargo args work)
+./container.sh test
+./container.sh clippy --all-targets
+./target/release/cartouche             # run on the host (UI)
 ```
 
-Edit `config.txt` (not `config-default.txt`) for local overrides. `config.txt` is gitignored.
+With a native toolchain instead:
+
+```bash
+cargo run                              # UI
+cargo run -- -t                        # full pipeline in the terminal
+cargo run -- -n                        # Steam dry-run preview
+cargo test && cargo clippy --all-targets
+cargo build --no-default-features      # without libudev (no gamepad)
+```
+
+Edit `.cartouche/config.txt` (seeded from `assets/config-default.txt`).
 
 ## Testing
 
-No automated test suite. Verification is done manually:
-1. Set up `config.txt` with known paths.
-2. Run `python3 cartouche.py` and inspect log output.
-3. Verify `.cartouche/game.json` created in game folders.
-4. Verify backups, manifests, Steam shortcuts as expected.
+Unit tests live next to the code (`cargo test`); filesystem tests use `core::testutil::TempDir`. For UI changes, run under Xvfb (`Xvfb :99 &`, `DISPLAY=:99 cargo run`) and drive with `xdotool` / screenshot with `import -window root`.

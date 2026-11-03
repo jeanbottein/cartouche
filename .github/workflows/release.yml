@@ -26,33 +26,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
 
-      - name: Install dependencies
-        run: |
-          pip install pyinstaller
-          pip install -r requirements.txt
+      - name: Linux build deps
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev libx11-dev libxi-dev libgl1-mesa-dev
 
-      - name: Inject API key
-        if: env.STEAMGRIDDB_API_KEY != ''
-        env:
-          STEAMGRIDDB_API_KEY: ${{ secrets.STEAMGRIDDB_API_KEY }}
-        run: python scripts/inject_api_key.py
-
-      - name: Build (Unix)
-        if: runner.os != 'Windows'
-        env:
-          STEAMGRIDDB_API_KEY: ${{ secrets.STEAMGRIDDB_API_KEY }}
-        run: bash release.sh --no-venv
-
-      - name: Build (Windows)
-        if: runner.os == 'Windows'
+      - name: Build
         shell: bash
         env:
+          # Embedded (obfuscated) as the default SteamGridDB key, see build.rs.
           STEAMGRIDDB_API_KEY: ${{ secrets.STEAMGRIDDB_API_KEY }}
-        run: bash release.sh --no-venv
+        run: bash release.sh
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

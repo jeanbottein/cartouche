@@ -1,15 +1,12 @@
 /games
 /mods
 /patches
-/*.conf
-!/*-default.conf
-**/__pycache__
-__pycache__/
-*.py[cod]
-/.build
+/saves-copies
+/saves-links
+/target
 /dist
 .cartouche
-.venv
 test
 .DS_Store
-/cartouche-ui/target
+# Local shim: old Steam shortcut path -> target/release/cartouche
+/cartouche-ui

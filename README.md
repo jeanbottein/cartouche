@@ -2,11 +2,11 @@
 
 > *French for "cartridge" — because nothing beats the nostalgia of blowing into a plastic slot and praying your game boots.*
 
-A no-nonsense tool for managing DRM-free games, patches, and save backups on Linux (and especially Steam Deck).
+A no-nonsense tool for managing DRM-free games, patches, and save backups on Linux (and especially Steam Deck). One self-contained binary: a retro, controller-friendly UI by default, or a plain terminal run with `-t`.
 
 ---
 
-Don't like the name? **Change it.** Renaming things is literally what Cartouche does best — it'll happily override any game title with whatever you put in `game.json`. Fork it, rename it "GamingBlob", the tool won't judge you. It already survived being called *gamer-sidekick*.
+Don't like the name? **Change it.** Renaming things is literally what Cartouche does best — it'll happily override any game title with whatever you put in `game.json`. Rename the binary to "gamingblob" and it becomes GamingBlob: its `.gamingblob/` folder, its Steam tags, everything. It already survived being called *gamer-sidekick*.
 
 ---
 
@@ -15,11 +15,15 @@ Don't like the name? **Change it.** Renaming things is literally what Cartouche 
 - **Scan** — discovers game folders and loads existing metadata
 - **Detect** — auto-detects executables when metadata is missing
 - **Enrich** — fetches official names and artwork from [SteamGridDB](https://www.steamgriddb.com/)
-- **Steam sync** — adds games to Steam as non-Steam shortcuts, complete with artwork
+- **Steam sync** — adds games to Steam as non-Steam shortcuts, complete with artwork, and sets Proton for Windows games
 - **Self shortcut** — `STEAM_ADD_SELF=True` adds Cartouche itself to Steam as `.cartouche`, with retro artwork
 - **Patch** — applies BPS patches or file replacements via `patch.json`
-- **Save backup** — backs up (or restores) save files, with multiple save paths per game
+- **Save backup** — backs up (or restores) save files, with multiple save paths per game, plus a symlink tree for Syncthing
 - **Manifest export** — generates `manifests.json` for [Steam ROM Manager](https://github.com/SteamGridDB/steam-rom-manager)
+- **Post-run commands** — `RUN_AFTER_<name>=<command>` entries run after everything else
+- **Retro UI** — browse and launch games, edit every game (targets, save paths, artwork), run the pipeline with live logs, and change every setting — with a gamepad (on-screen keyboard included), keyboard or mouse
+
+Metadata and artwork are stored in a `.cartouche/` subfolder inside each game's directory — no central database, no magic, just files.
 
 ### Save Path Variables
 
@@ -37,28 +41,67 @@ If you do need to write an explicit `linux` path overriding Proton, you can use 
 - **`${steamappid}`**: Replaced with the unique AppID Steam assigns to the non-Steam shortcut.
 - **`${proton_c}`**: A shorthand for `~/.local/share/Steam/steamapps/compatdata/${steamappid}/pfx/drive_c`
 
-Metadata and artwork are stored in a `.cartouche/` subfolder inside each game's directory — no central database, no magic, just files.
-
 ## Getting started
 
-1. Clone this repo
-2. Copy `config-default.txt` to `config.txt` and fill in your paths
-3. Run:
-   ```bash
-   ./cartouche.sh          # Linux / macOS
-   python3 cartouche.py    # anywhere
+1. Download the binary for your platform from the releases (or build it, see below).
+2. Run it. On first launch it asks where to put the workspace (a `.cartouche/` folder with `config.txt`) and which folders to create.
+3. Fill in the settings (in the UI, or by editing `.cartouche/config.txt`), then run the pipeline from the **Status** tab.
 
-   cartouche.bat           # Windows (untested, godspeed)
-   ```
-4. Dry-run Steam sync before committing:
-   ```bash
-   python3 cartouche.py test steam
-   ```
+```text
+Usage: cartouche [OPTIONS] [DIR]
 
-## Requirements
+  [DIR]                Folder holding the .cartouche/ workspace
+                       (default: next to the binary, then the current folder)
+  -t, --terminal       Run the pipeline in the terminal, without the UI
+  -g, --group <NAME>   Phases to run in the terminal (implies -t):
+                       all (default), parse, steam, backup, patch
+  -n, --dry-run        Preview the Steam sync without changing Steam
+  -h, --help           Print this help
+  -V, --version        Print the version
+```
 
-- Python 3.10+
-- Dependencies: `pip install -r requirements.txt`
+Without a display (e.g. over SSH) the UI isn't available, so Cartouche runs the full pipeline in the terminal instead. Set `CARTOUCHE_DEBUG=1` for verbose logs.
+
+### Controls
+
+| Action | Keyboard | Gamepad | Mouse |
+|---|---|---|---|
+| Move | Arrows / WASD | D-pad / Left stick | Hover / wheel |
+| Confirm (Library: play) | Enter / Space | A | Click the focused row |
+| Edit (Library: edit game) | X | X | — |
+| Back (Library: **hold 1 s to quit**) | Esc / Backspace | B | — |
+| Switch tab | Q / E or 1 2 3 | LB / RB | — |
+| Toggle wide / square layout | Tab | Select | — |
+| Fullscreen | F | — | — |
+
+In text fields, the physical keyboard types directly; on a gamepad use the on-screen keyboard (A types, B deletes, X space, Y shift, Start accepts).
+
+**Steam Game Mode:** gamescope gives the app the resolution set in the shortcut's *Properties → Game Resolution*. Set it to **Native**, otherwise Steam upscales a lower resolution with its own filter, softening the pixels.
+
+## Building
+
+**In a container (recommended, nothing installed on the host):** needs only podman or docker.
+
+```bash
+./container.sh                  # cargo build --release -> target/release/cartouche
+./container.sh test             # any cargo command
+./container.sh run -- -t        # (terminal mode only: the container has no display)
+```
+
+The toolchain and build libraries live in the image (`Containerfile`, Debian 12, so the binary runs on SteamOS and other distros); the cargo cache stays in `target/`. Remove everything with `rm -rf target && podman rmi cartouche-build`.
+
+**Natively:** with the Rust toolchain ([rustup](https://rustup.rs)):
+
+```bash
+cargo run                       # UI
+cargo run -- -t                 # terminal mode
+cargo test
+./release.sh                    # dist/cartouche-<os>-<arch>
+```
+
+Linux build deps: gamepad support (`gilrs`) needs `libudev` and the UI needs X11/OpenGL: `sudo apt-get install -y libudev-dev libx11-dev libxi-dev libgl1-mesa-dev`. Without them, build keyboard/mouse-only with `cargo build --no-default-features`.
+
+Set `STEAMGRIDDB_API_KEY` at build time (also passed through by `container.sh`) to embed a default (obfuscated) API key; users can still override it in `config.txt` or the environment.
 
 ## Platform support
 
@@ -71,6 +114,5 @@ Metadata and artwork are stored in a `.cartouche/` subfolder inside each game's 
 ## Credits
 
 - **Icon**: <a href="https://www.flaticon.com/free-icons/game-cartridge" title="game cartridge icons">Game cartridge icons created by Freepik - Flaticon</a>
-- **vdf**: [ValvePython/vdf](https://github.com/ValvePython/vdf) by Rossen Georgiev — MIT License. Used for reading/writing Steam's VDF configuration and shortcut files.
-- **requests**: [psf/requests](https://github.com/psf/requests) by Kenneth Reitz — Apache-2.0 License. HTTP client for SteamGridDB API and artwork downloads.
-- **python-bps-continued**: [Screwtape/python-bps](https://gitlab.com/Screwtapello/python-bps) — ISC License. Pure Python BPS patch application (replaces external flips binary).
+- **Font**: VT323 by The VT323 Project Authors — SIL Open Font License 1.1 (`assets/VT323-OFL.txt`).
+- **Rust crates**: [macroquad](https://github.com/not-fl3/macroquad) (UI), [gilrs](https://gitlab.com/gilrs-project/gilrs) (gamepads), [ureq](https://github.com/algesten/ureq) (HTTP), [image](https://github.com/image-rs/image), [serde_json](https://github.com/serde-rs/json), [crc32fast](https://github.com/srijs/rust-crc32fast), [log](https://github.com/rust-lang/log).
