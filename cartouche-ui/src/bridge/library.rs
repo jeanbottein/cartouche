@@ -151,9 +151,11 @@ fn decode_cover(src: &Path, thumb: &Path) -> Option<(Vec<u8>, u16, u16)> {
         image::open(thumb).ok()?.to_rgba8()
     } else {
         let bytes = std::fs::read(src).ok()?;
-        let resized = image::load_from_memory(&bytes)
-            .ok()?
-            .resize(THUMB_CAP, THUMB_CAP, image::imageops::FilterType::Lanczos3);
+        let resized = image::load_from_memory(&bytes).ok()?.resize(
+            THUMB_CAP,
+            THUMB_CAP,
+            image::imageops::FilterType::Lanczos3,
+        );
         let _ = resized.save(thumb); // best-effort; regenerated next launch if it fails
         resized.to_rgba8()
     };

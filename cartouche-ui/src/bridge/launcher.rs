@@ -41,7 +41,11 @@ pub fn arch_tag() -> &'static str {
 }
 
 fn filter<'a>(pool: Vec<&'a Target>, key: fn(&Target) -> &str, value: &str) -> Vec<&'a Target> {
-    let exact: Vec<_> = pool.iter().copied().filter(|t| key(t).eq_ignore_ascii_case(value)).collect();
+    let exact: Vec<_> = pool
+        .iter()
+        .copied()
+        .filter(|t| key(t).eq_ignore_ascii_case(value))
+        .collect();
     if !exact.is_empty() {
         return exact;
     }
@@ -59,7 +63,10 @@ fn filter<'a>(pool: Vec<&'a Target>, key: fn(&Target) -> &str, value: &str) -> V
 
 /// Best target for the current OS/arch, or `None` if the game has no targets.
 pub fn pick_target(targets: &[Target]) -> Option<&Target> {
-    let pool: Vec<&Target> = targets.iter().filter(|t| !t.target.trim().is_empty()).collect();
+    let pool: Vec<&Target> = targets
+        .iter()
+        .filter(|t| !t.target.trim().is_empty())
+        .collect();
     let pool = filter(pool, |t| &t.os, os_tag());
     let pool = filter(pool, |t| &t.arch, arch_tag());
     pool.first().copied()
@@ -82,7 +89,9 @@ pub fn launch(title: &str, game_dir: &Path, targets: &[Target]) -> Result<Sessio
     let target = pick_target(targets).ok_or("No executable target in game.json")?;
     let exe = normalize(&game_dir.join(&target.target));
     let start_in = if target.start_in.trim().is_empty() {
-        exe.parent().map(Path::to_path_buf).unwrap_or_else(|| game_dir.to_path_buf())
+        exe.parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| game_dir.to_path_buf())
     } else {
         normalize(&game_dir.join(&target.start_in))
     };
@@ -106,9 +115,13 @@ pub fn launch(title: &str, game_dir: &Path, targets: &[Target]) -> Result<Sessio
     } else {
         Command::new(&exe)
     };
-    cmd.args(target.launch_options.split_whitespace()).current_dir(&start_in);
+    cmd.args(target.launch_options.split_whitespace())
+        .current_dir(&start_in);
     let running = spawn_detached(cmd).map_err(|e| format!("Launch failed: {e}"))?;
-    Ok(Session { title: title.to_string(), running })
+    Ok(Session {
+        title: title.to_string(),
+        running,
+    })
 }
 
 /// Start a Windows game via its Steam shortcut (`steam://rungameid/<gameid>`).
@@ -117,12 +130,19 @@ fn launch_via_steam(title: &str, exe: &Path) -> Result<Session, String> {
     let game_id = ((appid as u64) << 32) | 0x0200_0000;
     let url = format!("steam://rungameid/{game_id}");
 
-    let opener = if os_tag() == "macos" { "open" } else { "xdg-open" };
+    let opener = if os_tag() == "macos" {
+        "open"
+    } else {
+        "xdg-open"
+    };
     let mut cmd = Command::new(opener);
     cmd.arg(&url);
     spawn_detached(cmd)
         .map_err(|e| format!("Windows game: could not open Steam ({e}). Run Steam Sync first."))?;
-    Ok(Session { title: title.to_string(), running: watch_steam_app(appid) })
+    Ok(Session {
+        title: title.to_string(),
+        running: watch_steam_app(appid),
+    })
 }
 
 /// Track a Steam-launched game through its `reaper SteamLaunch AppId=<appid>`
@@ -174,7 +194,11 @@ fn crc32(data: &[u8]) -> u32 {
     for &b in data {
         crc ^= b as u32;
         for _ in 0..8 {
-            crc = if crc & 1 != 0 { (crc >> 1) ^ 0xEDB8_8320 } else { crc >> 1 };
+            crc = if crc & 1 != 0 {
+                (crc >> 1) ^ 0xEDB8_8320
+            } else {
+                crc >> 1
+            };
         }
     }
     !crc
@@ -238,12 +262,19 @@ mod tests {
     #[test]
     fn appid_matches_python_generate_appid() {
         // lib.steam_exporter.generate_appid('Hollow Knight', '/g/Hollow Knight/hollow_knight.exe')
-        assert_eq!(shortcut_appid("Hollow Knight", "/g/Hollow Knight/hollow_knight.exe"), 3770780903);
+        assert_eq!(
+            shortcut_appid("Hollow Knight", "/g/Hollow Knight/hollow_knight.exe"),
+            3770780903
+        );
     }
 
     #[test]
     fn prefers_current_os_then_any_then_first() {
-        let other = if os_tag() == "windows" { "linux" } else { "windows" };
+        let other = if os_tag() == "windows" {
+            "linux"
+        } else {
+            "windows"
+        };
         let targets = vec![t(other, "", "a"), t(os_tag(), "", "b")];
         assert_eq!(pick_target(&targets).unwrap().target, "b");
 
@@ -256,7 +287,11 @@ mod tests {
 
     #[test]
     fn prefers_current_arch() {
-        let other = if arch_tag() == "arm64" { "x64" } else { "arm64" };
+        let other = if arch_tag() == "arm64" {
+            "x64"
+        } else {
+            "arm64"
+        };
         let targets = vec![t(os_tag(), other, "a"), t(os_tag(), arch_tag(), "b")];
         assert_eq!(pick_target(&targets).unwrap().target, "b");
     }
@@ -274,6 +309,9 @@ mod tests {
 
     #[test]
     fn normalize_folds_dots() {
-        assert_eq!(normalize(Path::new("/g/Game/./bin/../run.sh")), PathBuf::from("/g/Game/run.sh"));
+        assert_eq!(
+            normalize(Path::new("/g/Game/./bin/../run.sh")),
+            PathBuf::from("/g/Game/run.sh")
+        );
     }
 }

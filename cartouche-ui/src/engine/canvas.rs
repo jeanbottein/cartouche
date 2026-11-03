@@ -1,17 +1,25 @@
 //! Virtual canvas + scaling (ENGINE-1) and aspect modes (ENGINE-2).
 //!
-//! Everything is drawn into a fixed low-resolution offscreen render target, then
-//! blitted to the window with **nearest-neighbor** filtering at an **integer**
-//! scale (letterboxed) so the retro pixel look stays crisp at any window size.
+//! Everything is drawn into a low-resolution offscreen render target, then
+//! blitted to the window with **nearest-neighbor** filtering.
+//!
+//! The canvas is always [`DESIGN_HEIGHT`] px tall, so the UI looks the same at
+//! any resolution; its width follows the window's shape (4:3 → 576×432,
+//! 16:9 → 768×432, 16:10 → 691×432). It is scaled to fill the window height —
+//! exact ×5 at 4K, ×2.5 at 1080p. Windows shorter than that get a 1:1 canvas of
+//! their own height instead, so small screens keep legible text.
 //!
 //! Two aspect modes:
-//! * `Wide`   — 854×480 (16:9), the default.
-//! * `Square` — 480×480 (1:1). Narrower than widescreen; layouts reflow to use the
+//! * `Wide`   — fills the whole window, the default.
+//! * `Square` — a square canvas centered in the screen. Layouts reflow to use the
 //!   square area (content stacks vertically instead of spreading wide).
 
 use macroquad::prelude::*;
 
 use super::theme;
+
+/// Canvas height (in canvas pixels) the layout is designed for.
+pub const DESIGN_HEIGHT: f32 = 432.0;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum AspectMode {
@@ -19,97 +27,80 @@ pub enum AspectMode {
     Square,
 }
 
-impl AspectMode {
-    /// Logical (pre-scale) canvas size for this mode.
-    pub fn base_size(self) -> (f32, f32) {
-        match self {
-            AspectMode::Wide => (854.0, 480.0),
-            AspectMode::Square => (480.0, 480.0),
-        }
-    }
-
-    pub fn label(self) -> &'static str {
-        match self {
-            AspectMode::Wide => "Wide 854x480",
-            AspectMode::Square => "Square 480x480",
-        }
-    }
-}
-
 pub struct Canvas {
     pub mode: AspectMode,
-    /// When true, snap to whole-number pixel scales (crispest, but leaves borders
-    /// when the window isn't an exact multiple of the canvas). When false (default),
-    /// scale to fit the window — still nearest-neighbor, just fills the space.
-    pub integer_scale: bool,
     target: RenderTarget,
     w: f32,
     h: f32,
+    /// Screen pixels per canvas pixel.
+    scale: f32,
+    /// Physical screen size the canvas was last fitted to.
+    fitted_to: (f32, f32),
 }
 
 impl Canvas {
     pub fn new(mode: AspectMode) -> Self {
-        let (w, h) = mode.base_size();
-        let target = render_target(w as u32, h as u32);
-        target.texture.set_filter(FilterMode::Nearest);
-        Self {
+        let mut canvas = Self {
             mode,
-            integer_scale: false,
-            target,
-            w,
-            h,
-        }
+            target: new_target(1.0, 1.0),
+            w: 1.0,
+            h: 1.0,
+            scale: 1.0,
+            fitted_to: (0.0, 0.0),
+        };
+        canvas.fit();
+        canvas
     }
 
     pub fn size(&self) -> (f32, f32) {
         (self.w, self.h)
     }
 
-    pub fn toggle_integer_scale(&mut self) {
-        self.integer_scale = !self.integer_scale;
-    }
-
-    pub fn scale_label(&self) -> &'static str {
-        if self.integer_scale {
-            "integer"
-        } else {
-            "fit"
-        }
-    }
-
     pub fn toggle_aspect(&mut self) {
-        self.set_aspect(match self.mode {
+        self.mode = match self.mode {
             AspectMode::Wide => AspectMode::Square,
             AspectMode::Square => AspectMode::Wide,
-        });
+        };
+        self.fitted_to = (0.0, 0.0); // force a refit
+        self.fit();
     }
 
-    pub fn set_aspect(&mut self, mode: AspectMode) {
-        if mode == self.mode {
+    /// Re-derive the canvas size and scale from the window. Cheap when nothing
+    /// changed; call once per frame so window resizes / fullscreen are picked up.
+    pub fn fit(&mut self) {
+        let (pw, ph) = physical_screen();
+        if (pw, ph) == self.fitted_to {
             return;
         }
-        self.mode = mode;
-        let (w, h) = mode.base_size();
-        self.w = w;
-        self.h = h;
-        self.target = render_target(w as u32, h as u32);
-        self.target.texture.set_filter(FilterMode::Nearest);
+        self.fitted_to = (pw, ph);
+
+        let (h, scale) = if ph >= DESIGN_HEIGHT {
+            (DESIGN_HEIGHT, ph / DESIGN_HEIGHT)
+        } else {
+            (ph.max(1.0), 1.0)
+        };
+        let full_w = (pw / scale).floor().max(1.0);
+        let w = match self.mode {
+            AspectMode::Wide => full_w,
+            AspectMode::Square => h.min(full_w),
+        };
+
+        self.scale = scale;
+        if (w, h) != (self.w, self.h) {
+            self.w = w;
+            self.h = h;
+            self.target = new_target(w, h);
+        }
     }
 
-    /// Integer scale + centered offset used to place the canvas in the window.
+    /// (scale, offset) in macroquad's logical window units, with the canvas
+    /// centered on whole physical pixels.
     fn layout(&self) -> (f32, Vec2) {
-        let sw = screen_width();
-        let sh = screen_height();
-        let mut scale = (sw / self.w).min(sh / self.h);
-        // Optional crisp mode: snap to whole pixels (but never below 1x so a small
-        // window still shows the canvas instead of cropping it).
-        if self.integer_scale && scale >= 1.0 {
-            scale = scale.floor();
-        }
-        let dw = self.w * scale;
-        let dh = self.h * scale;
-        let offset = vec2((sw - dw) / 2.0, (sh - dh) / 2.0);
-        (scale, offset)
+        let dpi = screen_dpi_scale();
+        let (pw, ph) = physical_screen();
+        let ox = ((pw - self.w * self.scale) / 2.0).floor();
+        let oy = ((ph - self.h * self.scale) / 2.0).floor();
+        (self.scale / dpi, vec2(ox, oy) / dpi)
     }
 
     /// (scale, offset) mapping canvas space -> window space. Lets callers overlay
@@ -161,4 +152,19 @@ impl Canvas {
             },
         );
     }
+}
+
+fn new_target(w: f32, h: f32) -> RenderTarget {
+    let target = render_target(w as u32, h as u32);
+    target.texture.set_filter(FilterMode::Nearest);
+    target
+}
+
+/// Window size in physical pixels (macroquad reports logical units under high-DPI).
+fn physical_screen() -> (f32, f32) {
+    let dpi = screen_dpi_scale();
+    (
+        (screen_width() * dpi).round(),
+        (screen_height() * dpi).round(),
+    )
 }

@@ -16,16 +16,25 @@ use crate::engine::canvas::{AspectMode, Canvas};
 use crate::engine::input::{Action, Input};
 use crate::engine::{text, theme};
 
-const MARGIN: f32 = 24.0;
-const HEADER_H: f32 = 52.0;
+const MARGIN: f32 = 16.0;
+const HEADER_H: f32 = 34.0;
 const CONTENT_TOP: f32 = HEADER_H + 2.0;
 
-const ROW_H: f32 = 38.0;
-const ROW_GAP: f32 = 6.0;
+/// Bottom bar with the button hints for the current screen.
+const FOOTER_H: f32 = 22.0;
+
+const ROW_H: f32 = 26.0;
+const ROW_GAP: f32 = 4.0;
 const ROW_STEP: f32 = ROW_H + ROW_GAP;
+
+/// Holding Back this long on the Library quits the app.
+const HOLD_TO_QUIT_SECS: f64 = 1.0;
 
 /// How long a launch message stays on screen, in seconds.
 const TOAST_SECS: f64 = 4.0;
+/// Input stays suspended this long after a game exits, so the button press that
+/// quit the game (often still queued) can't also confirm a relaunch.
+const RESUME_GRACE_SECS: f64 = 0.6;
 
 const STATUS_ACTIONS: [&str; 5] = ["Run All", "Parse", "Backup", "Steam Sync", "Cancel"];
 
@@ -73,6 +82,18 @@ pub struct App {
     toast: Option<(String, Color, f64)>,
     /// The game currently running; UI input is suspended while it plays.
     session: Option<launcher::Session>,
+    /// UI input stays suspended until this time (see `RESUME_GRACE_SECS`).
+    input_resume_at: f64,
+    quit: bool,
+}
+
+/// One footer entry: a button badge and what it does.
+struct Hint {
+    key: &'static str,
+    label: &'static str,
+    color: Color,
+    /// Fill (0..1) for hold-to-activate hints.
+    progress: f32,
 }
 
 impl App {
@@ -94,7 +115,7 @@ impl App {
             input: Input::new(),
             font: text::load_pixel_font(),
             tab: Tab::Library,
-            fullscreen: false,
+            fullscreen: true, // see window_conf in main.rs
             config,
             games,
             loader,
@@ -105,10 +126,19 @@ impl App {
             status_msg: String::new(),
             toast: None,
             session: None,
+            input_resume_at: 0.0,
+            quit: false,
         }
     }
 
+    /// True once the user asked to quit (hold Back on the Library).
+    pub fn should_quit(&self) -> bool {
+        self.quit
+    }
+
     pub fn frame(&mut self) {
+        self.canvas.fit();
+
         // Pull in any covers decoded on the background thread.
         if let Some(loader) = &mut self.loader {
             loader.poll(&mut self.games);
@@ -119,16 +149,21 @@ impl App {
 
         if self.session.as_ref().is_some_and(|s| !s.running()) {
             self.session = None;
+            self.input_resume_at = get_time() + RESUME_GRACE_SECS;
         }
 
-        if self.session.is_some() {
+        if self.session.is_some() || get_time() < self.input_resume_at {
             // The game owns the controller (gilrs reads devices regardless of
-            // window focus), so track input without acting on it.
+            // window focus), so track input without acting on it — also briefly
+            // after it exits, to swallow the press that quit the game.
             self.input.update_suspended();
             std::thread::sleep(std::time::Duration::from_millis(50)); // idle cheaply
         } else {
             self.input.update();
             self.handle_global();
+            if self.tab == Tab::Library && self.quit_progress() >= 1.0 {
+                self.quit = true;
+            }
             match self.tab {
                 Tab::Library => self.update_library(),
                 Tab::Status => self.update_status(),
@@ -145,6 +180,7 @@ impl App {
             Tab::Settings => self.draw_settings(),
         }
         self.draw_header();
+        self.draw_footer();
         self.draw_session();
         self.canvas.end();
         self.canvas.present();
@@ -161,9 +197,6 @@ impl App {
         if is_key_pressed(KeyCode::F) {
             self.fullscreen = !self.fullscreen;
             macroquad::window::set_fullscreen(self.fullscreen);
-        }
-        if is_key_pressed(KeyCode::I) {
-            self.canvas.toggle_integer_scale();
         }
         if self.input.action(Action::ToggleAspect) {
             self.canvas.toggle_aspect();
@@ -197,7 +230,7 @@ impl App {
         if self.canvas.mode == AspectMode::Wide {
             let list_w = ((w - 2.0 * MARGIN) * 0.5).floor();
             let list = Rect::new(MARGIN, top, list_w, h);
-            let px = MARGIN + list_w + 16.0;
+            let px = MARGIN + list_w + 12.0;
             let preview = Rect::new(px, top, w - px - MARGIN, h);
             (list, Some(preview))
         } else {
@@ -285,12 +318,37 @@ impl App {
         };
         let (w, h) = self.canvas.size();
         draw_rectangle(0.0, 0.0, w, h, theme::BG);
-        let title = self.truncate(&session.title, w - 2.0 * MARGIN, 40);
-        let tw = text::measure(&title, 40, &self.font);
-        text::text("NOW PLAYING", (w - text::measure("NOW PLAYING", 24, &self.font)) / 2.0, h / 2.0 - 40.0, 24, theme::MUTED, &self.font);
-        text::text(&title, (w - tw) / 2.0, h / 2.0 + 4.0, 40, theme::ACCENT, &self.font);
-        let hint = "Controls return when the game exits";
-        text::text(hint, (w - text::measure(hint, 20, &self.font)) / 2.0, h / 2.0 + 44.0, 20, theme::MUTED, &self.font);
+        let title = self.truncate(&session.title, w - 2.0 * MARGIN, text::LARGE);
+        let tw = text::measure(&title, text::LARGE, &self.font);
+        text::text(
+            "NOW PLAYING",
+            (w - text::measure("NOW PLAYING", text::NORMAL, &self.font)) / 2.0,
+            h / 2.0 - 36.0,
+            text::NORMAL,
+            theme::MUTED,
+            &self.font,
+        );
+        text::text(
+            &title,
+            (w - tw) / 2.0,
+            h / 2.0 + 8.0,
+            text::LARGE,
+            theme::ACCENT,
+            &self.font,
+        );
+        let hint = self.truncate(
+            "Controls return when the game exits",
+            w - 2.0 * MARGIN,
+            text::NORMAL,
+        );
+        text::text(
+            &hint,
+            (w - text::measure(&hint, text::NORMAL, &self.font)) / 2.0,
+            h / 2.0 + 40.0,
+            text::NORMAL,
+            theme::MUTED,
+            &self.font,
+        );
     }
 
     fn draw_library(&self) {
@@ -298,8 +356,8 @@ impl App {
             text::text(
                 "No games found.",
                 MARGIN,
-                CONTENT_TOP + 40.0,
-                28,
+                CONTENT_TOP + 30.0,
+                text::NORMAL,
                 theme::TEXT,
                 &self.font,
             );
@@ -322,11 +380,18 @@ impl App {
         if get_time() > *until {
             return;
         }
-        let msg = self.truncate(msg, list.w - 20.0, 22);
-        let y = list.bottom() - 34.0;
-        draw_rectangle(list.x, y, list.w, 30.0, theme::BG);
-        stroke_rect(list.x, y, list.w, 30.0, 1.0, *color);
-        text::text(&msg, list.x + 10.0, y + 21.0, 22, *color, &self.font);
+        let msg = self.truncate(msg, list.w - 16.0, text::NORMAL);
+        let y = list.bottom() - 26.0;
+        draw_rectangle(list.x, y, list.w, 24.0, theme::BG);
+        stroke_rect(list.x, y, list.w, 24.0, 1.0, *color);
+        text::text(
+            &msg,
+            list.x + 8.0,
+            y + 18.0,
+            text::NORMAL,
+            *color,
+            &self.font,
+        );
     }
 
     fn draw_game_list(&self, list: Rect) {
@@ -345,7 +410,7 @@ impl App {
             }
             // Cartridge-style accent stripe on the leading edge.
             let stripe = if focused { theme::ACCENT } else { theme::AMBER };
-            draw_rectangle(list.x, y, 6.0, ROW_H, stripe);
+            draw_rectangle(list.x, y, 5.0, ROW_H, stripe);
             let (border, th) = if focused {
                 (theme::ACCENT, 2.0)
             } else {
@@ -354,8 +419,15 @@ impl App {
             stroke_rect(list.x, y, list.w, ROW_H, th, border);
 
             let color = if focused { theme::TEXT } else { theme::MUTED };
-            let title = self.truncate(&self.games[i as usize].title, list.w - 22.0, 24);
-            text::text(&title, list.x + 16.0, y + 26.0, 24, color, &self.font);
+            let title = self.truncate(&self.games[i as usize].title, list.w - 18.0, text::NORMAL);
+            text::text(
+                &title,
+                list.x + 12.0,
+                y + 18.0,
+                text::NORMAL,
+                color,
+                &self.font,
+            );
         }
 
         // Mask any partial rows that spilled below the list edge.
@@ -371,9 +443,9 @@ impl App {
             let area = preview_cover_area(preview);
             text::text(
                 "loading...",
-                area.x + area.w / 2.0 - 40.0,
+                area.x + area.w / 2.0 - 50.0,
                 area.y + area.h / 2.0,
-                22,
+                text::NORMAL,
                 theme::MUTED,
                 &self.font,
             );
@@ -385,12 +457,19 @@ impl App {
             return;
         };
         let (done, total) = loader.progress();
-        let cx = list.right() - 14.0;
-        let cy = list.bottom() - 14.0;
-        draw_spinner(cx, cy, 8.0, theme::ACCENT);
+        let cx = list.right() - 10.0;
+        let cy = list.bottom() - 10.0;
+        draw_spinner(cx, cy, 6.0, theme::ACCENT);
         let label = format!("{done}/{total}");
-        let tw = text::measure(&label, 18, &self.font);
-        text::text(&label, cx - 16.0 - tw, cy + 6.0, 18, theme::MUTED, &self.font);
+        let tw = text::measure(&label, text::NORMAL, &self.font);
+        text::text(
+            &label,
+            cx - 12.0 - tw,
+            cy + 5.0,
+            text::NORMAL,
+            theme::MUTED,
+            &self.font,
+        );
     }
 
     /// Draw the focused game's cover at full window resolution inside the preview.
@@ -457,31 +536,62 @@ impl App {
     }
 
     fn draw_status(&self) {
-        let top = HEADER_H + 24.0;
-        text::text("STATUS", MARGIN, top, 40, theme::AMBER, &self.font);
+        let (w, _) = self.canvas.size();
+        let top = HEADER_H + 40.0;
+        text::text("STATUS", MARGIN, top, text::LARGE, theme::AMBER, &self.font);
 
         let info = format!("{} game(s) discovered", self.games.len());
-        text::text(&info, MARGIN, top + 36.0, 24, theme::MUTED, &self.font);
+        text::text(
+            &info,
+            MARGIN,
+            top + 24.0,
+            text::NORMAL,
+            theme::MUTED,
+            &self.font,
+        );
 
-        let mut y = top + 80.0;
+        let mut y = top + 52.0;
         for (i, action) in STATUS_ACTIONS.iter().enumerate() {
             let focused = i as i32 == self.status_cursor;
             let color = if focused { theme::ACCENT } else { theme::TEXT };
             let prefix = if focused { "> " } else { "  " };
-            text::text(&format!("{prefix}{action}"), MARGIN, y, 28, color, &self.font);
-            y += 34.0;
+            text::text(
+                &format!("{prefix}{action}"),
+                MARGIN,
+                y,
+                text::NORMAL,
+                color,
+                &self.font,
+            );
+            y += 24.0;
         }
 
         if !self.status_msg.is_empty() {
-            text::text(&self.status_msg, MARGIN, y + 12.0, 22, theme::BLUE, &self.font);
+            text::text(
+                &self.truncate(&self.status_msg, w - 2.0 * MARGIN, text::NORMAL),
+                MARGIN,
+                y + 10.0,
+                text::NORMAL,
+                theme::BLUE,
+                &self.font,
+            );
         }
     }
 
     // --- Settings ------------------------------------------------------------
 
     fn draw_settings(&self) {
-        let top = HEADER_H + 24.0;
-        text::text("SETTINGS", MARGIN, top, 40, theme::AMBER, &self.font);
+        let (w, _) = self.canvas.size();
+        let max_w = w - 2.0 * MARGIN;
+        let top = HEADER_H + 40.0;
+        text::text(
+            "SETTINGS",
+            MARGIN,
+            top,
+            text::LARGE,
+            theme::AMBER,
+            &self.font,
+        );
 
         let cfg_line = match &self.config {
             Some(c) => format!("config: {}", c.config_path().display()),
@@ -491,13 +601,29 @@ impl App {
             Some(d) => format!("games:  {}", d.display()),
             None => "games:  (unset)".to_string(),
         };
-        text::text(&cfg_line, MARGIN, top + 40.0, 22, theme::MUTED, &self.font);
-        text::text(&games_line, MARGIN, top + 68.0, 22, theme::MUTED, &self.font);
+        let cfg_line = self.truncate(&cfg_line, max_w, text::NORMAL);
+        let games_line = self.truncate(&games_line, max_w, text::NORMAL);
         text::text(
-            "Full settings editor lands in M3.",
+            &cfg_line,
             MARGIN,
-            top + 110.0,
-            24,
+            top + 26.0,
+            text::NORMAL,
+            theme::MUTED,
+            &self.font,
+        );
+        text::text(
+            &games_line,
+            MARGIN,
+            top + 48.0,
+            text::NORMAL,
+            theme::MUTED,
+            &self.font,
+        );
+        text::text(
+            &self.truncate("Full settings editor lands in M3.", max_w, text::NORMAL),
+            MARGIN,
+            top + 80.0,
+            text::NORMAL,
             theme::TEXT,
             &self.font,
         );
@@ -514,19 +640,97 @@ impl App {
         for (i, name) in tabs.iter().enumerate() {
             let active = i == self.tab as usize;
             let color = if active { theme::ACCENT } else { theme::MUTED };
-            text::text(name, x, 36.0, 30, color, &self.font);
-            let wd = text::measure(name, 30, &self.font);
+            text::text(name, x, 23.0, text::NORMAL, color, &self.font);
+            let wd = text::measure(name, text::NORMAL, &self.font);
             if active {
-                draw_line(x, 44.0, x + wd, 44.0, 2.0, theme::ACCENT);
+                draw_rectangle(x, 27.0, wd, 2.0, theme::ACCENT);
             }
-            x += wd + 28.0;
+            x += wd + 18.0;
         }
-        draw_line(0.0, HEADER_H, w, HEADER_H, 1.0, theme::BORDER);
+        draw_rectangle(0.0, HEADER_H, w, 1.0, theme::BORDER);
     }
 
     fn content_bottom(&self) -> f32 {
         let (_, h) = self.canvas.size();
-        h - 8.0
+        h - FOOTER_H - 6.0
+    }
+
+    /// How far along the hold-Back-to-quit gesture is (0..1).
+    fn quit_progress(&self) -> f32 {
+        self.input
+            .held_for(Action::Back)
+            .map_or(0.0, |t| (t / HOLD_TO_QUIT_SECS).min(1.0) as f32)
+    }
+
+    /// Button hints for the current screen, labelled for the last-used device.
+    fn hints(&self) -> Vec<Hint> {
+        let pad = self.input.gamepad_last();
+        let (confirm, back, tabs) = if pad {
+            ("A", "B", "LB RB")
+        } else {
+            ("ENTER", "ESC", "Q E")
+        };
+        let hint = |key, label, color| Hint {
+            key,
+            label,
+            color,
+            progress: 0.0,
+        };
+        let mut hints = Vec::new();
+        match self.tab {
+            Tab::Library => {
+                if !self.games.is_empty() {
+                    hints.push(hint(confirm, "Play", theme::ACCENT));
+                }
+                hints.push(Hint {
+                    progress: self.quit_progress(),
+                    ..hint(back, "Hold: Quit", theme::AMBER)
+                });
+            }
+            Tab::Status => hints.push(hint(confirm, "Select", theme::ACCENT)),
+            Tab::Settings => {}
+        }
+        hints.push(hint(tabs, "Tabs", theme::BORDER));
+        hints
+    }
+
+    fn draw_footer(&self) {
+        let (w, h) = self.canvas.size();
+        let top = h - FOOTER_H;
+        draw_rectangle(0.0, top, w, FOOTER_H, theme::BG);
+        draw_rectangle(0.0, top, w, 1.0, theme::BORDER);
+
+        let baseline = top + 17.0;
+        let mut x = MARGIN;
+        for hint in self.hints() {
+            let kw = text::measure(hint.key, text::NORMAL, &self.font).ceil() + 8.0;
+            let lw = text::measure(hint.label, text::NORMAL, &self.font).ceil();
+            if x + kw + 4.0 + lw > w - MARGIN {
+                break; // out of room (narrow / square layouts)
+            }
+            draw_rectangle(x, top + 2.0, kw, 18.0, hint.color);
+            text::text(
+                hint.key,
+                x + 4.0,
+                baseline,
+                text::NORMAL,
+                theme::BG,
+                &self.font,
+            );
+            x += kw + 4.0;
+            text::text(
+                hint.label,
+                x,
+                baseline,
+                text::NORMAL,
+                theme::MUTED,
+                &self.font,
+            );
+            if hint.progress > 0.0 {
+                draw_rectangle(x, top + 19.0, (lw * hint.progress).round(), 2.0, hint.color);
+            }
+            x += lw + 14.0;
+        }
     }
 }
 
@@ -540,7 +744,7 @@ fn stroke_rect(x: f32, y: f32, w: f32, h: f32, th: f32, color: Color) {
 }
 
 fn preview_cover_area(preview: Rect) -> Rect {
-    let pad = 6.0;
+    let pad = 4.0;
     Rect::new(
         preview.x + pad,
         preview.y + pad,
@@ -559,6 +763,11 @@ fn draw_spinner(cx: f32, cy: f32, r: f32, color: Color) {
         let py = cy + ang.sin() * r;
         let dist = (head - i as f32).rem_euclid(DOTS as f32);
         let alpha = 1.0 - dist / DOTS as f32;
-        draw_circle(px, py, r * 0.22, Color::new(color.r, color.g, color.b, alpha));
+        draw_circle(
+            px,
+            py,
+            r * 0.22,
+            Color::new(color.r, color.g, color.b, alpha),
+        );
     }
 }

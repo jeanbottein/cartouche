@@ -54,6 +54,11 @@ pub struct Input {
     down_since: HashMap<Action, f64>,
     next_repeat: HashMap<Action, f64>,
     fired: HashSet<Action>,
+    /// Actions whose current press started while input was live (not suspended),
+    /// so a hold carried over from a game can't count as a long-press here.
+    armed: HashSet<Action>,
+    /// Whether the gamepad (vs. keyboard) was used last — drives the button hints.
+    gamepad_last: bool,
 }
 
 impl Input {
@@ -65,6 +70,8 @@ impl Input {
             down_since: HashMap::new(),
             next_repeat: HashMap::new(),
             fired: HashSet::new(),
+            armed: HashSet::new(),
+            gamepad_last: false,
         }
     }
 
@@ -72,7 +79,13 @@ impl Input {
     pub fn update(&mut self) {
         #[cfg(feature = "gamepad")]
         if let Some(g) = self.gilrs.as_mut() {
-            while g.next_event().is_some() {} // pump events to refresh gamepad state
+            // Pump events to refresh gamepad state.
+            while g.next_event().is_some() {
+                self.gamepad_last = true;
+            }
+        }
+        if get_last_key_pressed().is_some() {
+            self.gamepad_last = false;
         }
 
         let now = get_time();
@@ -85,6 +98,7 @@ impl Input {
                     // press edge
                     self.down_since.insert(action, now);
                     self.fired.insert(action);
+                    self.armed.insert(action);
                     if is_repeatable(action) {
                         self.next_repeat.insert(action, now + REPEAT_INITIAL);
                     }
@@ -99,6 +113,7 @@ impl Input {
             } else {
                 self.down_since.remove(&action);
                 self.next_repeat.remove(&action);
+                self.armed.remove(&action);
             }
         }
     }
@@ -109,11 +124,25 @@ impl Input {
     pub fn update_suspended(&mut self) {
         self.update();
         self.fired.clear();
+        self.armed.clear();
     }
 
     /// Did `a` fire this frame (edge or repeat)?
     pub fn action(&self, a: Action) -> bool {
         self.fired.contains(&a)
+    }
+
+    /// Seconds `a` has been held, if its press started while input was live.
+    pub fn held_for(&self, a: Action) -> Option<f64> {
+        if !self.armed.contains(&a) {
+            return None;
+        }
+        self.down_since.get(&a).map(|t| get_time() - t)
+    }
+
+    /// True when the gamepad was the last device used (for button hints).
+    pub fn gamepad_last(&self) -> bool {
+        self.gamepad_last
     }
 
     fn collect_down(&self) -> HashSet<Action> {

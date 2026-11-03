@@ -17,6 +17,9 @@ fn window_conf() -> Conf {
         window_width: 1280,
         window_height: 720,
         high_dpi: true,
+        // Start fullscreen at the display's native resolution: the canvas picks a
+        // whole-number scale for it, so gamescope/SteamOS never has to rescale.
+        fullscreen: true,
         ..Default::default()
     };
     // Pace frames with vsync (typically 60fps; up to the panel's refresh rate).
@@ -31,6 +34,9 @@ async fn main() {
     let mut app = App::new();
     loop {
         app.frame();
+        if app.should_quit() {
+            break;
+        }
         next_frame().await;
     }
 }
