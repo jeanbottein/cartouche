@@ -19,6 +19,7 @@ use super::{Hint, Ui};
 use crate::core::app::find_app_dir;
 use crate::core::config::Config;
 use crate::core::logging::{self, Line};
+use crate::core::share::{self, server::Server};
 use crate::core::{init, migrations};
 
 const MARGIN: f32 = 16.0;
@@ -70,6 +71,8 @@ pub struct App {
     /// The game currently running; UI input is suspended while it plays.
     session: Option<Session>,
     input_resume_at: f64,
+    /// LAN sharing server, while `SHARE_ENABLED` is on.
+    server: Option<Server>,
     /// Back is still held from closing the editor: don't count it as hold-to-quit.
     back_held_over: bool,
     quit: bool,
@@ -96,6 +99,7 @@ impl App {
             logs,
             session: None,
             input_resume_at: 0.0,
+            server: None,
             back_held_over: false,
             quit: false,
         };
@@ -114,6 +118,32 @@ impl App {
         self.library.load(&cfg);
         self.settings = Some(Settings::new(&cfg));
         self.config = Some(cfg);
+        self.sync_server();
+    }
+
+    /// Start, restart (port or folder changed) or stop the sharing server to
+    /// match the config.
+    fn sync_server(&mut self) {
+        let Some(cfg) = &self.config else { return };
+        let wanted = cfg
+            .games_dir()
+            .filter(|_| cfg.is_true("SHARE_ENABLED"))
+            .map(|dir| (dir, share::port(cfg)));
+        let Some((games_dir, port)) = wanted else {
+            self.server = None;
+            return;
+        };
+        if self
+            .server
+            .as_ref()
+            .is_some_and(|s| s.port() == port && s.games_dir() == games_dir)
+        {
+            return;
+        }
+        self.server = None; // free the port before binding it again
+        self.server = Server::start(&games_dir, share::machine_name(cfg), port)
+            .map_err(|e| log::error!("Cannot share on port {port}: {e}"))
+            .ok();
     }
 
     /// Re-read `config.txt` (after Settings changed it or a pipeline run).
@@ -126,6 +156,7 @@ impl App {
             settings.refresh(&cfg);
         }
         self.config = Some(cfg);
+        self.sync_server();
     }
 
     fn reload_library(&mut self) {

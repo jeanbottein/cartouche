@@ -553,20 +553,18 @@ fn write_file<R: Read>(
     Ok((reader.bytes, reader.checksum()))
 }
 
-/// Extract every entry into `staging` and check it against the trailing
-/// checksums. Returns the bytes of the game's own files.
-fn extract<R: Read>(
+/// Hand every entry after the manifest to `handle` (with its path relative to
+/// the game folder), then check the regular files' checksums it returns
+/// against the trailing `checksums.json`.
+fn for_each_checked<R: Read>(
     entries: Entries<'_, R>,
     manifest: &Manifest,
-    staging: &Path,
-    progress: &Progress,
-) -> Result<u64, String> {
+    mut handle: impl FnMut(&Path, &mut tar::Entry<'_, R>) -> Result<Option<String>, String>,
+) -> Result<(), String> {
     let prefix = Path::new(&manifest.folder_name);
-    let data = PathBuf::from(data_dir_name());
-    let checksums_rel = data.join(CHECKSUMS_JSON);
+    let checksums_rel = Path::new(&data_dir_name()).join(CHECKSUMS_JSON);
     let mut actual = BTreeMap::new();
     let mut expected: Option<BTreeMap<String, String>> = None;
-    let mut game_bytes = 0;
     for entry in entries {
         let mut entry = entry.map_err(|e| e.to_string())?;
         let path = entry.path().map_err(|e| e.to_string())?.into_owned();
@@ -578,31 +576,69 @@ fn extract<R: Read>(
             expected = Some(serde_json::from_reader(&mut entry).map_err(|e| e.to_string())?);
             continue;
         }
-        let dest = safe_join(staging, &rel)?;
+        if let Some(crc) = handle(&rel, &mut entry)? {
+            actual.insert(key_of(&rel), crc);
+        }
+    }
+    if expected != Some(actual) {
+        return Err("Package is incomplete or corrupted".into());
+    }
+    Ok(())
+}
+
+/// Extract every entry into `staging`, verified. Returns the bytes of the
+/// game's own files.
+fn extract<R: Read>(
+    entries: Entries<'_, R>,
+    manifest: &Manifest,
+    staging: &Path,
+    progress: &Progress,
+) -> Result<u64, String> {
+    let data = PathBuf::from(data_dir_name());
+    let mut game_bytes = 0;
+    for_each_checked(entries, manifest, |rel, entry| {
+        let dest = safe_join(staging, rel)?;
         let fail = |e: io::Error| format!("{}: {e}", rel.display());
         match entry.header().entry_type() {
-            tar::EntryType::Directory => fs::create_dir_all(&dest).map_err(fail)?,
+            tar::EntryType::Directory => fs::create_dir_all(&dest).map_err(fail).map(|()| None),
             tar::EntryType::Regular => {
-                let (bytes, crc) = write_file(&mut entry, &dest, progress).map_err(fail)?;
+                let (bytes, crc) = write_file(entry, &dest, progress).map_err(fail)?;
                 if !rel.starts_with(&data) {
                     game_bytes += bytes;
                 }
-                actual.insert(key_of(&rel), crc);
+                Ok(Some(crc))
             }
             tar::EntryType::Symlink => {
                 let target = entry
                     .link_name()
                     .map_err(fail)?
                     .ok_or_else(|| format!("{}: symlink without target", rel.display()))?;
-                make_symlink(&target, &dest).map_err(fail)?;
+                make_symlink(&target, &dest).map_err(fail).map(|()| None)
             }
-            other => return Err(format!("{}: unsupported entry {other:?}", rel.display())),
+            other => Err(format!("{}: unsupported entry {other:?}", rel.display())),
         }
-    }
-    if expected != Some(actual) {
-        return Err("Package is incomplete or corrupted".into());
-    }
+    })?;
     Ok(game_bytes)
+}
+
+/// Read a whole package stream and check it, writing nothing.
+pub fn verify_from(input: impl Read, progress: &Progress) -> Result<Manifest, String> {
+    let mut archive = tar::Archive::new(input);
+    let mut entries = archive.entries().map_err(|e| e.to_string())?;
+    let manifest = read_manifest(&mut entries)?;
+    progress.start(manifest.size);
+    for_each_checked(entries, &manifest, |rel, entry| {
+        if !rel.components().all(|c| matches!(c, Component::Normal(_))) {
+            return Err(format!("Unsafe path in package: {}", rel.display()));
+        }
+        if entry.header().entry_type() != tar::EntryType::Regular {
+            return Ok(None);
+        }
+        let mut reader = Tracked::new(entry, progress);
+        io::copy(&mut reader, &mut io::sink()).map_err(|e| e.to_string())?;
+        Ok(Some(reader.checksum()))
+    })?;
+    Ok(manifest)
 }
 
 /// Record the package id, and the measured size in `game.json` when present.

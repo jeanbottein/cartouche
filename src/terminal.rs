@@ -11,6 +11,7 @@ use crate::core::app::{app_name, exe_dir, find_app_dir};
 use crate::core::config::Config;
 use crate::core::package::{self, Progress};
 use crate::core::pipeline::{Group, Pipeline};
+use crate::core::share::{self, client, discovery::Peer, server::Server};
 use crate::core::{detector, init, migrations, paths, scanner, sgdb, sizer, steam};
 
 /// The workspace config, running the terminal setup wizard on first use.
@@ -199,4 +200,90 @@ pub fn unpack(cli_dir: Option<&Path>, name: &str) -> ExitCode {
         with_progress(|p| package::unpack(&source, &games_dir, p)),
         |dest| info!("Unpacked and verified into {}", dest.display()),
     )
+}
+
+/// `--serve`: share the games folder until killed (headless library machine).
+pub fn serve(cli_dir: Option<&Path>) -> ExitCode {
+    let config = match load(cli_dir) {
+        Ok(config) => config,
+        Err(code) => return code,
+    };
+    let games_dir = config.games_dir().unwrap_or_default();
+    let port = share::port(&config);
+    match Server::start(&games_dir, share::machine_name(&config), port) {
+        Ok(server) => {
+            info!(
+                "Other machines can't see this one? Open the port, e.g.:\n  \
+                 sudo firewall-cmd --permanent --add-port={port}/tcp --add-port={port}/udp \
+                 && sudo firewall-cmd --reload"
+            );
+            server.wait();
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            error!("Cannot share on port {port}: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// `--peers`: Cartouche servers answering on the LAN, with their games.
+pub fn peers(cli_dir: Option<&Path>) -> ExitCode {
+    let config = match load(cli_dir) {
+        Ok(config) => config,
+        Err(code) => return code,
+    };
+    let peers = client::find_peers(&config);
+    if peers.is_empty() {
+        info!("No Cartouche server found on the LAN.");
+    }
+    for peer in &peers {
+        info!(
+            "{} at {} (v{})",
+            peer.info.name, peer.addr, peer.info.version
+        );
+        match client::list(peer.addr) {
+            Ok(games) => games.iter().for_each(|g| {
+                let size = g.size.map(sizer::human).unwrap_or_default();
+                let state = if g.installed { "" } else { " [package]" };
+                let compat = scanner::compatibility(&g.targets).label();
+                info!("  {:<32} {size:>9}  {compat}{state}", g.id);
+            }),
+            Err(e) => error!("  Cannot list games: {e}"),
+        }
+    }
+    ExitCode::SUCCESS
+}
+
+/// How `--download` / `--install` copy a game.
+pub enum Copy {
+    Download,
+    Install,
+}
+
+/// A peer by the name `--peers` shows, else `host[:port]`.
+fn resolve_peer(config: &Config, wanted: &str) -> Option<Peer> {
+    client::find_peers(config)
+        .into_iter()
+        .find(|p| p.info.name.eq_ignore_ascii_case(wanted))
+        .or_else(|| client::probe(wanted, share::port(config)))
+}
+
+/// `--download` / `--install PEER GAME`.
+pub fn copy(cli_dir: Option<&Path>, peer: &str, game: &str, how: Copy) -> ExitCode {
+    let config = match load(cli_dir) {
+        Ok(config) => config,
+        Err(code) => return code,
+    };
+    let games_dir = config.games_dir().unwrap_or_default();
+    let Some(peer) = resolve_peer(&config, peer) else {
+        error!("No Cartouche server named or reachable at {peer}");
+        return ExitCode::FAILURE;
+    };
+    info!("Copying {game} from {} ({})", peer.info.name, peer.addr);
+    let result = with_progress(|p| match how {
+        Copy::Download => client::download(peer.addr, game, &games_dir, p),
+        Copy::Install => client::install(peer.addr, game, &games_dir, p),
+    });
+    report(result, |path| info!("Done, verified: {}", path.display()))
 }

@@ -99,3 +99,20 @@
 # Example: Sync the symlink folder to a Google Drive remote named "gdrive"
 # Note: The -L flag is required for rclone to follow the symlinks and copy the actual save files.
 #RUN_AFTER_02=rclone sync -L "${SAVESLINK_PATH}" gdrive:cartouche-saves
+
+
+# ==========================================
+# 5. SHARING ON THE LAN
+# ==========================================
+
+# Let other Cartouche machines on the network see and copy your games (optional).
+# No password: only enable on a network you trust.
+#SHARE_ENABLED=False
+
+# TCP (HTTP) + UDP (discovery) port. If other machines can't see this one, open it:
+#   sudo firewall-cmd --permanent --add-port=47800/tcp --add-port=47800/udp && sudo firewall-cmd --reload
+#SHARE_PORT=47800
+
+# Machines to list even when the LAN broadcast can't reach them (VPN, other subnet)
+# Format: host[:port], comma-separated
+#SHARE_PEERS=192.168.1.20,library.local:47800

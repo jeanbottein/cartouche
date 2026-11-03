@@ -10,6 +10,7 @@ use std::process::ExitCode;
 
 use cli::Mode;
 use core::pipeline::Group;
+use terminal::Copy;
 
 fn main() -> ExitCode {
     core::logging::init();
@@ -34,6 +35,10 @@ fn main() -> ExitCode {
         Mode::DryRun => return terminal::preview(dir),
         Mode::Pack(name) => return terminal::pack(dir, &name),
         Mode::Unpack(name) => return terminal::unpack(dir, &name),
+        Mode::Serve => return terminal::serve(dir),
+        Mode::Peers => return terminal::peers(dir),
+        Mode::Download { peer, game } => return terminal::copy(dir, &peer, &game, Copy::Download),
+        Mode::Install { peer, game } => return terminal::copy(dir, &peer, &game, Copy::Install),
         Mode::Ui if core::app::has_display() => ui::run(dir),
         Mode::Ui => {
             log::info!("No display detected. Running in terminal mode.");

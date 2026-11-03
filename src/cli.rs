@@ -21,6 +21,13 @@ Options:
   -n, --dry-run        Preview the Steam sync without changing Steam
       --pack <GAME>    Pack the game folder GAME into GAME.cartouche.tar
       --unpack <GAME>  Unpack GAME.cartouche.tar into the folder GAME
+      --serve          Share the games folder on the LAN, without the UI
+      --peers          List Cartouche servers found on the LAN, with their games
+      --download <PEER> <GAME>
+                       Copy GAME from PEER as a package (GAME.cartouche.tar)
+      --install <PEER> <GAME>
+                       Copy GAME from PEER into the folder GAME
+                       PEER: a name shown by --peers, or host[:port]
   -h, --help           Print this help
   -V, --version        Print the version";
 
@@ -31,6 +38,10 @@ pub enum Mode {
     DryRun,
     Pack(String),
     Unpack(String),
+    Serve,
+    Peers,
+    Download { peer: String, game: String },
+    Install { peer: String, game: String },
     Help,
     Version,
 }
@@ -44,7 +55,7 @@ pub struct Args {
 pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
     let mut args = args.into_iter();
     let (mut terminal, mut dry_run, mut group, mut dir) = (false, false, None, None);
-    let mut package_mode = None;
+    let mut command = None;
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "-h" | "--help" => {
@@ -69,13 +80,25 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
                 let name = &flag["--group=".len()..];
                 group = Some(Group::from_name(name).ok_or(format!("unknown group '{name}'"))?);
             }
+            "--serve" => command = Some(Mode::Serve),
+            "--peers" => command = Some(Mode::Peers),
+            flag @ ("--download" | "--install") => {
+                let missing = || format!("{flag} needs a peer and a game");
+                let peer = args.next().ok_or_else(missing)?;
+                let game = args.next().ok_or_else(missing)?;
+                command = Some(if flag == "--download" {
+                    Mode::Download { peer, game }
+                } else {
+                    Mode::Install { peer, game }
+                });
+            }
             "--pack" => {
                 let name = args.next().ok_or("--pack needs a game folder name")?;
-                package_mode = Some(Mode::Pack(name));
+                command = Some(Mode::Pack(name));
             }
             "--unpack" => {
                 let name = args.next().ok_or("--unpack needs a game folder name")?;
-                package_mode = Some(Mode::Unpack(name));
+                command = Some(Mode::Unpack(name));
             }
             flag if flag.starts_with('-') && flag.len() > 1 => {
                 return Err(format!("unknown option '{flag}'"))
@@ -84,7 +107,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
             extra => return Err(format!("unexpected argument '{extra}'")),
         }
     }
-    let mode = match (package_mode, dry_run, terminal || group.is_some()) {
+    let mode = match (command, dry_run, terminal || group.is_some()) {
         (Some(mode), _, _) => mode,
         (None, true, _) => Mode::DryRun,
         (None, false, true) => Mode::Terminal(group.unwrap_or(Group::All)),
@@ -141,6 +164,15 @@ mod tests {
             Some(PathBuf::from("/ws"))
         );
         assert!(parse_str("--pack").is_err());
+        assert_eq!(parse_str("--serve /ws").unwrap().mode, Mode::Serve);
+        assert_eq!(
+            parse_str("--install deck Celeste").unwrap().mode,
+            Mode::Install {
+                peer: "deck".into(),
+                game: "Celeste".into()
+            }
+        );
+        assert!(parse_str("--download deck").is_err());
     }
 
     #[test]

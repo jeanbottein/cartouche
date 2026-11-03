@@ -38,7 +38,7 @@ const fn s(key: &'static str, label: &'static str, kind: Kind, help: &'static st
     }
 }
 
-const SCHEMA: [(&str, &[Setting]); 4] = [
+const SCHEMA: [(&str, &[Setting]); 5] = [
     ("GENERAL", &[
         s("MACHINE_NAME", "Machine name", Kind::Text, "Prefixes the config backup in the save copies folder."),
         s("PERSIST_DATA", "Persist game data", Kind::Flag(true), "Write .cartouche/ folders (game.json, artwork) in game folders."),
@@ -63,6 +63,11 @@ const SCHEMA: [(&str, &[Setting]); 4] = [
         s("STEAMGRIDDB_EPILEPSY", "Artwork: epilepsy", Kind::Flag(false), "Include epilepsy-triggering content in artwork results."),
         s("MANIFEST_EXPORT", "Export manifests", Kind::Flag(true), "Write manifests.json for Steam ROM Manager."),
         s("MANIFEST_PATH", "Manifest file", Kind::Path, "Custom manifests.json path (default: in the games folder)."),
+    ]),
+    ("SHARING", &[
+        s("SHARE_ENABLED", "Share games on the LAN", Kind::Flag(false), "Let other Cartouche machines on the network see and copy your games."),
+        s("SHARE_PORT", "Sharing port", Kind::Text, "TCP + UDP port (default 47800). Open it in the firewall if peers can't see this machine."),
+        s("SHARE_PEERS", "Extra peers", Kind::Text, "host[:port], comma-separated: machines to list even when broadcast can't reach them."),
     ]),
 ];
 

@@ -29,7 +29,7 @@ Migrations: `launch_manifest.json` → `.cartouche/game.json`, nested → flat `
 
 ```
 src/
-  main.rs, cli.rs        # Args: UI (default), -t/--terminal, -g/--group, -n/--dry-run, --pack/--unpack
+  main.rs, cli.rs        # Args: UI (default), -t/--terminal, -g/--group, -n/--dry-run, --pack/--unpack, --serve, --peers, --download/--install
   terminal.rs            # Terminal mode + Steam dry-run preview
   core/                  # Backend, no UI code
     app.rs               # App name (from binary filename), workspace dir lookup
@@ -38,6 +38,7 @@ src/
     paths.rs, platform.rs# normpath/expandvars/relpath; OS/arch tags, ELF/PE/Mach-O headers
     migrations.rs scanner.rs detector.rs sgdb.rs persister.rs sizer.rs
     package.rs           # Foo.cartouche.tar: pack/unpack with progress + crc verification
+    share/               # LAN sharing: server.rs (HTTP, GET only), discovery.rs (UDP broadcast), client.rs
     vdf.rs               # Binary (shortcuts.vdf) + text (config.vdf) KeyValues
     steam.rs steam_self.rs manifest.rs bps.rs patcher.rs saver.rs commands.rs
     pipeline.rs init.rs logging.rs
