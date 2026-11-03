@@ -13,7 +13,7 @@ use std::time::SystemTime;
 
 use macroquad::prelude::*;
 
-use super::models::GameJson;
+use super::models::{GameJson, Target};
 
 /// Max thumbnail dimension — covers full-screen display sizes while keeping decode
 /// fast and the cache small.
@@ -28,7 +28,7 @@ pub struct GameEntry {
     /// GPU texture, filled in asynchronously once decoded.
     pub cover: Option<Texture2D>,
     pub steamgriddb_id: Option<i64>,
-    pub target_count: usize,
+    pub targets: Vec<Target>,
     pub save_count: usize,
 }
 
@@ -58,7 +58,8 @@ pub fn scan_games(games_dir: &Path) -> Vec<GameEntry> {
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_default();
-        let title = if meta.title.trim().is_empty() {
+        // Same fallback as the Python scanner (`data.get("title") or folder_name`).
+        let title = if meta.title.is_empty() {
             folder_name.clone()
         } else {
             meta.title.clone()
@@ -71,8 +72,8 @@ pub fn scan_games(games_dir: &Path) -> Vec<GameEntry> {
             cover_file: meta.images.cover.clone(),
             cover: None,
             steamgriddb_id: meta.steamgriddb_id,
-            target_count: meta.targets.len(),
             save_count: meta.save_paths.len(),
+            targets: meta.targets,
         });
     }
     out

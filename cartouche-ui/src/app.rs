@@ -10,6 +10,7 @@
 use macroquad::prelude::*;
 
 use crate::bridge::config::Config;
+use crate::bridge::launcher;
 use crate::bridge::library::{self, CoverLoader, GameEntry};
 use crate::engine::canvas::{AspectMode, Canvas};
 use crate::engine::input::{Action, Input};
@@ -22,6 +23,9 @@ const CONTENT_TOP: f32 = HEADER_H + 2.0;
 const ROW_H: f32 = 38.0;
 const ROW_GAP: f32 = 6.0;
 const ROW_STEP: f32 = ROW_H + ROW_GAP;
+
+/// How long a launch message stays on screen, in seconds.
+const TOAST_SECS: f64 = 4.0;
 
 const STATUS_ACTIONS: [&str; 5] = ["Run All", "Parse", "Backup", "Steam Sync", "Cancel"];
 
@@ -65,6 +69,8 @@ pub struct App {
     scroll_target: f32,
     status_cursor: i32,
     status_msg: String,
+    /// Transient library message (text, color, expiry time).
+    toast: Option<(String, Color, f64)>,
 }
 
 impl App {
@@ -95,6 +101,7 @@ impl App {
             scroll_target: 0.0,
             status_cursor: 0,
             status_msg: String::new(),
+            toast: None,
         }
     }
 
@@ -212,17 +219,22 @@ impl App {
             self.scroll_target -= wheel * 50.0;
         }
 
-        // Mouse click selects a row.
+        // Mouse click selects a row; clicking the focused row launches it.
+        let mut launch = self.input.action(Action::Confirm);
         if is_mouse_button_pressed(MouseButton::Left) {
             let (mx, my) = mouse_position();
             if let Some(p) = self.canvas.screen_to_canvas(vec2(mx, my)) {
                 if list.contains(p) {
                     let idx = ((p.y - list.y + self.scroll_y) / ROW_STEP).floor() as i32;
                     if idx >= 0 && idx < n {
+                        launch |= idx == self.lib_cursor;
                         self.lib_cursor = idx;
                     }
                 }
             }
+        }
+        if launch {
+            self.launch_focused();
         }
 
         // Keep the cursor in view when navigating with keys/pad.
@@ -244,6 +256,15 @@ impl App {
         self.scroll_y += (self.scroll_target - self.scroll_y) * t;
     }
 
+    fn launch_focused(&mut self) {
+        let game = &self.games[self.lib_cursor as usize];
+        let (msg, color) = match launcher::launch(&game.title, &game.dir, &game.targets) {
+            Ok(msg) => (msg, theme::ACCENT),
+            Err(msg) => (msg, theme::AMBER),
+        };
+        self.toast = Some((msg, color, get_time() + TOAST_SECS));
+    }
+
     fn draw_library(&self) {
         if self.games.is_empty() {
             text::text(
@@ -263,6 +284,21 @@ impl App {
             self.draw_preview_panel(preview);
         }
         self.draw_loading_corner(list);
+        self.draw_toast(list);
+    }
+
+    fn draw_toast(&self, list: Rect) {
+        let Some((msg, color, until)) = &self.toast else {
+            return;
+        };
+        if get_time() > *until {
+            return;
+        }
+        let msg = self.truncate(msg, list.w - 20.0, 22);
+        let y = list.bottom() - 34.0;
+        draw_rectangle(list.x, y, list.w, 30.0, theme::BG);
+        stroke_rect(list.x, y, list.w, 30.0, 1.0, *color);
+        text::text(&msg, list.x + 10.0, y + 21.0, 22, *color, &self.font);
     }
 
     fn draw_game_list(&self, list: Rect) {

@@ -18,7 +18,7 @@ This milestone renders a demo grid + cursor as a stand-in for the real Library s
 | Action | Keyboard | Gamepad | Mouse |
 |---|---|---|---|
 | Move | Arrows / WASD | D-pad / Left stick | Hover |
-| Confirm | Enter / Space | A (South) | Left click |
+| Confirm (Library: launch game) | Enter / Space | A (South) | Left click (click the focused row to launch) |
 | Back | Esc / Backspace | B (East) | — |
 | Toggle aspect | Tab | Start / Select | — |
 

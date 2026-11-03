@@ -3,5 +3,6 @@
 //! (BRIDGE-3) lands with the Status screen wiring.
 
 pub mod config;
+pub mod launcher;
 pub mod library;
 pub mod models;

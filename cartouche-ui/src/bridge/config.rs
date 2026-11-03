@@ -56,7 +56,10 @@ impl Config {
         if p.is_absolute() {
             Some(p)
         } else {
-            self.cartouche_dir.parent().map(|base| base.join(p))
+            // Python resolves relative paths (`Path.resolve()`); do the same so
+            // derived values like Steam shortcut appids match the backend's.
+            let joined = self.cartouche_dir.parent()?.join(p);
+            Some(joined.canonicalize().unwrap_or(joined))
         }
     }
 
