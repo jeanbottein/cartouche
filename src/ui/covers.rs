@@ -10,14 +10,40 @@ use std::time::SystemTime;
 use macroquad::prelude::*;
 
 use crate::core::models::{Game, ImageSlot};
+use crate::core::package;
 
 /// Max thumbnail dimension: covers full-screen display sizes while keeping
 /// decode fast and the cache small.
 const THUMB_CAP: u32 = 512;
 
+/// Where an image's bytes live.
+pub enum Source {
+    File(PathBuf),
+    /// Artwork inside a package's `.cartouche/` (game not unpacked yet).
+    Package {
+        package: PathBuf,
+        name: String,
+    },
+}
+
+impl Source {
+    fn path(&self) -> &Path {
+        match self {
+            Source::File(path) | Source::Package { package: path, .. } => path,
+        }
+    }
+
+    fn read(&self) -> Option<Vec<u8>> {
+        match self {
+            Source::File(path) => std::fs::read(path).ok(),
+            Source::Package { package, name } => package::read_data_file(package, name),
+        }
+    }
+}
+
 pub struct Job {
     pub key: usize,
-    pub source: PathBuf,
+    pub source: Source,
     /// Thumbnail cache file, if this image should be cached.
     pub cache: Option<PathBuf>,
 }
@@ -97,7 +123,13 @@ pub fn cover_jobs(games: &[Game], cache_dir: &Path) -> Vec<Job> {
         .iter()
         .enumerate()
         .filter_map(|(key, g)| {
-            let source = g.image_path(ImageSlot::Cover)?;
+            let source = match g.package().filter(|_| !g.is_installed()) {
+                Some(package) => Source::Package {
+                    package: package.to_path_buf(),
+                    name: g.images.cover.clone()?,
+                },
+                None => Source::File(g.image_path(ImageSlot::Cover)?),
+            };
             Some(Job {
                 key,
                 source,
@@ -115,19 +147,21 @@ pub fn artwork_jobs(game: &Game) -> Vec<Job> {
         .filter_map(|(key, &slot)| {
             Some(Job {
                 key,
-                source: game.image_path(slot)?,
+                source: Source::File(game.image_path(slot)?),
                 cache: None,
             })
         })
         .collect()
 }
 
-fn decode(src: &Path, cache: Option<&Path>) -> Option<(Vec<u8>, u16, u16)> {
-    let src_mtime = std::fs::metadata(src).and_then(|m| m.modified()).ok()?;
+fn decode(src: &Source, cache: Option<&Path>) -> Option<(Vec<u8>, u16, u16)> {
+    let src_mtime = std::fs::metadata(src.path())
+        .and_then(|m| m.modified())
+        .ok()?;
     let rgba = match cache {
         Some(thumb) if is_fresh(thumb, src_mtime) => image::open(thumb).ok()?.to_rgba8(),
         _ => {
-            let bytes = std::fs::read(src).ok()?;
+            let bytes = src.read()?;
             let resized = image::load_from_memory(&bytes).ok()?.resize(
                 THUMB_CAP,
                 THUMB_CAP,

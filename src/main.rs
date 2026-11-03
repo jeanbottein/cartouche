@@ -32,6 +32,8 @@ fn main() -> ExitCode {
         Mode::Version => println!("{} {}", core::app::app_name(), env!("CARGO_PKG_VERSION")),
         Mode::Terminal(group) => return terminal::run(dir, group),
         Mode::DryRun => return terminal::preview(dir),
+        Mode::Pack(name) => return terminal::pack(dir, &name),
+        Mode::Unpack(name) => return terminal::unpack(dir, &name),
         Mode::Ui if core::app::has_display() => ui::run(dir),
         Mode::Ui => {
             log::info!("No display detected. Running in terminal mode.");

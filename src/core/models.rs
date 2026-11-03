@@ -169,6 +169,19 @@ pub struct Resolved {
 /// SteamGridDB artwork URLs by art type (`grid`, `poster`, `hero`, `logo`, `icon`).
 pub type ArtworkUrls = BTreeMap<String, Option<String>>;
 
+/// Where a game lives on disk. A package (`Foo.cartouche.tar`) and the folder
+/// `Foo/` are the same game: the scanner merges them into one entry.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum Install {
+    /// Only `Foo/`.
+    #[default]
+    Installed,
+    /// Only `Foo.cartouche.tar`: not runnable, read-only until unpacked.
+    Packaged { package: PathBuf },
+    /// Both; `verified` when `Foo/` was unpacked from this very package.
+    InstalledWithPackage { package: PathBuf, verified: bool },
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Game {
     /// Subfolder name under `FREEGAMES_PATH`.
@@ -180,6 +193,13 @@ pub struct Game {
     pub steamgriddb_id: Option<i64>,
     pub images: Images,
     pub notes: String,
+    pub year: Option<u32>,
+    /// Free text, e.g. `1`, `1-4`.
+    pub players: String,
+    pub description: String,
+    /// Bytes of the game's own files (`.cartouche/` excluded).
+    pub size: Option<u64>,
+    pub install: Install,
     /// `.cartouche/game.json` exists on disk.
     pub has_cartouche: bool,
     /// In-memory data differs from disk.
@@ -203,6 +223,14 @@ struct GameFileOut<'a> {
     steamgriddb_id: Option<i64>,
     #[serde(skip_serializing_if = "str::is_empty")]
     notes: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    year: Option<u32>,
+    #[serde(skip_serializing_if = "str::is_empty")]
+    players: &'a str,
+    #[serde(skip_serializing_if = "str::is_empty")]
+    description: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    size: Option<u64>,
 }
 
 #[derive(Deserialize, Default)]
@@ -215,6 +243,10 @@ struct GameFileIn {
     images: Value,
     steamgriddb_id: Value,
     notes: Value,
+    year: Value,
+    players: Value,
+    description: Value,
+    size: Value,
 }
 
 impl Game {
@@ -259,6 +291,10 @@ impl Game {
             steamgriddb_id: as_id(&file.steamgriddb_id),
             images: serde_json::from_value(file.images).unwrap_or_default(),
             notes: file.notes.as_str().unwrap_or_default().to_string(),
+            year: as_id(&file.year).and_then(|y| u32::try_from(y).ok()),
+            players: scalar_text(file.players),
+            description: scalar_text(file.description),
+            size: as_id(&file.size).and_then(|s| u64::try_from(s).ok()),
             has_cartouche: true,
             ..Default::default()
         })
@@ -274,7 +310,24 @@ impl Game {
             images: &self.images,
             steamgriddb_id: self.steamgriddb_id,
             notes: &self.notes,
+            year: self.year,
+            players: &self.players,
+            description: &self.description,
+            size: self.size,
         })
+    }
+
+    pub fn is_installed(&self) -> bool {
+        !matches!(self.install, Install::Packaged { .. })
+    }
+
+    pub fn package(&self) -> Option<&Path> {
+        match &self.install {
+            Install::Installed => None,
+            Install::Packaged { package } | Install::InstalledWithPackage { package, .. } => {
+                Some(package)
+            }
+        }
     }
 }
 
@@ -390,5 +443,38 @@ mod tests {
         assert!(!json.contains("steamgriddb_id"));
         assert!(!json.contains("notes"));
         assert!(json.contains("\"images\": {}"));
+        assert!(!json.contains("year") && !json.contains("size"));
+    }
+
+    #[test]
+    fn round_trips_info_fields() {
+        let mut game = Game::skeleton(Path::new("/g/X"));
+        game.year = Some(2018);
+        game.players = "1-4".into();
+        game.description = "A climb.".into();
+        game.size = Some(123);
+        let back = Game::from_json(Path::new("/g/X"), &game.to_json()).unwrap();
+        assert_eq!(
+            (
+                back.year,
+                back.players.as_str(),
+                back.description.as_str(),
+                back.size
+            ),
+            (Some(2018), "1-4", "A climb.", Some(123))
+        );
+    }
+
+    #[test]
+    fn info_fields_tolerate_loose_types() {
+        let game = Game::from_json(
+            Path::new("/g/X"),
+            r#"{"year": "2018", "players": 2, "size": -1}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            (game.year, game.players.as_str(), game.size),
+            (Some(2018), "2", None)
+        );
     }
 }

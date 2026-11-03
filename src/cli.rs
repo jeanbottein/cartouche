@@ -19,6 +19,8 @@ Options:
   -g, --group <NAME>   Phases to run in the terminal (implies -t):
                        all (default), parse, steam, backup, patch
   -n, --dry-run        Preview the Steam sync without changing Steam
+      --pack <GAME>    Pack the game folder GAME into GAME.cartouche.tar
+      --unpack <GAME>  Unpack GAME.cartouche.tar into the folder GAME
   -h, --help           Print this help
   -V, --version        Print the version";
 
@@ -27,6 +29,8 @@ pub enum Mode {
     Ui,
     Terminal(Group),
     DryRun,
+    Pack(String),
+    Unpack(String),
     Help,
     Version,
 }
@@ -40,6 +44,7 @@ pub struct Args {
 pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
     let mut args = args.into_iter();
     let (mut terminal, mut dry_run, mut group, mut dir) = (false, false, None, None);
+    let mut package_mode = None;
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "-h" | "--help" => {
@@ -64,6 +69,14 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
                 let name = &flag["--group=".len()..];
                 group = Some(Group::from_name(name).ok_or(format!("unknown group '{name}'"))?);
             }
+            "--pack" => {
+                let name = args.next().ok_or("--pack needs a game folder name")?;
+                package_mode = Some(Mode::Pack(name));
+            }
+            "--unpack" => {
+                let name = args.next().ok_or("--unpack needs a game folder name")?;
+                package_mode = Some(Mode::Unpack(name));
+            }
             flag if flag.starts_with('-') && flag.len() > 1 => {
                 return Err(format!("unknown option '{flag}'"))
             }
@@ -71,10 +84,11 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
             extra => return Err(format!("unexpected argument '{extra}'")),
         }
     }
-    let mode = match (dry_run, terminal || group.is_some()) {
-        (true, _) => Mode::DryRun,
-        (false, true) => Mode::Terminal(group.unwrap_or(Group::All)),
-        (false, false) => Mode::Ui,
+    let mode = match (package_mode, dry_run, terminal || group.is_some()) {
+        (Some(mode), _, _) => mode,
+        (None, true, _) => Mode::DryRun,
+        (None, false, true) => Mode::Terminal(group.unwrap_or(Group::All)),
+        (None, false, false) => Mode::Ui,
     };
     Ok(Args { mode, dir })
 }
@@ -111,6 +125,22 @@ mod tests {
             Mode::Terminal(Group::Backup)
         );
         assert_eq!(parse_str("-t --dry-run").unwrap().mode, Mode::DryRun);
+    }
+
+    #[test]
+    fn package_flags() {
+        let args = parse_str("--pack Celeste /ws").unwrap();
+        assert_eq!(args.mode, Mode::Pack("Celeste".into()));
+        assert_eq!(args.dir, Some(PathBuf::from("/ws")));
+        assert_eq!(
+            parse_str("--unpack Celeste").unwrap().mode,
+            Mode::Unpack("Celeste".into())
+        );
+        assert_eq!(
+            parse_str("/ws --pack Celeste").unwrap().dir,
+            Some(PathBuf::from("/ws"))
+        );
+        assert!(parse_str("--pack").is_err());
     }
 
     #[test]

@@ -11,6 +11,7 @@ core::pipeline::Pipeline (groups: all / parse / steam / backup / patch)
  0. migrations::run_all      # Idempotent data migrations
  1. scanner::scan            # Parse .cartouche/game.json into Vec<Game>
  2. detector::detect         # Fill missing targets (exe detection)
+    sizer::measure           #   + size on disk into game.json
  3. sgdb::enrich             # SteamGridDB names/IDs/artwork (if API key)
  4. persister::persist       # Write game.json + download images (PERSIST_DATA)
  5. steam::clean             # Remove stale Steam shortcuts (STEAM_EXPOSE)
@@ -28,14 +29,15 @@ Migrations: `launch_manifest.json` → `.cartouche/game.json`, nested → flat `
 
 ```
 src/
-  main.rs, cli.rs        # Args: UI (default), -t/--terminal, -g/--group, -n/--dry-run
+  main.rs, cli.rs        # Args: UI (default), -t/--terminal, -g/--group, -n/--dry-run, --pack/--unpack
   terminal.rs            # Terminal mode + Steam dry-run preview
   core/                  # Backend, no UI code
     app.rs               # App name (from binary filename), workspace dir lookup
     config.rs            # config.txt parse / relative path resolution / in-place updates
     models.rs            # Game, Target, SavePath, Images; game.json (de)serialization
     paths.rs, platform.rs# normpath/expandvars/relpath; OS/arch tags, ELF/PE/Mach-O headers
-    migrations.rs scanner.rs detector.rs sgdb.rs persister.rs
+    migrations.rs scanner.rs detector.rs sgdb.rs persister.rs sizer.rs
+    package.rs           # Foo.cartouche.tar: pack/unpack with progress + crc verification
     vdf.rs               # Binary (shortcuts.vdf) + text (config.vdf) KeyValues
     steam.rs steam_self.rs manifest.rs bps.rs patcher.rs saver.rs commands.rs
     pipeline.rs init.rs logging.rs
@@ -54,7 +56,11 @@ testdata/                # Golden fixtures produced by the former Python impleme
 WORKSPACE/
   .cartouche/config.txt, steamgriddb_cache.json, ui-thumbs/
   games/MyGame/.cartouche/game.json, cover.png, icon.png, hero.png, logo.png
+  games/MyGame/.cartouche/unpacked_from.json   # id of the package it came from
+  games/Other.cartouche.tar                    # packaged game (not unpacked yet)
 ```
+
+Packages: a plain tar of `Foo/` with `.cartouche/package.json` first and `.cartouche/checksums.json` last. The scanner merges `Foo.cartouche.tar` and `Foo/` into one game (`models::Install`). Packaged-only games are read-only: phases that write (detector, sgdb, persister, editor) skip them. Staging uses hidden `.Foo…part` names, which the scanner ignores.
 
 ## Key Conventions
 
@@ -63,7 +69,7 @@ WORKSPACE/
 - Flags: `is_true` for opt-in keys (STEAM_EXPOSE, ...), `is_not_false` for opt-out keys (PERSIST_DATA, MANIFEST_EXPORT).
 - **Ownership tag** in Steam shortcuts is the app name (also recognizes legacy `"gamer-sidekick"`); the self shortcut uses `<app>-self`.
 - **Logging:** `log` macros; `core::logging` prints to stderr and mirrors to the UI Status log.
-- **Minimal dependencies:** macroquad, gilrs (feature `gamepad`), serde/serde_json, image, ureq, crc32fast, log.
+- **Minimal dependencies:** macroquad, gilrs (feature `gamepad`), serde/serde_json, image, ureq, crc32fast, tar, log.
 
 ## Dev Workflow
 

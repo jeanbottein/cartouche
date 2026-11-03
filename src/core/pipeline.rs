@@ -11,8 +11,8 @@ use log::info;
 use super::config::Config;
 use super::models::Game;
 use super::{
-    commands, detector, manifest, migrations, patcher, persister, saver, scanner, sgdb, steam,
-    steam_self,
+    commands, detector, manifest, migrations, patcher, persister, saver, scanner, sgdb, sizer,
+    steam, steam_self,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -20,6 +20,7 @@ pub enum Phase {
     Migrate,
     Scan,
     Detect,
+    Measure,
     Enrich,
     Persist,
     SteamClean,
@@ -31,10 +32,11 @@ pub enum Phase {
 }
 
 impl Phase {
-    pub const ALL: [Phase; 11] = [
+    pub const ALL: [Phase; 12] = [
         Phase::Migrate,
         Phase::Scan,
         Phase::Detect,
+        Phase::Measure,
         Phase::Enrich,
         Phase::Persist,
         Phase::SteamClean,
@@ -50,6 +52,7 @@ impl Phase {
             Phase::Migrate => "Migration",
             Phase::Scan => "Scanning",
             Phase::Detect => "Detection",
+            Phase::Measure => "Size",
             Phase::Enrich => "Enrichment",
             Phase::Persist => "Persistence",
             Phase::SteamClean => "Steam cleanup",
@@ -100,7 +103,7 @@ impl Group {
         use Phase::*;
         match self {
             Group::All => &Phase::ALL,
-            Group::Parse => &[Migrate, Scan, Detect, Enrich, Persist],
+            Group::Parse => &[Migrate, Scan, Detect, Measure, Enrich, Persist],
             Group::Steam => &[Scan, SteamClean, SteamExport],
             Group::Backup => &[Scan, Save],
             Group::Patch => &[Patch],
@@ -144,6 +147,7 @@ impl<'a> Pipeline<'a> {
                 migrations::run_all(&self.games_dir);
             }
             (Phase::Detect, Some(games)) => detector::detect(games),
+            (Phase::Measure, Some(games)) => sizer::measure(games),
             (Phase::Enrich, Some(games)) => sgdb::enrich(games, cfg),
             (Phase::Persist, Some(games)) if cfg.is_not_false("PERSIST_DATA") => {
                 persister::persist(games)
@@ -195,7 +199,7 @@ mod tests {
     fn groups_parse_by_name() {
         assert_eq!(Group::from_name("Steam"), Some(Group::Steam));
         assert_eq!(Group::from_name("nope"), None);
-        assert_eq!(Group::All.phases().len(), 11);
+        assert_eq!(Group::All.phases().len(), 12);
     }
 
     #[test]

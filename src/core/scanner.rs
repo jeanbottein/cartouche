@@ -6,7 +6,8 @@ use std::path::{Path, PathBuf};
 
 use log::{error, info, warn};
 
-use super::models::{folder_name_of, Game, Resolved, SavePath, Target};
+use super::models::{folder_name_of, Game, Install, Resolved, SavePath, Target};
+use super::package;
 use super::paths;
 use super::platform::{arch_tag, os_tag};
 use super::steam;
@@ -41,6 +42,80 @@ pub fn pick_target(targets: &[Target]) -> Option<&Target> {
         .collect();
     let pool = filter_by(pool, |t| &t.os, os_tag());
     filter_by(pool, |t| &t.arch, arch_tag()).first().copied()
+}
+
+/// How a game runs on this machine.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Compatibility {
+    Native,
+    /// Windows build on Linux.
+    Proton,
+    Unsupported,
+    /// No targets yet.
+    Unknown,
+}
+
+impl Compatibility {
+    pub fn label(self) -> &'static str {
+        match self {
+            Compatibility::Native => "Native",
+            Compatibility::Proton => "Proton",
+            Compatibility::Unsupported => "Not supported",
+            Compatibility::Unknown => "Unknown",
+        }
+    }
+}
+
+fn is_any(tag: &str) -> bool {
+    tag.trim().is_empty() || tag.eq_ignore_ascii_case("any")
+}
+
+fn runs_on(target: &Target, os: &str, arch: &str) -> bool {
+    (is_any(&target.os) || target.os.eq_ignore_ascii_case(os))
+        && (is_any(&target.arch) || target.arch.eq_ignore_ascii_case(arch))
+}
+
+pub fn compatibility(targets: &[Target]) -> Compatibility {
+    let runnable: Vec<&Target> = targets
+        .iter()
+        .filter(|t| !t.target.trim().is_empty())
+        .collect();
+    if runnable.is_empty() {
+        Compatibility::Unknown
+    } else if runnable.iter().any(|t| runs_on(t, os_tag(), arch_tag())) {
+        Compatibility::Native
+    } else if os_tag() == "linux" && runnable.iter().any(|t| runs_on(t, "windows", arch_tag())) {
+        Compatibility::Proton
+    } else {
+        Compatibility::Unsupported
+    }
+}
+
+fn os_label(os: &str) -> String {
+    match os.trim().to_lowercase().as_str() {
+        "" | "any" => "Any".into(),
+        "linux" => "Linux".into(),
+        "windows" => "Windows".into(),
+        "macos" => "macOS".into(),
+        other => other.to_string(),
+    }
+}
+
+/// Distinct `OS arch` labels of the targets, e.g. `["Linux x64", "Windows x64"]`.
+pub fn platforms(targets: &[Target]) -> Vec<String> {
+    targets
+        .iter()
+        .filter(|t| !t.target.trim().is_empty())
+        .map(|t| {
+            let arch = if is_any(&t.arch) { "" } else { t.arch.trim() };
+            format!("{} {arch}", os_label(&t.os)).trim_end().to_string()
+        })
+        .fold(Vec::new(), |mut acc, label| {
+            if !acc.contains(&label) {
+                acc.push(label);
+            }
+            acc
+        })
 }
 
 /// Absolute paths for `target`; `startIn` defaults to the executable's folder.
@@ -174,13 +249,65 @@ pub fn load_game(dir: &Path) -> Option<Game> {
     Some(game)
 }
 
+/// A package not unpacked yet: read-only metadata, nothing resolved (it can't
+/// run). `None` when the package can't be read.
+pub fn load_package(package: &Path, games_dir: &Path) -> Option<Game> {
+    let (manifest, game_json) = package::read_meta(package)
+        .map_err(|e| error!("Skipping {}: {e}", package.display()))
+        .ok()?;
+    let dir = games_dir.join(&manifest.folder_name);
+    let mut game = game_json
+        .and_then(|text| Game::from_json(&dir, &text).ok())
+        .unwrap_or_else(|| Game {
+            title: manifest.title.clone(),
+            ..Game::skeleton(&dir)
+        });
+    game.size = game.size.or(Some(manifest.size));
+    game.install = Install::Packaged {
+        package: package.to_path_buf(),
+    };
+    Some(game)
+}
+
+/// Attach a package to the installed game it belongs to.
+fn with_package(mut game: Game, package: &Path) -> Game {
+    let verified = package::read_meta(package)
+        .is_ok_and(|(m, _)| package::unpacked_from(&game.dir) == Some(m.id));
+    game.install = Install::InstalledWithPackage {
+        package: package.to_path_buf(),
+        verified,
+    };
+    game
+}
+
 /// Every visible subfolder of `games_dir` as a game (a skeleton when it has no
-/// metadata yet), with runtime fields resolved. Silent: the UI reloads often.
+/// metadata yet), with runtime fields resolved, plus packages (`Foo.cartouche.tar`)
+/// merged into their folder when it exists. Silent: the UI reloads often.
 pub fn load_library(games_dir: &Path) -> Vec<Game> {
-    paths::visible_subdirs(games_dir)
+    let installed: Vec<Game> = paths::visible_subdirs(games_dir)
         .iter()
         .filter_map(|dir| load_game(dir))
-        .collect()
+        .collect();
+    let packages = package::list(games_dir);
+    let package_of = |game: &Game| package::package_path(games_dir, &game.folder_name);
+    let standalone: Vec<Game> = packages
+        .iter()
+        .filter(|p| !installed.iter().any(|g| package_of(g) == **p))
+        .filter_map(|p| load_package(p, games_dir))
+        .collect();
+    let mut games: Vec<Game> = installed
+        .into_iter()
+        .map(|game| match package_of(&game) {
+            p if packages.contains(&p) => with_package(game, &p),
+            _ => game,
+        })
+        .chain(standalone)
+        .collect();
+    // Stable sort keeps the installed folder first if a renamed package
+    // holds the same game; dedup then drops the package entry.
+    games.sort_by(|a, b| a.folder_name.cmp(&b.folder_name));
+    games.dedup_by(|a, b| a.folder_name == b.folder_name);
+    games
 }
 
 /// Pipeline step 1: [`load_library`] with a log line per game.
@@ -192,7 +319,9 @@ pub fn scan(games_dir: &Path) -> Vec<Game> {
     info!("Scanning for games in {}", games_dir.display());
     let games = load_library(games_dir);
     for game in &games {
-        if game.has_cartouche {
+        if !game.is_installed() {
+            info!("  Packaged: {}", game.title);
+        } else if game.has_cartouche {
             info!("  Loaded: {}", game.title);
         } else {
             info!("  Discovered: {} (needs detection)", game.folder_name);
@@ -334,5 +463,87 @@ mod tests {
         let path = dir.write("Broken/.cartouche/game.json", b"{ not json");
         assert!(scan(dir.path()).is_empty());
         assert_eq!(std::fs::read(path).unwrap(), b"{ not json");
+    }
+
+    fn pack_into(dir: &TempDir, name: &str) -> PathBuf {
+        let game_dir = dir.mkdir(&format!("src/{name}"));
+        dir.write(&format!("src/{name}/run.sh"), b"#!/bin/sh");
+        let game = Game::skeleton(&game_dir);
+        let package = package::package_path(&dir.path().join("games"), name);
+        std::fs::create_dir_all(package.parent().unwrap()).unwrap();
+        package::pack(&game, &package, &package::Progress::default()).unwrap();
+        package
+    }
+
+    #[test]
+    fn library_lists_packages_once_and_ignores_staging() {
+        let dir = TempDir::new();
+        let only_package = pack_into(&dir, "Alpha");
+        pack_into(&dir, "Beta");
+        dir.mkdir("games/Beta");
+        dir.mkdir("games/.Gamma.part");
+        let games = load_library(&dir.path().join("games"));
+        let names: Vec<_> = games.iter().map(|g| g.folder_name.as_str()).collect();
+        assert_eq!(names, ["Alpha", "Beta"]);
+        assert_eq!(
+            games[0].install,
+            Install::Packaged {
+                package: only_package
+            }
+        );
+        assert!(games[0].resolved.is_none() && games[0].size == Some(9));
+        assert!(matches!(
+            games[1].install,
+            Install::InstalledWithPackage {
+                verified: false,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn unpacked_folder_is_verified_against_its_package() {
+        let dir = TempDir::new();
+        let package = pack_into(&dir, "Alpha");
+        let games_dir = dir.path().join("games");
+        package::unpack(&package, &games_dir, &package::Progress::default()).unwrap();
+        let games = load_library(&games_dir);
+        assert_eq!(games.len(), 1);
+        assert!(matches!(
+            games[0].install,
+            Install::InstalledWithPackage { verified: true, .. }
+        ));
+    }
+
+    #[test]
+    fn compatibility_prefers_native_then_proton() {
+        assert_eq!(compatibility(&[]), Compatibility::Unknown);
+        assert_eq!(
+            compatibility(&[t(os_tag(), arch_tag(), "a")]),
+            Compatibility::Native
+        );
+        assert_eq!(compatibility(&[t("any", "", "a")]), Compatibility::Native);
+        let windows_only = compatibility(&[t("windows", arch_tag(), "a.exe")]);
+        let expected = match os_tag() {
+            "windows" => Compatibility::Native,
+            "linux" => Compatibility::Proton,
+            _ => Compatibility::Unsupported,
+        };
+        assert_eq!(windows_only, expected);
+        assert_eq!(
+            compatibility(&[t(os_tag(), "other-arch", "a")]),
+            Compatibility::Unsupported
+        );
+    }
+
+    #[test]
+    fn platforms_are_distinct_labels() {
+        let targets = [
+            t("linux", "x64", "a"),
+            t("linux", "x64", "b"),
+            t("windows", "", "c.exe"),
+            t("macos", "arm64", ""),
+        ];
+        assert_eq!(platforms(&targets), ["Linux x64", "Windows"]);
     }
 }

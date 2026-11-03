@@ -268,7 +268,10 @@ pub fn collect_targets(game_dir: &Path) -> Vec<Target> {
 
 /// Fill targets + title for every game that has no targets yet.
 pub fn detect(games: &mut [Game]) {
-    let incomplete: Vec<&mut Game> = games.iter_mut().filter(|g| g.targets.is_empty()).collect();
+    let incomplete: Vec<&mut Game> = games
+        .iter_mut()
+        .filter(|g| g.is_installed() && g.targets.is_empty())
+        .collect();
     if incomplete.is_empty() {
         return;
     }

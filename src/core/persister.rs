@@ -63,7 +63,12 @@ pub fn download_all_images(game: &mut Game) {
 
 /// Persist every game flagged `needs_persist`.
 pub fn persist(games: &mut [Game]) {
-    let dirty: Vec<&mut Game> = games.iter_mut().filter(|g| g.needs_persist).collect();
+    // Packaged games are read-only: writing their metadata would create a
+    // `Foo/` folder that looks like a second, installed copy.
+    let dirty: Vec<&mut Game> = games
+        .iter_mut()
+        .filter(|g| g.needs_persist && g.is_installed())
+        .collect();
     if dirty.is_empty() {
         return;
     }

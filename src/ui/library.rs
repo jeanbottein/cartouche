@@ -1,5 +1,6 @@
 //! Library: a vertical list of game "boxes" with smooth scrolling. In
-//! widescreen a large cover preview sits beside the list. Covers load in the
+//! widescreen a panel beside the list shows the cover and the game's info
+//! (year, players, platforms, install state, size, description). Covers load in the
 //! background and are drawn at full window resolution over the pixel canvas,
 //! so photos stay crisp while the UI keeps its retro look.
 
@@ -12,13 +13,17 @@ use super::engine::theme;
 use super::launcher::{self, Session};
 use super::{draw_spinner, stroke_rect, Hint, Ui};
 use crate::core::config::Config;
-use crate::core::models::Game;
-use crate::core::scanner;
+use crate::core::models::{Game, Install};
+use crate::core::scanner::{self, Compatibility};
+use crate::core::sizer;
 
 const ROW_H: f32 = 26.0;
 const ROW_GAP: f32 = 4.0;
 const ROW_STEP: f32 = ROW_H + ROW_GAP;
 const PREVIEW_GAP: f32 = 12.0;
+const LINE: f32 = 20.0;
+/// Share of the side panel's height given to the cover.
+const COVER_SHARE: f32 = 0.5;
 /// How long a message stays on screen, in seconds.
 const TOAST_SECS: f64 = 4.0;
 
@@ -30,6 +35,8 @@ pub enum Event {
 #[derive(Default)]
 pub struct Library {
     pub games: Vec<Game>,
+    /// Package file size per game (read once per load, not every frame).
+    package_sizes: Vec<Option<u64>>,
     covers: Vec<Option<Texture2D>>,
     loader: Option<ImageLoader>,
     cursor: usize,
@@ -47,6 +54,11 @@ impl Library {
             .games_dir()
             .map(|dir| scanner::load_library(&dir))
             .unwrap_or_default();
+        self.package_sizes = self
+            .games
+            .iter()
+            .map(|g| Some(std::fs::metadata(g.package()?).ok()?.len()))
+            .collect();
         self.covers = vec![None; self.games.len()];
         self.loader = Some(ImageLoader::spawn(covers::cover_jobs(
             &self.games,
@@ -90,6 +102,20 @@ impl Library {
         )
     }
 
+    /// (cover, info) halves of the side panel.
+    fn split_panel(panel: Rect) -> (Rect, Rect) {
+        let cover_h = (panel.h * COVER_SHARE).floor();
+        (
+            Rect::new(panel.x, panel.y, panel.w, cover_h),
+            Rect::new(
+                panel.x,
+                panel.y + cover_h + 8.0,
+                panel.w,
+                panel.h - cover_h - 8.0,
+            ),
+        )
+    }
+
     fn max_scroll(&self, list: Rect) -> f32 {
         (self.games.len() as f32 * ROW_STEP - ROW_GAP - list.h).max(0.0)
     }
@@ -130,7 +156,12 @@ impl Library {
         let t = (get_frame_time() * 14.0).min(1.0);
         self.scroll_y += (self.scroll_target - self.scroll_y) * t;
 
-        if ui.action(Action::Edit) {
+        let edit = ui.action(Action::Edit);
+        if (edit || launch) && !self.games[self.cursor].is_installed() {
+            self.toast("Packaged game: unpack it to play or edit.", theme::AMBER);
+            return None;
+        }
+        if edit {
             return Some(Event::Edit(self.cursor));
         }
         if !launch {
@@ -161,7 +192,8 @@ impl Library {
         }
         let (list, preview) = self.layout(ui, area);
         self.draw_rows(ui, list);
-        if let Some(preview) = preview {
+        if let Some(panel) = preview {
+            let (cover, info) = Self::split_panel(panel);
             let focused = &self.games[self.cursor];
             if self.covers[self.cursor].is_none()
                 && focused.images.cover.is_some()
@@ -169,11 +201,12 @@ impl Library {
             {
                 ui.text(
                     "loading...",
-                    preview.center().x - 40.0,
-                    preview.center().y,
+                    cover.center().x - 40.0,
+                    cover.center().y,
                     theme::MUTED,
                 );
             }
+            self.draw_info(ui, info);
         }
         self.draw_loading(ui, list);
         self.draw_toast(ui, list);
@@ -204,7 +237,14 @@ impl Library {
                 (theme::BORDER, 1.0)
             };
             stroke_rect(Rect::new(list.x, y, list.w, ROW_H), th, border);
-            let title = ui.truncate(&self.games[i].title, list.w - 18.0);
+            let tag = self.row_tag(i, ui.canvas.mode == AspectMode::Square);
+            let tag_w = if tag.is_empty() {
+                0.0
+            } else {
+                ui.measure(&tag) + 12.0
+            };
+            ui.text(&tag, list.right() - tag_w, y + 18.0, theme::AMBER);
+            let title = ui.truncate(&self.games[i].title, list.w - 18.0 - tag_w);
             ui.text(
                 &title,
                 list.x + 12.0,
@@ -215,6 +255,114 @@ impl Library {
         // Mask partial rows that spilled below the list edge.
         let (w, h) = ui.canvas.size();
         draw_rectangle(0.0, list.bottom(), w, h - list.bottom(), theme::BG);
+    }
+
+    /// Short install marker on a row; with the size when there is no side panel.
+    fn row_tag(&self, index: usize, with_size: bool) -> String {
+        let game = &self.games[index];
+        let tag = match game.install {
+            Install::Installed => "",
+            Install::Packaged { .. } => "PKG",
+            Install::InstalledWithPackage { .. } => "+PKG",
+        };
+        match game.size.filter(|_| with_size) {
+            Some(size) if tag.is_empty() => sizer::human(size),
+            Some(size) => format!("{tag} {}", sizer::human(size)),
+            None => tag.to_string(),
+        }
+    }
+
+    /// Install state and sizes of the focused game, e.g. `Installed · 1.2 GB`.
+    fn install_line(&self) -> String {
+        let game = &self.games[self.cursor];
+        let size = |s: Option<u64>| s.map_or("? B".to_string(), sizer::human);
+        let package = size(self.package_sizes[self.cursor]);
+        match &game.install {
+            Install::Installed => format!("Installed · {}", size(game.size)),
+            Install::Packaged { .. } => {
+                format!("Package {package} · {} unpacked", size(game.size))
+            }
+            Install::InstalledWithPackage { verified, .. } => format!(
+                "Installed {} · Package {package}{}",
+                size(game.size),
+                if *verified { "" } else { " (different)" }
+            ),
+        }
+    }
+
+    fn compatibility_color(compatibility: Compatibility) -> Color {
+        match compatibility {
+            Compatibility::Native => theme::ACCENT,
+            Compatibility::Proton => theme::BLUE,
+            Compatibility::Unsupported => theme::RED,
+            Compatibility::Unknown => theme::MUTED,
+        }
+    }
+
+    fn draw_info(&self, ui: &Ui, area: Rect) {
+        let game = &self.games[self.cursor];
+        let mut y = area.y + 24.0;
+        ui.heading(
+            &ui.truncate_heading(&game.title, area.w),
+            area.x,
+            y,
+            theme::TEXT,
+        );
+        y += LINE + 8.0;
+
+        let players = match game.players.trim() {
+            "" => None,
+            "1" => Some("1 player".to_string()),
+            n => Some(format!("{n} players")),
+        };
+        let facts: Vec<String> = game
+            .year
+            .map(|y| y.to_string())
+            .into_iter()
+            .chain(players)
+            .collect();
+        if !facts.is_empty() {
+            ui.text(
+                &ui.truncate(&facts.join(" · "), area.w),
+                area.x,
+                y,
+                theme::MUTED,
+            );
+            y += LINE;
+        }
+
+        let compatibility = scanner::compatibility(&game.targets);
+        let platforms = scanner::platforms(&game.targets).join(" · ");
+        let label = compatibility.label();
+        ui.text(label, area.x, y, Self::compatibility_color(compatibility));
+        let label_w = ui.measure(label) + 12.0;
+        ui.text(
+            &ui.truncate(&platforms, area.w - label_w),
+            area.x + label_w,
+            y,
+            theme::MUTED,
+        );
+        y += LINE;
+
+        ui.text(
+            &ui.truncate(&self.install_line(), area.w),
+            area.x,
+            y,
+            theme::TEXT,
+        );
+        y += LINE + 6.0;
+
+        let room = ((area.bottom() - y) / LINE).floor().max(0.0) as usize;
+        let lines = ui.wrap(game.description.trim(), area.w);
+        let shown = lines.len().min(room);
+        for (i, line) in lines.iter().take(shown).enumerate() {
+            let text = if i + 1 == shown && shown < lines.len() {
+                ui.truncate(&format!("{line}…"), area.w)
+            } else {
+                line.clone()
+            };
+            ui.text(&text, area.x, y + i as f32 * LINE, theme::MUTED);
+        }
     }
 
     fn draw_loading(&self, ui: &Ui, list: Rect) {
@@ -251,9 +399,10 @@ impl Library {
 
     /// Full-resolution cover of the focused game (after the canvas is presented).
     pub fn overlay(&self, ui: &Ui, area: Rect) {
-        let (_, Some(preview)) = self.layout(ui, area) else {
+        let (_, Some(panel)) = self.layout(ui, area) else {
             return;
         };
+        let (preview, _) = Self::split_panel(panel);
         if let Some(Some(tex)) = self.covers.get(self.cursor) {
             ui.draw_image_fit(
                 tex,
@@ -268,7 +417,7 @@ impl Library {
     }
 
     pub fn hints(&self, ui: &Ui) -> Vec<Hint> {
-        if self.games.is_empty() {
+        if self.games.is_empty() || !self.games[self.cursor].is_installed() {
             return Vec::new();
         }
         vec![

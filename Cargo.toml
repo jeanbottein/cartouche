@@ -16,6 +16,8 @@ serde_json = { version = "1", features = ["preserve_order"] }
 image = { version = "0.24", default-features = false, features = ["png", "jpeg", "ico"] }
 ureq = "2"
 crc32fast = "1"
+# Game packages are plain tar files (readable with `tar xf`, no Cartouche needed).
+tar = { version = "0.4", default-features = false }
 log = { version = "0.4", features = ["std"] }
 
 [features]

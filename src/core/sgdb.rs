@@ -44,8 +44,8 @@ pub fn http_get(url: &str, timeout_secs: u64) -> Result<ureq::Response, String> 
         .map_err(|e| e.to_string())
 }
 
-/// GET an API endpoint; the `data` list when the call succeeds and returns any.
-fn request(endpoint: &str, key: &str) -> Option<Vec<Value>> {
+/// GET an API endpoint; its `data` when the call succeeds.
+fn request_data(endpoint: &str, key: &str) -> Option<Value> {
     let url = format!("{API}/{endpoint}");
     let response = ureq::get(&url)
         .timeout(Duration::from_secs(10))
@@ -61,8 +61,38 @@ fn request(endpoint: &str, key: &str) -> Option<Vec<Value>> {
     let body: Value = serde_json::from_str(&text)
         .map_err(|e| debug!("SteamGridDB bad JSON for {endpoint}: {e}"))
         .ok()?;
-    let data = body.get("data")?.as_array()?.clone();
-    (body.get("success").and_then(Value::as_bool) == Some(true) && !data.is_empty()).then_some(data)
+    if body.get("success").and_then(Value::as_bool) != Some(true) {
+        return None;
+    }
+    body.get("data").cloned()
+}
+
+/// GET an API endpoint; the `data` list when the call succeeds and returns any.
+fn request(endpoint: &str, key: &str) -> Option<Vec<Value>> {
+    let data = request_data(endpoint, key)?.as_array()?.clone();
+    (!data.is_empty()).then_some(data)
+}
+
+/// Gregorian year of a Unix timestamp (days-to-civil, Howard Hinnant).
+fn year_of_timestamp(secs: i64) -> i64 {
+    let z = secs.div_euclid(86_400) + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let month_index = (5 * doy + 2) / 153; // 0 = March
+    yoe + era * 400 + i64::from(month_index >= 10)
+}
+
+/// Release year of a SteamGridDB game object (`release_date` is a Unix timestamp).
+fn release_year(game: &Value) -> Option<u32> {
+    let secs = game.get("release_date")?.as_i64()?;
+    u32::try_from(year_of_timestamp(secs)).ok()
+}
+
+/// Release year of a known SteamGridDB game.
+fn fetch_year(game_id: i64, key: &str) -> Option<u32> {
+    release_year(&request_data(&format!("games/id/{game_id}"), key)?)
 }
 
 /// Percent-encode a path segment (like `urllib.parse.quote`, keeping `/`).
@@ -77,17 +107,24 @@ fn quote(text: &str) -> String {
         .collect()
 }
 
-/// First search hit: (id, official name).
-pub fn search_game(name: &str, key: &str) -> Option<(i64, Option<String>)> {
+pub struct SearchHit {
+    pub id: i64,
+    pub name: Option<String>,
+    pub year: Option<u32>,
+}
+
+/// First search hit.
+pub fn search_game(name: &str, key: &str) -> Option<SearchHit> {
     let data = request(&format!("search/autocomplete/{}", quote(name)), key)?;
     let first = data.first()?;
-    Some((
-        first.get("id")?.as_i64()?,
-        first
+    Some(SearchHit {
+        id: first.get("id")?.as_i64()?,
+        name: first
             .get("name")
             .and_then(Value::as_str)
             .map(str::to_string),
-    ))
+        year: release_year(first),
+    })
 }
 
 /// URL of the highest-scored entry (first on ties).
@@ -199,13 +236,17 @@ fn urls_of(entry: &Value) -> ArtworkUrls {
 
 fn is_complete(entry: &Value) -> bool {
     let urls = urls_of(entry);
-    entry.get("name").is_some() && urls.contains_key("icon") && urls.contains_key("poster")
+    entry.get("name").is_some()
+        && entry.get("year").is_some()
+        && urls.contains_key("icon")
+        && urls.contains_key("poster")
 }
 
 pub struct SgdbInfo {
     pub id: i64,
     pub urls: ArtworkUrls,
     pub name: Option<String>,
+    pub year: Option<u32>,
 }
 
 fn read_entry(entry: &Value) -> Option<SgdbInfo> {
@@ -216,14 +257,23 @@ fn read_entry(entry: &Value) -> Option<SgdbInfo> {
             .get("name")
             .and_then(Value::as_str)
             .map(str::to_string),
+        year: entry
+            .get("year")
+            .and_then(Value::as_u64)
+            .and_then(|y| u32::try_from(y).ok()),
     })
 }
 
 /// Fill what a partial cache entry is missing.
 fn refresh_entry(name: &str, entry: &mut Value, key: &str, cfg: &Config) {
     if entry.get("name").is_none() {
-        if let Some((_, Some(official))) = search_game(name, key) {
+        if let Some(official) = search_game(name, key).and_then(|hit| hit.name) {
             entry["name"] = json!(official);
+        }
+    }
+    if entry.get("year").is_none() {
+        if let Some(id) = entry.get("game_id").and_then(Value::as_i64) {
+            entry["year"] = json!(fetch_year(id, key)); // null: looked up, unknown
         }
     }
     let urls = urls_of(entry);
@@ -236,13 +286,20 @@ fn refresh_entry(name: &str, entry: &mut Value, key: &str, cfg: &Config) {
 
 fn fetch_entry(name: &str, known_id: Option<i64>, key: &str, cfg: &Config) -> Value {
     let found = match known_id {
-        Some(id) => Some((id, Some(name.to_string()))),
+        Some(id) => Some(SearchHit {
+            id,
+            name: Some(name.to_string()),
+            year: fetch_year(id, key),
+        }),
         None => search_game(name, key),
     };
     match found {
-        Some((id, official)) => {
-            json!({"game_id": id, "urls": fetch_artwork_urls(id, key, cfg), "name": official})
-        }
+        Some(hit) => json!({
+            "game_id": hit.id,
+            "urls": fetch_artwork_urls(hit.id, key, cfg),
+            "name": hit.name,
+            "year": hit.year,
+        }),
         None => json!({"game_id": null, "urls": {}, "name": null}),
     }
 }
@@ -275,6 +332,7 @@ fn would_change(game: &Game, info: &SgdbInfo) -> bool {
     let new_images = image_names(&info.urls);
     game.steamgriddb_id != Some(info.id)
         || official_name(info).is_some_and(|n| n != game.title)
+        || (game.year.is_none() && info.year.is_some())
         || ImageSlot::ALL
             .iter()
             .any(|&s| new_images.get(s).is_some() && game.images.get(s).is_none())
@@ -285,6 +343,7 @@ fn apply(game: &mut Game, info: SgdbInfo) {
     if let Some(name) = official_name(&info) {
         game.title = name.to_string();
     }
+    game.year = game.year.or(info.year);
     let new_images = image_names(&info.urls);
     for slot in ImageSlot::ALL {
         if game.images.get(slot).is_none() {
@@ -296,21 +355,24 @@ fn apply(game: &mut Game, info: SgdbInfo) {
     }
 }
 
-/// Add SteamGridDB names, IDs and artwork to games that lack them.
+/// Add SteamGridDB names, IDs, release years and artwork to games that lack them.
 pub fn enrich(games: &mut [Game], cfg: &Config) {
     let Some(key) = api_key(cfg) else { return };
     let app_dir = cfg.app_dir();
     let mut cache = load_cache(&app_dir);
     let snapshot = cache.clone();
 
-    let needs_id = games.iter().any(|g| g.steamgriddb_id.is_none());
+    let needs_id = games
+        .iter()
+        .any(|g| g.is_installed() && g.steamgriddb_id.is_none());
     let todo: Vec<&mut Game> = games
         .iter_mut()
+        .filter(|g| g.is_installed())
         .filter(|g| {
             if needs_id {
                 g.steamgriddb_id.is_none()
             } else {
-                g.images.cover.is_none()
+                g.images.cover.is_none() || g.year.is_none()
             }
         })
         .collect();
@@ -403,10 +465,13 @@ mod tests {
         let mut cache = Map::new();
         cache.insert(
             "celeste".into(),
-            json!({"game_id": 7, "name": "Celeste", "urls": {"icon": "https://i/1.ico", "poster": null}}),
+            json!({"game_id": 7, "name": "Celeste", "year": 2018, "urls": {"icon": "https://i/1.ico", "poster": null}}),
         );
         let info = lookup("Celeste", None, "unused", &mut cache, &cfg).unwrap();
-        assert_eq!((info.id, info.name.as_deref()), (7, Some("Celeste")));
+        assert_eq!(
+            (info.id, info.name.as_deref(), info.year),
+            (7, Some("Celeste"), Some(2018))
+        );
         assert_eq!(image_names(&info.urls).icon.as_deref(), Some("icon.ico"));
 
         cache.insert(
@@ -427,11 +492,26 @@ mod tests {
             id: 7,
             name: Some("Celeste".into()),
             urls: urls(&[("poster", Some("u/p.jpg")), ("hero", Some("u/h.jpg"))]),
+            year: Some(2018),
         };
         assert!(would_change(&game, &info));
         apply(&mut game, info);
         assert_eq!(game.title, "Celeste");
         assert_eq!(game.images.cover.as_deref(), Some("mine.png"));
         assert_eq!(game.images.hero.as_deref(), Some("hero.jpg"));
+    }
+
+    #[test]
+    fn release_year_reads_unix_timestamps() {
+        // 2018-01-25 and 1999-12-31T23:59:59Z
+        assert_eq!(
+            release_year(&json!({"release_date": 1_516_838_400})),
+            Some(2018)
+        );
+        assert_eq!(
+            release_year(&json!({"release_date": 946_684_799})),
+            Some(1999)
+        );
+        assert_eq!(release_year(&json!({"release_date": null})), None);
     }
 }
