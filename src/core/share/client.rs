@@ -81,7 +81,6 @@ pub fn list(addr: SocketAddr) -> Result<Vec<RemoteGame>, String> {
     get_json(&api(addr, "games"))
 }
 
-#[allow(dead_code)] // Network tab / footer indicator (UI step)
 pub fn cover(addr: SocketAddr, id: &str) -> Option<Vec<u8>> {
     let mut bytes = Vec::new();
     get(&game_url(addr, id, "cover"), LIST_TIMEOUT)

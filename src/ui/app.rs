@@ -10,8 +10,10 @@ use super::editor::{self, Editor};
 use super::engine::canvas::{AspectMode, Canvas};
 use super::engine::input::{Action, Input};
 use super::engine::{text, theme};
+use super::jobs::{Jobs, Kind};
 use super::launcher::Session;
 use super::library::{self, Library};
+use super::network::{self, Network};
 use super::settings::Settings;
 use super::setup::{self, Setup};
 use super::status::Status;
@@ -19,7 +21,8 @@ use super::{Hint, Ui};
 use crate::core::app::find_app_dir;
 use crate::core::config::Config;
 use crate::core::logging::{self, Line};
-use crate::core::share::{self, server::Server};
+use crate::core::package;
+use crate::core::share::{self, client, server::Server};
 use crate::core::{init, migrations};
 
 const MARGIN: f32 = 16.0;
@@ -36,12 +39,14 @@ const RESUME_GRACE_SECS: f64 = 0.6;
 #[derive(Clone, Copy, PartialEq)]
 enum Tab {
     Library,
+    Network,
     Status,
     Settings,
 }
 
-const TABS: [(Tab, &str); 3] = [
+const TABS: [(Tab, &str); 4] = [
     (Tab::Library, "LIBRARY"),
+    (Tab::Network, "NETWORK"),
     (Tab::Status, "STATUS"),
     (Tab::Settings, "SETTINGS"),
 ];
@@ -64,6 +69,9 @@ pub struct App {
     tab: Tab,
     fullscreen: bool,
     library: Library,
+    network: Network,
+    /// File transfers running in the background (unpack, pack, copies).
+    jobs: Jobs,
     editor: Option<Editor>,
     status: Status,
     settings: Option<Settings>,
@@ -93,6 +101,8 @@ impl App {
             tab: Tab::Library,
             fullscreen: true, // see window_conf
             library: Library::default(),
+            network: Network::default(),
+            jobs: Jobs::default(),
             editor: None,
             status: Status::new(),
             settings: None,
@@ -185,6 +195,8 @@ impl App {
             self.status.push_log(line);
         }
         self.library.poll();
+        self.network.poll(self.config.as_ref());
+        self.collect_jobs();
         if self.status.poll().is_some() {
             self.reload_config();
             self.reload_library();
@@ -212,8 +224,25 @@ impl App {
         self.draw();
     }
 
+    /// Toast finished transfers and show their result in both lists.
+    fn collect_jobs(&mut self) {
+        let finished = self.jobs.poll();
+        if finished.is_empty() {
+            return;
+        }
+        self.reload_library();
+        let games_dir = self.config.as_ref().and_then(Config::games_dir);
+        self.network.recheck_local(games_dir.as_deref());
+        for done in finished {
+            let color = if done.ok { theme::ACCENT } else { theme::RED };
+            self.library.toast(&done.message, color);
+            self.network.toast(&done.message, color);
+        }
+    }
+
     fn modal_open(&self) -> bool {
         self.editor.is_some()
+            || self.network.has_modal()
             || self.setup.is_some()
             || self.settings.as_ref().is_some_and(Settings::has_modal)
     }
@@ -229,7 +258,7 @@ impl App {
         if self.modal_open() {
             return;
         }
-        for (key, (tab, _)) in [KeyCode::Key1, KeyCode::Key2, KeyCode::Key3]
+        for (key, (tab, _)) in [KeyCode::Key1, KeyCode::Key2, KeyCode::Key3, KeyCode::Key4]
             .iter()
             .zip(TABS)
         {
@@ -260,6 +289,7 @@ impl App {
         }
         match self.tab {
             Tab::Library => self.update_library(area),
+            Tab::Network => self.update_network(area),
             Tab::Status => self.status.update(&self.ui, area, self.config.as_ref()),
             Tab::Settings => {
                 let (Some(settings), Some(cfg)) = (&mut self.settings, &self.config) else {
@@ -297,14 +327,64 @@ impl App {
         if self.quit_progress() >= 1.0 {
             self.quit = true;
         }
-        match self.library.update(&self.ui, area) {
-            Some(library::Event::Launched(session)) => self.session = Some(session),
-            Some(library::Event::Edit(index)) => {
+        let Some(event) = self.library.update(&self.ui, area, &self.jobs) else {
+            return;
+        };
+        let games_dir = self.config.as_ref().and_then(Config::games_dir);
+        match event {
+            library::Event::Launched(session) => self.session = Some(session),
+            library::Event::Edit(index) => {
                 if let (Some(game), Some(cfg)) = (self.library.games.get(index), &self.config) {
                     self.editor = Some(Editor::new(game, cfg));
                 }
             }
-            None => {}
+            library::Event::Unpack(index) => {
+                let (Some(game), Some(dir)) = (self.library.games.get(index), games_dir) else {
+                    return;
+                };
+                let Some(source) = game.package().map(std::path::Path::to_path_buf) else {
+                    return;
+                };
+                self.jobs
+                    .start(Kind::Unpack, &game.folder_name, &game.title, move |p| {
+                        package::unpack(&source, &dir, p)
+                    });
+            }
+            library::Event::Pack(index) => {
+                let (Some(game), Some(dir)) = (self.library.games.get(index), games_dir) else {
+                    return;
+                };
+                let game = game.clone();
+                let target = package::package_path(&dir, &game.folder_name);
+                let (id, title) = (game.folder_name.clone(), game.title.clone());
+                self.jobs.start(Kind::Pack, &id, &title, move |p| {
+                    package::pack(&game, &target, p).map(|_| target)
+                });
+            }
+            library::Event::Cancel(id) => self.jobs.cancel(&id),
+        }
+    }
+
+    fn update_network(&mut self, area: Rect) {
+        let Some(cfg) = &self.config else { return };
+        let Some(event) = self.network.update(&self.ui, area, cfg, &self.jobs) else {
+            return;
+        };
+        match event {
+            network::Event::Get {
+                addr,
+                game,
+                title,
+                kind,
+            } => {
+                let Some(dir) = cfg.games_dir() else { return };
+                let id = game.clone();
+                self.jobs.start(kind, &game, &title, move |p| match kind {
+                    Kind::Download => client::download(addr, &id, &dir, p),
+                    _ => client::install(addr, &id, &dir, p),
+                });
+            }
+            network::Event::Cancel(id) => self.jobs.cancel(&id),
         }
     }
 
@@ -329,7 +409,11 @@ impl App {
         match (&self.setup, self.tab, &self.editor) {
             (Some(setup), _, _) => setup.draw(&self.ui, area),
             (None, Tab::Library, Some(editor)) => editor.draw(&self.ui, area),
-            (None, Tab::Library, None) => self.library.draw(&self.ui, area),
+            (None, Tab::Library, None) => self.library.draw(&self.ui, area, &self.jobs),
+            (None, Tab::Network, _) => {
+                self.network
+                    .draw(&self.ui, area, self.config.as_ref(), &self.jobs)
+            }
             (None, Tab::Status, _) => self.status.draw(&self.ui, area, self.library.games.len()),
             (None, Tab::Settings, _) => {
                 if let Some(settings) = &self.settings {
@@ -344,10 +428,12 @@ impl App {
         self.ui.canvas.present();
 
         // Full-resolution artwork drawn over the upscaled canvas.
-        if self.session.is_none() && self.setup.is_none() && self.tab == Tab::Library {
-            match &self.editor {
-                Some(editor) => editor.overlay(&self.ui, area),
-                None => self.library.overlay(&self.ui, area),
+        if self.session.is_none() && self.setup.is_none() {
+            match (self.tab, &self.editor) {
+                (Tab::Library, Some(editor)) => editor.overlay(&self.ui, area),
+                (Tab::Library, None) => self.library.overlay(&self.ui, area),
+                (Tab::Network, _) => self.network.overlay(&self.ui, area),
+                _ => {}
             }
         }
     }
@@ -376,13 +462,48 @@ impl App {
             }
             x += width + 18.0;
         }
-        if self.status.is_running() {
-            let label = "RUNNING";
-            let lx = w - MARGIN - self.ui.measure(label);
-            super::draw_spinner(lx - 12.0, 18.0, 5.0, theme::AMBER);
-            self.ui.text(label, lx, 23.0, theme::AMBER);
-        }
+        self.draw_indicators(w);
         draw_rectangle(0.0, HEADER_H, w, 1.0, theme::BORDER);
+    }
+
+    /// Right side of the header: pipeline run, transfers, sharing.
+    fn draw_indicators(&self, w: f32) {
+        let mut x = w - MARGIN;
+        let mut indicator = |label: &str, color: Color, busy: bool| {
+            x -= self.ui.measure(label);
+            self.ui.text(label, x, 23.0, color);
+            if busy {
+                super::draw_spinner(x - 10.0, 18.0, 5.0, color);
+                x -= 14.0;
+            }
+            x -= 14.0;
+        };
+        if self.status.is_running() {
+            indicator("RUNNING", theme::AMBER, true);
+        }
+        match self.jobs.running() {
+            [] => {}
+            [job] => indicator(
+                &format!(
+                    "{} {:.0}%",
+                    job.kind.verb().to_uppercase(),
+                    job.fraction() * 100.0
+                ),
+                theme::AMBER,
+                true,
+            ),
+            jobs => indicator(
+                &format!("{} COPIES {:.0}%", jobs.len(), self.jobs.fraction() * 100.0),
+                theme::AMBER,
+                true,
+            ),
+        }
+        if let Some(server) = &self.server {
+            match server.sending() {
+                0 => indicator("SHARING", theme::BLUE, false),
+                n => indicator(&format!("SENDING {n}"), theme::BLUE, true),
+            }
+        }
     }
 
     /// Button hints for the current screen, labelled for the last-used device.
@@ -393,8 +514,12 @@ impl App {
         }
         let mut hints = match (self.tab, &self.editor) {
             (Tab::Library, Some(editor)) => return editor.hints(ui),
+            (Tab::Network, _) if self.network.has_modal() => {
+                return self.network.hints(ui, &self.jobs)
+            }
+            (Tab::Network, _) => self.network.hints(ui, &self.jobs),
             (Tab::Library, None) => {
-                let mut hints = self.library.hints(ui);
+                let mut hints = self.library.hints(ui, &self.jobs);
                 hints.push(Hint {
                     progress: self.quit_progress(),
                     ..ui.hint(Action::Back, "Hold: Quit", theme::AMBER)

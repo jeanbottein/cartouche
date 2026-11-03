@@ -127,7 +127,6 @@ impl Server {
         &self.shared.games_dir
     }
 
-    #[allow(dead_code)] // Network tab / footer indicator (UI step)
     pub fn sending(&self) -> usize {
         self.shared.sending.load(Ordering::Relaxed)
     }

@@ -10,26 +10,31 @@ use super::covers::{self, ImageLoader};
 use super::engine::canvas::AspectMode;
 use super::engine::input::Action;
 use super::engine::theme;
+use super::info::{self, Info};
+use super::jobs::Jobs;
 use super::launcher::{self, Session};
 use super::{draw_spinner, stroke_rect, Hint, Ui};
 use crate::core::config::Config;
 use crate::core::models::{Game, Install};
-use crate::core::scanner::{self, Compatibility};
+use crate::core::scanner;
 use crate::core::sizer;
 
 const ROW_H: f32 = 26.0;
 const ROW_GAP: f32 = 4.0;
 const ROW_STEP: f32 = ROW_H + ROW_GAP;
 const PREVIEW_GAP: f32 = 12.0;
-const LINE: f32 = 20.0;
-/// Share of the side panel's height given to the cover.
-const COVER_SHARE: f32 = 0.5;
 /// How long a message stays on screen, in seconds.
 const TOAST_SECS: f64 = 4.0;
 
 pub enum Event {
     Launched(Session),
     Edit(usize),
+    /// Unpack the focused packaged game.
+    Unpack(usize),
+    /// Create a package of the focused installed game.
+    Pack(usize),
+    /// Cancel the transfer of this game.
+    Cancel(String),
 }
 
 #[derive(Default)]
@@ -102,25 +107,11 @@ impl Library {
         )
     }
 
-    /// (cover, info) halves of the side panel.
-    fn split_panel(panel: Rect) -> (Rect, Rect) {
-        let cover_h = (panel.h * COVER_SHARE).floor();
-        (
-            Rect::new(panel.x, panel.y, panel.w, cover_h),
-            Rect::new(
-                panel.x,
-                panel.y + cover_h + 8.0,
-                panel.w,
-                panel.h - cover_h - 8.0,
-            ),
-        )
-    }
-
     fn max_scroll(&self, list: Rect) -> f32 {
         (self.games.len() as f32 * ROW_STEP - ROW_GAP - list.h).max(0.0)
     }
 
-    pub fn update(&mut self, ui: &Ui, area: Rect) -> Option<Event> {
+    pub fn update(&mut self, ui: &Ui, area: Rect, jobs: &Jobs) -> Option<Event> {
         if self.games.is_empty() {
             return None;
         }
@@ -156,16 +147,33 @@ impl Library {
         let t = (get_frame_time() * 14.0).min(1.0);
         self.scroll_y += (self.scroll_target - self.scroll_y) * t;
 
-        let edit = ui.action(Action::Edit);
-        if (edit || launch) && !self.games[self.cursor].is_installed() {
-            self.toast("Packaged game: unpack it to play or edit.", theme::AMBER);
-            return None;
+        let game = &self.games[self.cursor];
+        let id = game.folder_name.clone();
+        let busy = jobs.for_game(&id).is_some();
+        let installed = game.is_installed();
+        let packable = game.install == Install::Installed;
+        if ui.action(Action::Edit) {
+            return match (busy, installed) {
+                (true, _) => Some(Event::Cancel(id)),
+                (false, true) => Some(Event::Edit(self.cursor)),
+                (false, false) => {
+                    self.toast("Packaged game: unpack it to edit.", theme::AMBER);
+                    None
+                }
+            };
         }
-        if edit {
-            return Some(Event::Edit(self.cursor));
+        if ui.action(Action::Alt) && packable && !busy {
+            return Some(Event::Pack(self.cursor));
         }
         if !launch {
             return None;
+        }
+        if busy {
+            self.toast("Wait for the transfer to finish.", theme::AMBER);
+            return None;
+        }
+        if !installed {
+            return Some(Event::Unpack(self.cursor));
         }
         match launcher::launch(&self.games[self.cursor]) {
             Ok(session) => Some(Event::Launched(session)),
@@ -176,7 +184,7 @@ impl Library {
         }
     }
 
-    pub fn draw(&self, ui: &Ui, area: Rect) {
+    pub fn draw(&self, ui: &Ui, area: Rect, jobs: &Jobs) {
         if self.games.is_empty() {
             ui.text("No games found.", area.x, area.y + 30.0, theme::TEXT);
             ui.text(
@@ -191,9 +199,9 @@ impl Library {
             return;
         }
         let (list, preview) = self.layout(ui, area);
-        self.draw_rows(ui, list);
+        self.draw_rows(ui, list, jobs);
         if let Some(panel) = preview {
-            let (cover, info) = Self::split_panel(panel);
+            let (cover, info_area) = info::split_panel(panel);
             let focused = &self.games[self.cursor];
             if self.covers[self.cursor].is_none()
                 && focused.images.cover.is_some()
@@ -206,13 +214,21 @@ impl Library {
                     theme::MUTED,
                 );
             }
-            self.draw_info(ui, info);
+            let info = Info {
+                title: &focused.title,
+                year: focused.year,
+                players: &focused.players,
+                targets: &focused.targets,
+                status: self.install_line(),
+                description: &focused.description,
+            };
+            info::draw(ui, info_area, &info, jobs.for_game(&focused.folder_name));
         }
         self.draw_loading(ui, list);
         self.draw_toast(ui, list);
     }
 
-    fn draw_rows(&self, ui: &Ui, list: Rect) {
+    fn draw_rows(&self, ui: &Ui, list: Rect, jobs: &Jobs) {
         let n = self.games.len();
         let first = (self.scroll_y / ROW_STEP).floor().max(0.0) as usize;
         let last = (((self.scroll_y + list.h) / ROW_STEP).ceil() as usize).min(n);
@@ -251,6 +267,10 @@ impl Library {
                 y + 18.0,
                 if focused { theme::TEXT } else { theme::MUTED },
             );
+            if let Some(job) = jobs.for_game(&self.games[i].folder_name) {
+                let track = Rect::new(list.x + 6.0, y + ROW_H - 5.0, list.w - 8.0, 3.0);
+                info::bar(track, job.fraction(), theme::AMBER);
+            }
         }
         // Mask partial rows that spilled below the list edge.
         let (w, h) = ui.canvas.size();
@@ -279,89 +299,12 @@ impl Library {
         let package = size(self.package_sizes[self.cursor]);
         match &game.install {
             Install::Installed => format!("Installed · {}", size(game.size)),
-            Install::Packaged { .. } => {
-                format!("Package {package} · {} unpacked", size(game.size))
-            }
+            Install::Packaged { .. } => format!("Packaged · {package}"),
             Install::InstalledWithPackage { verified, .. } => format!(
                 "Installed {} · Package {package}{}",
                 size(game.size),
                 if *verified { "" } else { " (different)" }
             ),
-        }
-    }
-
-    fn compatibility_color(compatibility: Compatibility) -> Color {
-        match compatibility {
-            Compatibility::Native => theme::ACCENT,
-            Compatibility::Proton => theme::BLUE,
-            Compatibility::Unsupported => theme::RED,
-            Compatibility::Unknown => theme::MUTED,
-        }
-    }
-
-    fn draw_info(&self, ui: &Ui, area: Rect) {
-        let game = &self.games[self.cursor];
-        let mut y = area.y + 24.0;
-        ui.heading(
-            &ui.truncate_heading(&game.title, area.w),
-            area.x,
-            y,
-            theme::TEXT,
-        );
-        y += LINE + 8.0;
-
-        let players = match game.players.trim() {
-            "" => None,
-            "1" => Some("1 player".to_string()),
-            n => Some(format!("{n} players")),
-        };
-        let facts: Vec<String> = game
-            .year
-            .map(|y| y.to_string())
-            .into_iter()
-            .chain(players)
-            .collect();
-        if !facts.is_empty() {
-            ui.text(
-                &ui.truncate(&facts.join(" · "), area.w),
-                area.x,
-                y,
-                theme::MUTED,
-            );
-            y += LINE;
-        }
-
-        let compatibility = scanner::compatibility(&game.targets);
-        let platforms = scanner::platforms(&game.targets).join(" · ");
-        let label = compatibility.label();
-        ui.text(label, area.x, y, Self::compatibility_color(compatibility));
-        let label_w = ui.measure(label) + 12.0;
-        ui.text(
-            &ui.truncate(&platforms, area.w - label_w),
-            area.x + label_w,
-            y,
-            theme::MUTED,
-        );
-        y += LINE;
-
-        ui.text(
-            &ui.truncate(&self.install_line(), area.w),
-            area.x,
-            y,
-            theme::TEXT,
-        );
-        y += LINE + 6.0;
-
-        let room = ((area.bottom() - y) / LINE).floor().max(0.0) as usize;
-        let lines = ui.wrap(game.description.trim(), area.w);
-        let shown = lines.len().min(room);
-        for (i, line) in lines.iter().take(shown).enumerate() {
-            let text = if i + 1 == shown && shown < lines.len() {
-                ui.truncate(&format!("{line}…"), area.w)
-            } else {
-                line.clone()
-            };
-            ui.text(&text, area.x, y + i as f32 * LINE, theme::MUTED);
         }
     }
 
@@ -402,7 +345,7 @@ impl Library {
         let (_, Some(panel)) = self.layout(ui, area) else {
             return;
         };
-        let (preview, _) = Self::split_panel(panel);
+        let (preview, _) = info::split_panel(panel);
         if let Some(Some(tex)) = self.covers.get(self.cursor) {
             ui.draw_image_fit(
                 tex,
@@ -416,13 +359,24 @@ impl Library {
         }
     }
 
-    pub fn hints(&self, ui: &Ui) -> Vec<Hint> {
-        if self.games.is_empty() || !self.games[self.cursor].is_installed() {
+    pub fn hints(&self, ui: &Ui, jobs: &Jobs) -> Vec<Hint> {
+        let Some(game) = self.games.get(self.cursor) else {
             return Vec::new();
+        };
+        if jobs.for_game(&game.folder_name).is_some() {
+            return vec![ui.hint(Action::Edit, "Cancel", theme::RED)];
         }
-        vec![
-            ui.hint(Action::Confirm, "Play", theme::ACCENT),
-            ui.hint(Action::Edit, "Edit", theme::BLUE),
-        ]
+        match game.install {
+            Install::Packaged { .. } => vec![ui.hint(Action::Confirm, "Unpack", theme::ACCENT)],
+            Install::Installed => vec![
+                ui.hint(Action::Confirm, "Play", theme::ACCENT),
+                ui.hint(Action::Edit, "Edit", theme::BLUE),
+                ui.hint(Action::Alt, "Package", theme::AMBER),
+            ],
+            Install::InstalledWithPackage { .. } => vec![
+                ui.hint(Action::Confirm, "Play", theme::ACCENT),
+                ui.hint(Action::Edit, "Edit", theme::BLUE),
+            ],
+        }
     }
 }

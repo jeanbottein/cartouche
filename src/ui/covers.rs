@@ -3,6 +3,7 @@
 //! GPU textures on the main thread as it arrives, so screens never block.
 //! Library covers are cached as small PNG thumbnails, revalidated by mtime.
 
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver};
 use std::time::SystemTime;
@@ -11,6 +12,7 @@ use macroquad::prelude::*;
 
 use crate::core::models::{Game, ImageSlot};
 use crate::core::package;
+use crate::core::share::client;
 
 /// Max thumbnail dimension: covers full-screen display sizes while keeping
 /// decode fast and the cache small.
@@ -24,19 +26,28 @@ pub enum Source {
         package: PathBuf,
         name: String,
     },
+    /// A game's cover on another machine (`GET /api/v1/games/{id}/cover`).
+    Remote {
+        addr: SocketAddr,
+        id: String,
+    },
 }
 
 impl Source {
-    fn path(&self) -> &Path {
-        match self {
+    /// Modification time of the local file holding the image (cache freshness).
+    fn mtime(&self) -> Option<SystemTime> {
+        let path = match self {
             Source::File(path) | Source::Package { package: path, .. } => path,
-        }
+            Source::Remote { .. } => return None,
+        };
+        std::fs::metadata(path).and_then(|m| m.modified()).ok()
     }
 
     fn read(&self) -> Option<Vec<u8>> {
         match self {
             Source::File(path) => std::fs::read(path).ok(),
             Source::Package { package, name } => package::read_data_file(package, name),
+            Source::Remote { addr, id } => client::cover(*addr, id),
         }
     }
 }
@@ -155,11 +166,11 @@ pub fn artwork_jobs(game: &Game) -> Vec<Job> {
 }
 
 fn decode(src: &Source, cache: Option<&Path>) -> Option<(Vec<u8>, u16, u16)> {
-    let src_mtime = std::fs::metadata(src.path())
-        .and_then(|m| m.modified())
-        .ok()?;
-    let rgba = match cache {
-        Some(thumb) if is_fresh(thumb, src_mtime) => image::open(thumb).ok()?.to_rgba8(),
+    // Remote images have no local mtime: decoded every time, never cached.
+    let src_mtime = src.mtime();
+    let cache = cache.filter(|_| src_mtime.is_some());
+    let rgba = match (cache, src_mtime) {
+        (Some(thumb), Some(mtime)) if is_fresh(thumb, mtime) => image::open(thumb).ok()?.to_rgba8(),
         _ => {
             let bytes = src.read()?;
             let resized = image::load_from_memory(&bytes).ok()?.resize(
