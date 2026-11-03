@@ -56,15 +56,6 @@ SETTINGS_SCHEMA = [
             {"key": "MANIFEST_EXPORT", "label": "Export Manifests", "type": "bool", "help": "Generate manifests.json."},
             {"key": "MANIFEST_PATH", "label": "Manifest File Path", "type": "path", "help": "Custom path for manifests.json."},
         ]
-    },
-    {
-        "category": "Emulators",
-        "settings": [
-            {"key": "DOLPHIN_GFX_BACKEND", "label": "Dolphin GFX", "type": "choice", "options": ["OGL", "Vulkan"], "help": "Backend for Dolphin."},
-            {"key": "DOLPHIN_FULLSCREEN", "label": "Dolphin Fullscreen", "type": "bool"},
-            {"key": "RYUJINX_SYSTEM_LANGUAGE", "label": "RyuJinx Language", "type": "text"},
-            {"key": "RETROARCH_NETPLAY_NICKNAME", "label": "RetroArch Nickname", "type": "text"},
-        ]
     }
 ]
 

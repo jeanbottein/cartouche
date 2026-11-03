@@ -12,7 +12,7 @@ from typing import Callable
 
 from . import migrations, scanner, detector, enricher, persister
 from . import steam_cleaner, steam_exporter, manifest_writer
-from . import patcher, saver, configurer
+from . import patcher, saver
 from .models import GameDatabase
 from .app import APP_NAME
 
@@ -33,19 +33,17 @@ class PipelineRunner:
         ("manifest",      "Manifest"),
         ("patch",         "Patcher"),
         ("save",          "Saver"),
-        ("configure",     "Configurer"),
         ("post_commands", "Post commands"),
     ]
 
     GROUPS = {
         "all":    ["migrate", "scan", "detect", "enrich", "persist",
                    "steam_clean", "steam_export", "manifest",
-                   "patch", "save", "configure", "post_commands"],
+                   "patch", "save", "post_commands"],
         "parse":  ["migrate", "scan", "detect", "enrich", "persist"],
         "steam":  ["scan", "steam_clean", "steam_export"],
         "backup": ["scan", "save"],
         "patch":  ["patch"],
-        "configure": ["configure"],
     }
 
     def __init__(self, cfg: dict, games_dir: str,
@@ -126,9 +124,6 @@ class PipelineRunner:
     def _phase_save(self):
         if self.db:
             saver.run(self.db, self.cfg)
-
-    def _phase_configure(self):
-        configurer.run(self.cfg)
 
     def _phase_post_commands(self):
         if self._post_commands_fn:

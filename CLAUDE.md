@@ -18,8 +18,7 @@ cartouche.py main():
  7. manifest_writer.write()             # Create manifests.json (ROM manager compat)
  8. patcher.run(cfg)                    # Apply patches
  9. saver.run(db, cfg)                  # Backup/restore saves
-10. configurer.run(cfg)                 # Emulator config mutations
-11. run_post_commands(cfg)              # RUN_AFTER_* commands
+10. run_post_commands(cfg)              # RUN_AFTER_* commands
 ```
 
 **Migrations** (step 0) runs before scanning and is idempotent — safe to run every time. Includes:
@@ -45,8 +44,6 @@ lib/
   manifest_writer.py       # Step 7: write manifests.json
   patcher.py               # Step 8: BPS patching + file replacement
   saver.py                 # Step 9: save backup/restore/symlink
-  configurer.py            # Step 10: emulator config mutations
-  configurer.json          # Declarative emulator config rules
   games_locations.json     # Known game directory search paths
 scripts/
   backup.sh
@@ -76,7 +73,6 @@ FREEGAMES_PATH/
 - **GameDatabase** is the central in-memory data carrier (steps 1-7, 9).
 - **`.cartouche/game.json`** replaces the old `launch_manifest.json`.
 - **Multiple save paths per game** supported (named: "saves", "config", etc.).
-- **Declarative emulator rules** in `configurer.json`, not in Python code.
 - **Variable substitution** uses `${VARIABLE_NAME}` syntax.
 - **`BACKUP_<name>`** config keys define custom directory backups.
 - **`RUN_AFTER_<label>`** config keys define post-run shell commands.

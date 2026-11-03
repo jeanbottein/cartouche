@@ -69,7 +69,6 @@ pyinstaller \
   --workpath "$BUILD_DIR/pyinstaller-work" \
   --specpath "$BUILD_DIR" \
   --add-data "$REPO_ROOT/lib/config-default.txt:lib" \
-  --add-data "$REPO_ROOT/lib/configurer.json:lib" \
   --add-data "$REPO_ROOT/lib/games_locations.json:lib" \
   --add-data "$REPO_ROOT/lib/app-icon.png:lib" \
   --icon "$REPO_ROOT/lib/app-icon.png" \

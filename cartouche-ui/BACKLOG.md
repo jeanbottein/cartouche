@@ -6,7 +6,7 @@ A new **game-like, retro (SNES / ZSNES-era) frontend** for Cartouche.
 
 ## Context
 
-Cartouche today ships a Dear PyGui desktop GUI (`lib/gui/`) plus a 12-phase Python
+Cartouche today ships a Dear PyGui desktop GUI (`lib/gui/`) plus an 11-phase Python
 pipeline (`lib/pipeline.py`). The GUI works but feels like a tool, not a console.
 We want a frontend that **feels like a 90s game**: pixel font, snappy menus, full
 controller play including on-screen text entry — equally at home on a Steam Deck
@@ -73,7 +73,7 @@ Two backend touch-points, by design:
    instant. Mirrors `schema_version: 2` exactly (see `lib/models.py`,
    `lib/persister.py`).
 2. **Subprocess (heavy path):** running pipeline phases (scan/detect/enrich/persist/
-   steam/manifest/patch/save/configure/post). Invokes the existing CLI
+   steam/manifest/patch/save/post). Invokes the existing CLI
    (`cartouche.py -- batch`, `-- test steam`) and streams progress.
 
 > ⚠️ The current CLI only emits human log lines. **A small backend change is
@@ -168,7 +168,7 @@ Sizing: **S** ≈ <½ day · **M** ≈ 1–2 days · **L** ≈ 3–5 days. IDs a
 ### STATUS — Home / run screen (replaces `status_view.py`)
 - **STATUS-1 (M):** Home screen: app title + version, game count, last-run time,
   and action buttons **Run All / Parse / Backup / Steam Sync** + **Cancel**.
-- **STATUS-2 (M):** Live run view: per-phase status list (12 phases), overall +
+- **STATUS-2 (M):** Live run view: per-phase status list (11 phases), overall +
   current-phase progress bars, scrolling log panel (cap ~500 lines), driven by
   BRIDGE-3 events. Refresh library on completion.
 
@@ -203,7 +203,7 @@ Sizing: **S** ≈ <½ day · **M** ≈ 1–2 days · **L** ≈ 3–5 days. IDs a
   **Save/Sync** (SAVESCOPY_PATH, SAVESCOPY_STRATEGY combo, SAVESLINK_PATH),
   **Steam/Integration** (STEAM_EXPOSE, STEAM_USERID, PROTON_VERSION,
   STEAMGRIDDB_API_KEY masked + clear, NSFW/HUMOR/EPILEPSY, MANIFEST_EXPORT,
-  MANIFEST_PATH), **Emulators** (Dolphin/Ryujinx/Cemu/RetroArch keys), **Custom**
+  MANIFEST_PATH), **Custom**
   (`BACKUP_*` / `RUN_AFTER_*` key=value rows, add/remove). Field types: text /
   password / checkbox / combo / number / path(+picker). Help text per field.
   Save via BRIDGE-4.

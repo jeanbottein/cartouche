@@ -1,6 +1,6 @@
 ---
 name: pipeline-debugger
-description: Debug and trace Cartouche pipeline phases. Use when a pipeline phase is failing, producing wrong output, or you need to understand phase execution flow. Covers all 12 phases: migrator, scanner, detector, enricher, persister, steam_cleaner, steam_exporter, steam_compat, manifest_writer, patcher, saver, configurer.
+description: Debug and trace Cartouche pipeline phases. Use when a pipeline phase is failing, producing wrong output, or you need to understand phase execution flow. Covers all 11 phases: migrator, scanner, detector, enricher, persister, steam_cleaner, steam_exporter, steam_compat, manifest_writer, patcher, saver.
 ---
 
 You are a specialist in the Cartouche pipeline system. Your job is to diagnose and fix issues in pipeline phase execution.
@@ -21,8 +21,7 @@ The pipeline is orchestrated by `lib/pipeline.py` via `PipelineRunner`. Phases r
 8. **manifest** — Exports `manifests.json`
 9. **patch** — Applies BPS patches or file replacements
 10. **save** — Backup/restore/symlink save files
-11. **configure** — Mutates emulator configs (Dolphin, Ryujinx, Cemu, RetroArch)
-12. **post_commands** — Runs RUN_AFTER_* shell commands
+11. **post_commands** — Runs RUN_AFTER_* shell commands
 
 Phase groups: `all`, `parse` (migrator+scanner+detector), `steam` (cleaner+exporter+compat), `backup`, `patch`.
 

@@ -81,34 +81,7 @@
 
 
 # ==========================================
-# 5. EMULATOR SETTINGS
-# ==========================================
-
-# --- Dolphin ---
-#DOLPHIN_GC_LANGUAGE=2       # 0=eng, 1=ger, 2=fre, 3=spa
-#DOLPHIN_WII_LANGUAGE=3      # 0=jap, 1=eng, 2=ger, 3=fre
-#DOLPHIN_GFX_BACKEND=OGL     # OpenGL=OGL, Vulkan=Vulkan
-#DOLPHIN_GC_SKIP_BOOT=False
-#DOLPHIN_FULLSCREEN=True
-
-# --- RyuJinx ---
-#RYUJINX_LANGUAGE_CODE=fr_FR
-#RYUJINX_SYSTEM_LANGUAGE=French
-#RYUJINX_SYSTEM_REGION=Europe
-
-# --- Cemu --- 
-# (1=eng, 2=fre)
-#CEMU_CONSOLE_LANGUAGE=2
-
-# --- RetroArch ---
-# (1=eng, 2=fre)
-#RETROARCH_USER_LANGUAGE=2
-#RETROARCH_VIDEO_DRIVER=glcore
-#RETROARCH_NETPLAY_NICKNAME=Jean
-
-
-# ==========================================
-# 6. CUSTOM TASKS
+# 5. CUSTOM TASKS
 # ==========================================
 
 # Post-run commands (optional)

@@ -2,7 +2,7 @@
 
 > *French for "cartridge" — because nothing beats the nostalgia of blowing into a plastic slot and praying your game boots.*
 
-A no-nonsense tool for managing DRM-free games, emulator configs, patches, and save backups on Linux (and especially Steam Deck).
+A no-nonsense tool for managing DRM-free games, patches, and save backups on Linux (and especially Steam Deck).
 
 ---
 
@@ -18,7 +18,6 @@ Don't like the name? **Change it.** Renaming things is literally what Cartouche 
 - **Steam sync** — adds games to Steam as non-Steam shortcuts, complete with artwork
 - **Patch** — applies BPS patches or file replacements via `patch.json`
 - **Save backup** — backs up (or restores) save files, with multiple save paths per game
-- **Emulator config** — auto-configures Dolphin, Ryujinx, Cemu, and RetroArch from `config.txt`
 - **Manifest export** — generates `manifests.json` for [Steam ROM Manager](https://github.com/SteamGridDB/steam-rom-manager)
 
 ### Save Path Variables

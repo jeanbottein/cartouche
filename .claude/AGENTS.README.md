@@ -4,10 +4,9 @@ Specialized agents for different areas of the codebase. Each agent has focused c
 
 ## Agents
 
-- **pipeline-debugger** — Trace/fix any of the 12 pipeline phases, migrations system
+- **pipeline-debugger** — Trace/fix any of the 11 pipeline phases, migrations system
 - **steam-integration** — Shortcuts, artwork sync, Proton, AppID issues
 - **save-manager** — Backup/restore/symlink save file operations
-- **emulator-config** — `configurer.json` rules, variable substitution
 - **metadata-enricher** — SteamGridDB API, artwork fetching, cache
 - **gui-developer** — Dear PyGui views, MVC controller, theme, games editor
 
@@ -54,7 +53,7 @@ File: `lib/gui/games_view.py`
 
 ### Pipeline
 
-12 phases run in order:
+11 phases run in order:
 1. **migrate** — Data migrations (see above)
 2. **scan** — Parse games into database
 3. **detect** — Find missing executables
@@ -65,7 +64,6 @@ File: `lib/gui/games_view.py`
 8. **manifest** — Export ROM manager manifests
 9. **patch** — Apply patches
 10. **save** — Backup/restore saves
-11. **configure** — Mutate emulator configs
-12. **post_commands** — Run user shell commands
+11. **post_commands** — Run user shell commands
 
 See `CLAUDE.md` for details.

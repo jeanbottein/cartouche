@@ -4,7 +4,7 @@ Cartouche - Game library manager.
 
 Manages a collection of DRM-free games: detects executables, fetches
 artwork from SteamGridDB, syncs to Steam as non-Steam shortcuts,
-backs up save files, applies patches, and configures emulators.
+backs up save files, and applies patches.
 """
 
 from pathlib import Path
