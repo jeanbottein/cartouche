@@ -46,7 +46,8 @@ src/
     app.rs               # Shell: tabs, footer hints, game session lock, log sink
     library.rs editor.rs status.rs settings.rs setup.rs
     form.rs list.rs keyboard.rs browser.rs dialog.rs   # widgets
-    covers.rs launcher.rs engine/ (canvas, input, text, theme)
+    network.rs jobs.rs info.rs   # Network tab, background transfers, shared info panel
+    covers.rs launcher.rs music.rs engine/ (canvas, input, text, theme)
 assets/                  # Embedded: font, icon, steam-art, config-default.txt, games_locations.json
 testdata/                # Golden fixtures produced by the former Python implementation
 ```
@@ -70,7 +71,7 @@ Packages: a plain tar of `Foo/` with `.cartouche/package.json` first and `.carto
 - Flags: `is_true` for opt-in keys (STEAM_EXPOSE, ...), `is_not_false` for opt-out keys (PERSIST_DATA, MANIFEST_EXPORT).
 - **Ownership tag** in Steam shortcuts is the app name (also recognizes legacy `"gamer-sidekick"`); the self shortcut uses `<app>-self`.
 - **Logging:** `log` macros; `core::logging` prints to stderr and mirrors to the UI Status log.
-- **Minimal dependencies:** macroquad, gilrs (feature `gamepad`), serde/serde_json, image, ureq, crc32fast, tar, log.
+- **Minimal dependencies:** macroquad, gilrs (feature `gamepad`), rodio (feature `music`, ALSA at build time), serde/serde_json, image, ureq, crc32fast, tar, log.
 
 ## Dev Workflow
 
@@ -90,7 +91,7 @@ cargo run                              # UI
 cargo run -- -t                        # full pipeline in the terminal
 cargo run -- -n                        # Steam dry-run preview
 cargo test && cargo clippy --all-targets
-cargo build --no-default-features      # without libudev (no gamepad)
+cargo build --no-default-features      # without libudev/ALSA (no gamepad, no music)
 ```
 
 Edit `.cartouche/config.txt` (seeded from `assets/config-default.txt`).

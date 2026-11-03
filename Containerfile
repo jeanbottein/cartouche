@@ -6,7 +6,7 @@ FROM docker.io/library/rust:1.99-slim-bookworm
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        pkg-config libudev-dev libx11-dev libxi-dev libgl1-mesa-dev \
+        pkg-config libudev-dev libx11-dev libxi-dev libgl1-mesa-dev libasound2-dev \
     && rm -rf /var/lib/apt/lists/*
 
 RUN rustup component add clippy rustfmt

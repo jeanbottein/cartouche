@@ -14,6 +14,7 @@ mod keyboard;
 mod launcher;
 mod library;
 mod list;
+mod music;
 mod network;
 mod settings;
 mod setup;

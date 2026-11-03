@@ -13,6 +13,7 @@ use super::engine::{text, theme};
 use super::jobs::{Jobs, Kind};
 use super::launcher::Session;
 use super::library::{self, Library};
+use super::music::Music;
 use super::network::{self, Network};
 use super::settings::Settings;
 use super::setup::{self, Setup};
@@ -81,6 +82,8 @@ pub struct App {
     input_resume_at: f64,
     /// LAN sharing server, while `SHARE_ENABLED` is on.
     server: Option<Server>,
+    /// Background music, while `MUSIC_ENABLED` is on and there are tracks.
+    music: Option<Music>,
     /// Back is still held from closing the editor: don't count it as hold-to-quit.
     back_held_over: bool,
     quit: bool,
@@ -110,6 +113,7 @@ impl App {
             session: None,
             input_resume_at: 0.0,
             server: None,
+            music: None,
             back_held_over: false,
             quit: false,
         };
@@ -129,6 +133,21 @@ impl App {
         self.settings = Some(Settings::new(&cfg));
         self.config = Some(cfg);
         self.sync_server();
+        self.sync_music();
+    }
+
+    /// Start or stop the music to match the config (and the workspace folder).
+    fn sync_music(&mut self) {
+        let Some(cfg) = &self.config else { return };
+        if !cfg.is_not_false("MUSIC_ENABLED") {
+            self.music = None;
+            return;
+        }
+        let dir = cfg.app_dir();
+        if self.music.as_ref().is_some_and(|m| m.dir() == dir) {
+            return;
+        }
+        self.music = Music::start(&dir);
     }
 
     /// Start, restart (port or folder changed) or stop the sharing server to
@@ -167,6 +186,7 @@ impl App {
         }
         self.config = Some(cfg);
         self.sync_server();
+        self.sync_music();
     }
 
     fn reload_library(&mut self) {
@@ -196,6 +216,9 @@ impl App {
         }
         self.library.poll();
         self.network.poll(self.config.as_ref());
+        if let Some(music) = &mut self.music {
+            music.update(get_frame_time(), self.session.is_some());
+        }
         self.collect_jobs();
         if self.status.poll().is_some() {
             self.reload_config();

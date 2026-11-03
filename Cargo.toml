@@ -8,6 +8,8 @@ license = "MIT"
 [dependencies]
 macroquad = "0.4"
 gilrs = { version = "0.10", optional = true }
+# Background music: pure-Rust decoders (mp3, flac, ogg, wav, m4a/aac), no ffmpeg.
+rodio = { version = "0.21", optional = true, default-features = false, features = ["playback", "mp3", "flac", "vorbis", "wav", "mp4"] }
 serde = { version = "1", features = ["derive"] }
 # preserve_order: JSON objects keep their key order, like the files we rewrite.
 serde_json = { version = "1", features = ["preserve_order"] }
@@ -21,11 +23,13 @@ tar = { version = "0.4", default-features = false }
 log = { version = "0.4", features = ["std"] }
 
 [features]
-default = ["gamepad"]
+default = ["gamepad", "music"]
 # Gamepad support via gilrs. Needs libudev (+ pkg-config) at build time on Linux.
 # Disable (`--no-default-features`) to build keyboard/mouse-only on systems
 # without those, e.g. an immutable SteamOS dev box.
 gamepad = ["dep:gilrs"]
+# Background music via rodio. Needs ALSA (libasound2-dev) at build time on Linux.
+music = ["dep:rodio"]
 
 [profile.release]
 opt-level = 3
