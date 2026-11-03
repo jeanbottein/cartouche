@@ -20,16 +20,16 @@ impl Cursor<'_> {
         let (mut value, mut shift) = (0u64, 1u64);
         loop {
             let b = self.byte()?;
-            value = value
-                .checked_add((b & 0x7F) as u64 * shift)
-                .ok_or("corrupt patch: number overflow")?;
+            let overflow = || "corrupt patch: number overflow".to_string();
+            value = ((b & 0x7F) as u64)
+                .checked_mul(shift)
+                .and_then(|part| value.checked_add(part))
+                .ok_or_else(overflow)?;
             if b & 0x80 != 0 {
                 return Ok(value);
             }
-            shift = shift
-                .checked_shl(7)
-                .ok_or("corrupt patch: number overflow")?;
-            value += shift;
+            shift = shift.checked_mul(128).ok_or_else(overflow)?;
+            value = value.checked_add(shift).ok_or_else(overflow)?;
         }
     }
 
@@ -145,6 +145,20 @@ mod tests {
     #[test]
     fn rejects_wrong_source() {
         assert!(apply(PATCH, TARGET).unwrap_err().contains("source"));
+    }
+
+    #[test]
+    fn overlong_numbers_are_errors_not_panics() {
+        let mut cur = Cursor {
+            data: &[0u8; 16],
+            pos: 0,
+        };
+        assert!(cur.number().is_err());
+        let mut cur = Cursor {
+            data: &[0x05, 0x81],
+            pos: 0,
+        };
+        assert_eq!(cur.number(), Ok(5 + 128 + 128));
     }
 
     #[test]

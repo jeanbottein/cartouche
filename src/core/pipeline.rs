@@ -136,7 +136,10 @@ impl<'a> Pipeline<'a> {
             self.games = Some(scanner::scan(&self.games_dir));
             return;
         }
-        match (phase, self.games.as_mut()) {
+        // An empty scan (e.g. games on an unmounted SD card) must not reach the
+        // game phases: Steam cleanup would remove every owned shortcut.
+        let games = self.games.as_mut().filter(|g| !g.is_empty());
+        match (phase, games) {
             (Phase::Migrate, _) => {
                 migrations::run_all(&self.games_dir);
             }

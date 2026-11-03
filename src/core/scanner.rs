@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use log::{error, info, warn};
 
-use super::models::{Game, Resolved, SavePath, Target};
+use super::models::{folder_name_of, Game, Resolved, SavePath, Target};
 use super::paths;
 use super::platform::{arch_tag, os_tag};
 use super::steam;
@@ -150,18 +150,28 @@ pub fn resolve_runtime(game: &mut Game) {
     });
 }
 
-/// Load `.cartouche/game.json` from `dir`; `None` if absent or unreadable.
+/// Load `.cartouche/game.json` from `dir`: a skeleton when it doesn't exist,
+/// `None` when it exists but can't be read (so it is never overwritten).
 pub fn load_game(dir: &Path) -> Option<Game> {
     let path = Game::skeleton(dir).game_json_path();
     if !path.is_file() {
-        return None;
+        return Some(Game::skeleton(dir));
     }
+    let skipped = |e: String| {
+        error!(
+            "Skipping {}: cannot read {} ({e})",
+            folder_name_of(dir),
+            path.display()
+        )
+    };
     let text = std::fs::read_to_string(&path)
-        .map_err(|e| error!("Failed to read {}: {e}", path.display()))
+        .map_err(|e| skipped(e.to_string()))
         .ok()?;
-    Game::from_json(dir, &text)
-        .map_err(|e| error!("Failed to read {}: {e}", path.display()))
-        .ok()
+    let mut game = Game::from_json(dir, &text)
+        .map_err(|e| skipped(e.to_string()))
+        .ok()?;
+    resolve_runtime(&mut game);
+    Some(game)
 }
 
 /// Every visible subfolder of `games_dir` as a game (a skeleton when it has no
@@ -169,13 +179,7 @@ pub fn load_game(dir: &Path) -> Option<Game> {
 pub fn load_library(games_dir: &Path) -> Vec<Game> {
     paths::visible_subdirs(games_dir)
         .iter()
-        .map(|dir| match load_game(dir) {
-            Some(mut game) => {
-                resolve_runtime(&mut game);
-                game
-            }
-            None => Game::skeleton(dir),
-        })
+        .filter_map(|dir| load_game(dir))
         .collect()
 }
 
@@ -322,5 +326,13 @@ mod tests {
             known.resolved_save_paths,
             vec![dir.path().join("Known/saves")]
         );
+    }
+
+    #[test]
+    fn broken_game_json_is_skipped_not_replaced() {
+        let dir = TempDir::new();
+        let path = dir.write("Broken/.cartouche/game.json", b"{ not json");
+        assert!(scan(dir.path()).is_empty());
+        assert_eq!(std::fs::read(path).unwrap(), b"{ not json");
     }
 }

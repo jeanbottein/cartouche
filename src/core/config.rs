@@ -176,7 +176,12 @@ pub fn apply_updates(text: &str, updates: &BTreeMap<String, String>) -> String {
 }
 
 pub fn update_file(path: &Path, updates: &BTreeMap<String, String>) -> std::io::Result<()> {
-    let text = std::fs::read_to_string(path).unwrap_or_default();
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        // Unreadable (or not UTF-8): rewriting it would drop every other line.
+        Err(e) => return Err(e),
+    };
     std::fs::write(path, apply_updates(&text, updates))
 }
 

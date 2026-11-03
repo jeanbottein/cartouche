@@ -117,18 +117,21 @@ impl App {
     }
 
     /// Re-read `config.txt` (after Settings changed it or a pipeline run).
-    fn reload_config(&mut self, reload_library: bool) {
+    fn reload_config(&mut self) {
         let Some(path) = self.config.as_ref().map(|c| c.path.clone()) else {
             return;
         };
         let cfg = Config::load(&path);
-        if reload_library {
-            self.library.load(&cfg);
-        }
         if let Some(settings) = &mut self.settings {
             settings.refresh(&cfg);
         }
         self.config = Some(cfg);
+    }
+
+    fn reload_library(&mut self) {
+        if let Some(cfg) = &self.config {
+            self.library.load(cfg);
+        }
     }
 
     pub fn should_quit(&self) -> bool {
@@ -152,7 +155,8 @@ impl App {
         }
         self.library.poll();
         if self.status.poll().is_some() {
-            self.reload_config(true);
+            self.reload_config();
+            self.reload_library();
         }
 
         if self.session.as_ref().is_some_and(|s| !s.running()) {
@@ -231,7 +235,10 @@ impl App {
                     return;
                 };
                 if let Some(saved) = settings.update(&mut self.ui, area, cfg) {
-                    self.reload_config(saved.key == "FREEGAMES_PATH");
+                    self.reload_config();
+                    if saved.key == "FREEGAMES_PATH" {
+                        self.reload_library();
+                    }
                 }
             }
         }

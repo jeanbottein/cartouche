@@ -236,8 +236,11 @@ pub fn is_symlink(path: &Path) -> bool {
 pub fn copy_with_mtime(src: &Path, dst: &Path) -> std::io::Result<()> {
     std::fs::copy(src, dst)?;
     let mtime: SystemTime = std::fs::metadata(src)?.modified()?;
+    // Unix only needs ownership to set times, so read-only copies work too;
+    // Windows needs a handle with write access.
     std::fs::File::options()
-        .write(true)
+        .read(true)
+        .write(cfg!(windows))
         .open(dst)?
         .set_modified(mtime)
 }

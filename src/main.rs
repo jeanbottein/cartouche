@@ -24,7 +24,9 @@ fn main() -> ExitCode {
         eprintln!("error: {} is not a directory", dir.display());
         return ExitCode::from(2);
     }
-    let dir = args.dir.as_deref();
+    // Absolute, so the self shortcut's StartDir and config symlinks work from anywhere.
+    let dir = args.dir.as_deref().map(core::paths::resolve);
+    let dir = dir.as_deref();
     match args.mode {
         Mode::Help => println!("{}", cli::USAGE),
         Mode::Version => println!("{} {}", core::app::app_name(), env!("CARGO_PKG_VERSION")),

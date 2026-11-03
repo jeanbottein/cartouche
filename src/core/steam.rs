@@ -125,7 +125,7 @@ pub fn save_shortcuts(path: &Path, shortcuts: Map) -> std::io::Result<()> {
     std::fs::write(path, vdf::to_binary(&root))
 }
 
-fn as_shortcut(value: &Value) -> Option<&Map> {
+pub fn as_shortcut(value: &Value) -> Option<&Map> {
     match value {
         Value::Map(m) => Some(m),
         _ => None,
@@ -360,21 +360,17 @@ fn export_to_user(config_dir: &Path, games: &[(&Game, u32)]) -> Result<(usize, u
             )
         };
 
-        let owned_key = shortcuts
-            .0
-            .iter()
-            .find(|(_, v)| {
-                as_shortcut(v).is_some_and(|s| has_ownership_tag(s) && exe_of(s) == target)
-            })
-            .map(|(k, v)| (k.clone(), as_shortcut(v).cloned().unwrap_or_default()));
-        match owned_key {
-            Some((key, existing)) => {
-                if appname(&existing) != game.title
-                    || existing.get_str("icon").unwrap_or("") != icon
-                {
-                    shortcuts.insert(&key, Value::Map(entry()));
-                    updated += 1;
-                }
+        // (key, changed?) of the shortcut we already own for this exe.
+        let owned = shortcuts.0.iter().find_map(|(k, v)| {
+            let s = as_shortcut(v).filter(|s| has_ownership_tag(s) && exe_of(s) == target)?;
+            let changed = appname(s) != game.title || s.get_str("icon").unwrap_or("") != icon;
+            Some((k.clone(), changed))
+        });
+        match owned {
+            Some((_, false)) => {}
+            Some((key, true)) => {
+                shortcuts.insert(&key, Value::Map(entry()));
+                updated += 1;
             }
             None => {
                 let key = next_index(&shortcuts);

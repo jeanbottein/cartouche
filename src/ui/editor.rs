@@ -288,10 +288,7 @@ impl Editor {
             return self.say("No executables detected.", theme::AMBER);
         }
         let before = self.game.targets.len();
-        for mut t in detected {
-            if matches!(t.arch.to_lowercase().as_str(), "x86_64" | "amd64") {
-                t.arch = "x64".into();
-            }
+        for t in detected {
             let known = self
                 .game
                 .targets
@@ -410,14 +407,18 @@ impl Editor {
         }
     }
 
-    fn delete_image(&mut self, slot: ImageSlot, with_file: bool) -> Option<Event> {
-        if let (true, Some(path)) = (with_file, self.game.image_path(slot)) {
+    fn delete_image_file(&mut self, slot: ImageSlot) -> Option<Event> {
+        if let Some(path) = self.game.image_path(slot) {
             match std::fs::remove_file(&path) {
                 Ok(()) => log::info!("Deleted image file: {}", path.display()),
                 Err(e) if path.exists() => log::error!("Failed to delete {}: {e}", path.display()),
                 Err(_) => {}
             }
         }
+        self.remove_image_entry(slot)
+    }
+
+    fn remove_image_entry(&mut self, slot: ImageSlot) -> Option<Event> {
         *self.game.images.slot_mut(slot) = None;
         self.load_art();
         self.save()
@@ -505,8 +506,8 @@ impl Editor {
         let pending = std::mem::replace(pending, Pending::Discard);
         self.dialog = None;
         match (pending, choice) {
-            (Pending::DeleteImage(slot), Some(0)) => self.delete_image(slot, false),
-            (Pending::DeleteImage(slot), Some(1)) => self.delete_image(slot, true),
+            (Pending::DeleteImage(slot), Some(0)) => self.remove_image_entry(slot),
+            (Pending::DeleteImage(slot), Some(1)) => self.delete_image_file(slot),
             (Pending::Discard, Some(0)) => self.save().map(|_| Event::Closed),
             (Pending::Discard, Some(1)) => Some(Event::Closed),
             _ => None,

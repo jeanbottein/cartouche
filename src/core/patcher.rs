@@ -63,9 +63,9 @@ fn crc32_of(path: &Path) -> std::io::Result<u32> {
 }
 
 fn parse_crc(hex: &Option<String>, label: &str) -> Result<Option<u32>, ()> {
-    match hex.as_deref().filter(|h| !h.is_empty()) {
+    match hex.as_deref().map(str::trim).filter(|h| !h.is_empty()) {
         None => Ok(None),
-        Some(h) => u32::from_str_radix(h, 16)
+        Some(h) => u32::from_str_radix(h.trim_start_matches("0x").trim_start_matches("0X"), 16)
             .map(Some)
             .map_err(|_| error!("❌ Invalid {label} hex value: {h:?}")),
     }
@@ -319,6 +319,16 @@ mod tests {
         p.target_crc32 = Some("DEADBEEF".into());
         process(&p, &mods, &[dir.path().join("games")]);
         assert_eq!(std::fs::read(&target).unwrap(), b"old");
+    }
+
+    #[test]
+    fn crc_values_accept_hex_prefix_and_spaces() {
+        assert_eq!(
+            parse_crc(&Some(" 0x1A2B3C4D ".into()), "t"),
+            Ok(Some(0x1A2B3C4D))
+        );
+        assert_eq!(parse_crc(&Some("".into()), "t"), Ok(None));
+        assert!(parse_crc(&Some("zz".into()), "t").is_err());
     }
 
     #[test]

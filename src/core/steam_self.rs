@@ -53,22 +53,14 @@ pub fn self_target(cfg: &Config) -> PathBuf {
 
 fn find_existing(shortcuts: &Map, exe: &str) -> Option<String> {
     let tag = self_tag();
-    let shortcut_of = |v: &Value| {
-        if let Value::Map(m) = v {
-            Some(m.clone())
-        } else {
-            None
-        }
-    };
-    let by_tag = shortcuts.0.iter().find(|(_, v)| {
-        shortcut_of(v).is_some_and(|s| steam::tag_values(&s).contains(&tag.as_str()))
-    });
-    let by_exe = || {
+    let find = |matches: &dyn Fn(&Map) -> bool| {
         shortcuts
             .0
             .iter()
-            .find(|(_, v)| shortcut_of(v).is_some_and(|s| steam::exe_of(&s) == exe))
+            .find(|(_, v)| steam::as_shortcut(v).is_some_and(matches))
     };
+    let by_tag = find(&|s| steam::tag_values(s).contains(&tag.as_str()));
+    let by_exe = || find(&|s| steam::exe_of(s) == exe);
     by_tag.or_else(by_exe).map(|(k, _)| k.clone())
 }
 

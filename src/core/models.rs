@@ -13,12 +13,23 @@ pub const SCHEMA_VERSION: u32 = 2;
 
 /// `null` reads as an empty string (hand-edited files).
 fn nullable<'de, D: Deserializer<'de>>(d: D) -> Result<String, D::Error> {
-    Ok(Option::<String>::deserialize(d)?.unwrap_or_default())
+    Ok(scalar_text(Value::deserialize(d)?))
+}
+
+/// Any JSON scalar as text, so a hand-edited `"arch": 64` doesn't make the
+/// whole file unreadable.
+fn scalar_text(value: Value) -> String {
+    match value {
+        Value::String(s) => s,
+        Value::Number(n) => n.to_string(),
+        Value::Bool(b) => b.to_string(),
+        _ => String::new(),
+    }
 }
 
 /// `null` and `""` both mean "no image".
 fn optional_name<'de, D: Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
-    Ok(Option::<String>::deserialize(d)?.filter(|s| !s.is_empty()))
+    Ok(Some(scalar_text(Value::deserialize(d)?)).filter(|s| !s.is_empty()))
 }
 
 /// A platform-specific executable of a game; paths are relative to the game dir.
@@ -198,10 +209,10 @@ struct GameFileOut<'a> {
 #[serde(default)]
 struct GameFileIn {
     title: Value,
-    targets: Vec<Target>,
+    targets: Value,
     #[serde(rename = "savePaths")]
-    save_paths: Vec<SavePath>,
-    images: Images,
+    save_paths: Value,
+    images: Value,
     steamgriddb_id: Value,
     notes: Value,
 }
@@ -243,10 +254,10 @@ impl Game {
             title,
             folder_name,
             dir: dir.to_path_buf(),
-            targets: file.targets,
-            save_paths: file.save_paths,
+            targets: entries(file.targets),
+            save_paths: entries(file.save_paths),
             steamgriddb_id: as_id(&file.steamgriddb_id),
-            images: file.images,
+            images: serde_json::from_value(file.images).unwrap_or_default(),
             notes: file.notes.as_str().unwrap_or_default().to_string(),
             has_cartouche: true,
             ..Default::default()
@@ -264,6 +275,17 @@ impl Game {
             steamgriddb_id: self.steamgriddb_id,
             notes: &self.notes,
         })
+    }
+}
+
+/// The objects of a JSON list as `T` (anything else is skipped).
+fn entries<T: serde::de::DeserializeOwned>(list: Value) -> Vec<T> {
+    match list {
+        Value::Array(items) => items
+            .into_iter()
+            .filter_map(|item| serde_json::from_value(item).ok())
+            .collect(),
+        _ => Vec::new(),
     }
 }
 
@@ -340,6 +362,25 @@ mod tests {
         assert_eq!(game.targets[0].os, "");
         assert_eq!(game.images.cover, None);
         assert!(game.save_paths.is_empty());
+    }
+
+    #[test]
+    fn tolerates_wrong_types() {
+        let game = Game::from_json(
+            Path::new("/g/G"),
+            r#"{"targets": [{"arch": 64, "launchOptions": 0, "target": "run"}, "junk"], "savePaths": {}, "steamgriddb_id": "12"}"#,
+        )
+        .unwrap();
+        assert_eq!(game.targets.len(), 1);
+        assert_eq!(
+            (
+                game.targets[0].arch.as_str(),
+                game.targets[0].launch_options.as_str()
+            ),
+            ("64", "0")
+        );
+        assert!(game.save_paths.is_empty());
+        assert_eq!(game.steamgriddb_id, Some(12));
     }
 
     #[test]

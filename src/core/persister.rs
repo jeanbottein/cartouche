@@ -20,15 +20,15 @@ fn download(url: &str, dest: &Path) -> Result<(), String> {
     std::fs::write(dest, bytes).map_err(|e| e.to_string())
 }
 
-/// Download artwork collected during enrichment. Existing files are kept
-/// unless `overwrite` is set. Clears the pending URLs.
-fn download_images(game: &mut Game, overwrite: bool) {
+/// Download the artwork collected during enrichment whose destination passes
+/// `wanted`. Clears the pending URLs.
+fn download_images(game: &mut Game, wanted: impl Fn(&Path) -> bool) {
     for slot in ImageSlot::ALL {
         let url = game.artwork_urls.get(slot.art_type()).cloned().flatten();
         let (Some(url), Some(dest)) = (url, game.image_path(slot)) else {
             continue;
         };
-        if !overwrite && dest.is_file() {
+        if !wanted(&dest) {
             continue;
         }
         match download(&url, &dest) {
@@ -58,7 +58,7 @@ pub fn download_all_images(game: &mut Game) {
     if let Err(e) = std::fs::create_dir_all(game.data_dir()) {
         warn!("Cannot create {}: {e}", game.data_dir().display());
     }
-    download_images(game, true);
+    download_images(game, |_| true);
 }
 
 /// Persist every game flagged `needs_persist`.
@@ -80,7 +80,7 @@ pub fn persist(games: &mut [Game]) {
                 continue;
             }
         }
-        download_images(game, false);
+        download_images(game, |dest| !dest.is_file());
     }
 }
 
