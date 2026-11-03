@@ -9,9 +9,15 @@
 //! shortcut, so it runs under the Proton prefix the backend configured (and that
 //! the save paths point to). The shortcut appid is derived exactly like
 //! `generate_appid` in `lib/steam_exporter.py`.
+//!
+//! Every launch returns a [`Session`] that reports whether the game is still
+//! running, so the UI can stop reacting to the controller while it plays.
 
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use super::models::Target;
 
@@ -59,8 +65,20 @@ pub fn pick_target(targets: &[Target]) -> Option<&Target> {
     pool.first().copied()
 }
 
-/// Launch `game_dir`'s best target. Returns a short status line for the UI.
-pub fn launch(title: &str, game_dir: &Path, targets: &[Target]) -> Result<String, String> {
+/// A launched game. `running()` flips to false once the game has exited.
+pub struct Session {
+    pub title: String,
+    running: Arc<AtomicBool>,
+}
+
+impl Session {
+    pub fn running(&self) -> bool {
+        self.running.load(Ordering::Relaxed)
+    }
+}
+
+/// Launch `game_dir`'s best target.
+pub fn launch(title: &str, game_dir: &Path, targets: &[Target]) -> Result<Session, String> {
     let target = pick_target(targets).ok_or("No executable target in game.json")?;
     let exe = normalize(&game_dir.join(&target.target));
     let start_in = if target.start_in.trim().is_empty() {
@@ -89,12 +107,12 @@ pub fn launch(title: &str, game_dir: &Path, targets: &[Target]) -> Result<String
         Command::new(&exe)
     };
     cmd.args(target.launch_options.split_whitespace()).current_dir(&start_in);
-    spawn_detached(cmd).map_err(|e| format!("Launch failed: {e}"))?;
-    Ok(format!("Launched {title}"))
+    let running = spawn_detached(cmd).map_err(|e| format!("Launch failed: {e}"))?;
+    Ok(Session { title: title.to_string(), running })
 }
 
 /// Start a Windows game via its Steam shortcut (`steam://rungameid/<gameid>`).
-fn launch_via_steam(title: &str, exe: &Path) -> Result<String, String> {
+fn launch_via_steam(title: &str, exe: &Path) -> Result<Session, String> {
     let appid = shortcut_appid(title, &exe.to_string_lossy());
     let game_id = ((appid as u64) << 32) | 0x0200_0000;
     let url = format!("steam://rungameid/{game_id}");
@@ -104,7 +122,45 @@ fn launch_via_steam(title: &str, exe: &Path) -> Result<String, String> {
     cmd.arg(&url);
     spawn_detached(cmd)
         .map_err(|e| format!("Windows game: could not open Steam ({e}). Run Steam Sync first."))?;
-    Ok(format!("Launching {title} through Steam (Proton)"))
+    Ok(Session { title: title.to_string(), running: watch_steam_app(appid) })
+}
+
+/// Track a Steam-launched game through its `reaper SteamLaunch AppId=<appid>`
+/// process (Linux `/proc`). Waits for it to appear, then for it to exit. If it
+/// never shows up (Steam missing, no `/proc`), the session ends after a timeout
+/// so the UI never stays locked.
+fn watch_steam_app(appid: u32) -> Arc<AtomicBool> {
+    const APPEAR_TIMEOUT: Duration = Duration::from_secs(45);
+    let running = Arc::new(AtomicBool::new(true));
+    let flag = running.clone();
+    let needle = format!("AppId={appid}");
+    std::thread::spawn(move || {
+        let start = Instant::now();
+        while !process_with_arg(&needle) {
+            if start.elapsed() > APPEAR_TIMEOUT {
+                flag.store(false, Ordering::Relaxed);
+                return;
+            }
+            std::thread::sleep(Duration::from_secs(1));
+        }
+        while process_with_arg(&needle) {
+            std::thread::sleep(Duration::from_secs(1));
+        }
+        flag.store(false, Ordering::Relaxed);
+    });
+    running
+}
+
+/// True if any process has `arg` as one of its command-line arguments.
+fn process_with_arg(arg: &str) -> bool {
+    let Ok(procs) = std::fs::read_dir("/proc") else {
+        return false;
+    };
+    procs.filter_map(|e| e.ok()).any(|e| {
+        std::fs::read(e.path().join("cmdline"))
+            .map(|c| c.split(|&b| b == 0).any(|a| a == arg.as_bytes()))
+            .unwrap_or(false)
+    })
 }
 
 /// Unsigned non-Steam shortcut appid, identical to the Python `generate_appid`.
@@ -143,17 +199,21 @@ fn normalize(path: &Path) -> PathBuf {
 }
 
 /// Spawn without inheriting our stdio, and reap the child on a thread so it
-/// never lingers as a zombie. The game keeps running if the UI exits.
-fn spawn_detached(mut cmd: Command) -> std::io::Result<()> {
+/// never lingers as a zombie. The game keeps running if the UI exits. The
+/// returned flag goes false when the child exits.
+fn spawn_detached(mut cmd: Command) -> std::io::Result<Arc<AtomicBool>> {
     let mut child = cmd
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()?;
+    let running = Arc::new(AtomicBool::new(true));
+    let flag = running.clone();
     std::thread::spawn(move || {
         let _ = child.wait();
+        flag.store(false, Ordering::Relaxed);
     });
-    Ok(())
+    Ok(running)
 }
 
 #[cfg(test)]
@@ -199,6 +259,17 @@ mod tests {
         let other = if arch_tag() == "arm64" { "x64" } else { "arm64" };
         let targets = vec![t(os_tag(), other, "a"), t(os_tag(), arch_tag(), "b")];
         assert_eq!(pick_target(&targets).unwrap().target, "b");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn session_ends_when_process_exits() {
+        let running = spawn_detached(Command::new("true")).unwrap();
+        let start = Instant::now();
+        while running.load(Ordering::Relaxed) && start.elapsed() < Duration::from_secs(5) {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(!running.load(Ordering::Relaxed));
     }
 
     #[test]

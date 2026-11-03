@@ -103,6 +103,14 @@ impl Input {
         }
     }
 
+    /// Keep tracking devices but fire nothing — used while a game is running, so
+    /// controller input meant for the game doesn't drive the UI. Buttons still
+    /// held when input resumes don't fire until released and pressed again.
+    pub fn update_suspended(&mut self) {
+        self.update();
+        self.fired.clear();
+    }
+
     /// Did `a` fire this frame (edge or repeat)?
     pub fn action(&self, a: Action) -> bool {
         self.fired.contains(&a)

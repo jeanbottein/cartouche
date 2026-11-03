@@ -71,6 +71,8 @@ pub struct App {
     status_msg: String,
     /// Transient library message (text, color, expiry time).
     toast: Option<(String, Color, f64)>,
+    /// The game currently running; UI input is suspended while it plays.
+    session: Option<launcher::Session>,
 }
 
 impl App {
@@ -102,6 +104,7 @@ impl App {
             status_cursor: 0,
             status_msg: String::new(),
             toast: None,
+            session: None,
         }
     }
 
@@ -114,13 +117,23 @@ impl App {
             }
         }
 
-        self.input.update();
-        self.handle_global();
+        if self.session.as_ref().is_some_and(|s| !s.running()) {
+            self.session = None;
+        }
 
-        match self.tab {
-            Tab::Library => self.update_library(),
-            Tab::Status => self.update_status(),
-            Tab::Settings => {}
+        if self.session.is_some() {
+            // The game owns the controller (gilrs reads devices regardless of
+            // window focus), so track input without acting on it.
+            self.input.update_suspended();
+            std::thread::sleep(std::time::Duration::from_millis(50)); // idle cheaply
+        } else {
+            self.input.update();
+            self.handle_global();
+            match self.tab {
+                Tab::Library => self.update_library(),
+                Tab::Status => self.update_status(),
+                Tab::Settings => {}
+            }
         }
 
         // Pixel canvas. Screen content first; the header/footer are drawn last with
@@ -132,11 +145,12 @@ impl App {
             Tab::Settings => self.draw_settings(),
         }
         self.draw_header();
+        self.draw_session();
         self.canvas.end();
         self.canvas.present();
 
         // Full-resolution cover preview drawn over the upscaled canvas.
-        if self.tab == Tab::Library {
+        if self.tab == Tab::Library && self.session.is_none() {
             self.overlay_cover();
         }
     }
@@ -258,11 +272,25 @@ impl App {
 
     fn launch_focused(&mut self) {
         let game = &self.games[self.lib_cursor as usize];
-        let (msg, color) = match launcher::launch(&game.title, &game.dir, &game.targets) {
-            Ok(msg) => (msg, theme::ACCENT),
-            Err(msg) => (msg, theme::AMBER),
+        match launcher::launch(&game.title, &game.dir, &game.targets) {
+            Ok(session) => self.session = Some(session),
+            Err(msg) => self.toast = Some((msg, theme::AMBER, get_time() + TOAST_SECS)),
+        }
+    }
+
+    /// Full-screen "now playing" card while a game runs.
+    fn draw_session(&self) {
+        let Some(session) = &self.session else {
+            return;
         };
-        self.toast = Some((msg, color, get_time() + TOAST_SECS));
+        let (w, h) = self.canvas.size();
+        draw_rectangle(0.0, 0.0, w, h, theme::BG);
+        let title = self.truncate(&session.title, w - 2.0 * MARGIN, 40);
+        let tw = text::measure(&title, 40, &self.font);
+        text::text("NOW PLAYING", (w - text::measure("NOW PLAYING", 24, &self.font)) / 2.0, h / 2.0 - 40.0, 24, theme::MUTED, &self.font);
+        text::text(&title, (w - tw) / 2.0, h / 2.0 + 4.0, 40, theme::ACCENT, &self.font);
+        let hint = "Controls return when the game exits";
+        text::text(hint, (w - text::measure(hint, 20, &self.font)) / 2.0, h / 2.0 + 44.0, 20, theme::MUTED, &self.font);
     }
 
     fn draw_library(&self) {
