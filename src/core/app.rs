@@ -22,20 +22,41 @@ pub fn app_name() -> &'static str {
     })
 }
 
-/// Everything before the first `-` or `.` of the launched file's name.
+/// Everything before the first `-` or `.` of the launched file's name. A
+/// wrapper (AppImage, macOS `.app`) is a name users pick, like
+/// `Cartouche.app`: it is lowercased, so it still reads "cartouche".
 fn name_from(appimage: Option<PathBuf>, exe: Option<PathBuf>) -> String {
     let stem_of = |path: &Path| {
         let file = path.file_name()?.to_string_lossy().into_owned();
         let stem = file.split(['-', '.']).next()?.to_string();
         (!stem.is_empty()).then_some(stem)
     };
-    let from_appimage = appimage
+    let wrapper = appimage
+        .filter(|a| !a.as_os_str().is_empty())
+        .or_else(|| exe.as_deref().and_then(app_bundle));
+    wrapper
         .as_deref()
         .and_then(stem_of)
-        .map(|s| s.to_lowercase());
-    from_appimage
+        .map(|s| s.to_lowercase())
         .or_else(|| exe.as_deref().and_then(stem_of))
         .unwrap_or_else(|| "cartouche".into())
+}
+
+/// The macOS bundle holding `exe` (`X.app/Contents/MacOS/exe`), if any.
+fn app_bundle(exe: &Path) -> Option<PathBuf> {
+    let macos = exe.parent()?;
+    let contents = macos.parent()?;
+    let bundle = contents.parent()?;
+    let is_bundle = macos.file_name()? == "MacOS"
+        && contents.file_name()? == "Contents"
+        && bundle.extension()? == "app";
+    is_bundle.then(|| bundle.to_path_buf())
+}
+
+/// macOS runs an unsigned, freshly downloaded app from a hidden read-only
+/// copy ("App Translocation"): nothing next to it is visible or writable.
+pub fn is_translocated(path: &Path) -> bool {
+    path.to_string_lossy().contains("/AppTranslocation/")
 }
 
 /// Per-game metadata folder (`<game>/.cartouche/game.json`). Fixed: it is
@@ -55,9 +76,10 @@ pub fn data_dir_name() -> String {
 }
 
 /// The file the user launched: the `.AppImage` when running from one (its
-/// runtime sets `APPIMAGE`), else the binary itself. Inside an AppImage the
-/// binary lives in a temporary read-only mount, useless for portable files or
-/// a Steam shortcut.
+/// runtime sets `APPIMAGE`), the `.app` bundle on macOS, else the binary
+/// itself. Inside an AppImage the binary lives in a temporary read-only mount,
+/// and inside a bundle in `Contents/MacOS/`: useless for portable files or a
+/// Steam shortcut.
 pub fn launched_file() -> Option<PathBuf> {
     launched_from(std::env::var_os("APPIMAGE"), std::env::current_exe().ok())
 }
@@ -66,7 +88,7 @@ fn launched_from(appimage: Option<std::ffi::OsString>, exe: Option<PathBuf>) -> 
     appimage
         .filter(|a| !a.is_empty())
         .map(PathBuf::from)
-        .or(exe)
+        .or_else(|| exe.map(|e| app_bundle(&e).unwrap_or(e)))
 }
 
 /// Directory holding the launched file (portable mode: the workspace sits
@@ -212,6 +234,28 @@ mod tests {
         );
         assert_eq!(launched_from(None, exe.clone()), exe);
         assert_eq!(launched_from(Some("".into()), exe.clone()), exe);
+    }
+
+    #[test]
+    fn a_mac_bundle_stands_in_for_its_binary() {
+        let exe = PathBuf::from("/Games/Cartouche.app/Contents/MacOS/cartouche");
+        assert_eq!(
+            launched_from(None, Some(exe.clone())),
+            Some(PathBuf::from("/Games/Cartouche.app"))
+        );
+        assert_eq!(name_from(None, Some(exe)), "cartouche");
+        let renamed = PathBuf::from("/G/MyGames.app/Contents/MacOS/cartouche");
+        assert_eq!(name_from(None, Some(renamed)), "mygames");
+        let loose = PathBuf::from("/G/Contents/MacOS/cartouche");
+        assert_eq!(launched_from(None, Some(loose.clone())), Some(loose));
+    }
+
+    #[test]
+    fn translocated_paths_are_recognised() {
+        assert!(is_translocated(Path::new(
+            "/private/var/folders/x/T/AppTranslocation/ABC/d/Cartouche.app"
+        )));
+        assert!(!is_translocated(Path::new("/Users/me/Games/Cartouche.app")));
     }
 
     #[test]

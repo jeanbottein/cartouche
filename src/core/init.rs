@@ -7,7 +7,9 @@ use std::path::{Path, PathBuf};
 
 use log::{error, info};
 
-use super::app::{app_name, is_workspace, launched_file, WORKSPACE_DIR, WORKSPACE_README};
+use super::app::{
+    app_name, is_translocated, is_workspace, launched_file, WORKSPACE_DIR, WORKSPACE_README,
+};
 use super::config::DEFAULT_CONFIG;
 
 pub struct Feature {
@@ -174,7 +176,14 @@ pub fn folder_advice(dir: &Path) -> Vec<String> {
         .and_then(|f| f.file_name())
         .map(|n| n.to_string_lossy().into_owned());
     let is_appimage = std::env::var_os("APPIMAGE").is_some_and(|a| !a.is_empty());
-    if dir.exists() && !is_writable(dir) {
+    if launched.as_deref().is_some_and(is_translocated) {
+        advice.push(format!(
+            "macOS runs {name} from a temporary read-only copy, away from its folder. \
+             Quit, move {name}.app into its folder with Finder (or run \
+             `xattr -dr com.apple.quarantine` on that folder), then open it again.",
+            name = display_name()
+        ));
+    } else if dir.exists() && !is_writable(dir) {
         advice.push("This folder can't be written: move the app to a folder of its own.".into());
     }
     if is_appimage && app_here.is_some() && is_appimage_manager_dir(dir) {
