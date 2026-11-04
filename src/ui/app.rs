@@ -485,14 +485,20 @@ impl App {
             }
             x += width + 18.0;
         }
-        self.draw_indicators(w);
+        self.draw_indicators(x, w);
         draw_rectangle(0.0, HEADER_H, w, 1.0, theme::BORDER);
     }
 
-    /// Right side of the header: pipeline run, transfers, sharing.
-    fn draw_indicators(&self, w: f32) {
+    /// Right side of the header: pipeline run, transfers, sharing. Stops
+    /// before running into the tabs (which end at `tabs_end`).
+    fn draw_indicators(&self, tabs_end: f32, w: f32) {
         let mut x = w - MARGIN;
         let mut indicator = |label: &str, color: Color, busy: bool| {
+            let spinner = if busy { 14.0 } else { 0.0 };
+            if x - self.ui.measure(label) - spinner < tabs_end {
+                x = tabs_end; // out of room: hide this one and the rest
+                return;
+            }
             x -= self.ui.measure(label);
             self.ui.text(label, x, 23.0, color);
             if busy {

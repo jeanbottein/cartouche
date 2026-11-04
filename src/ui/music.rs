@@ -79,6 +79,8 @@ mod player {
         /// Tracks left in this round; reshuffled from disk when empty.
         queue: Vec<PathBuf>,
         volume: f32,
+        /// No file could be decoded: stop trying (until the app restarts).
+        silent: bool,
     }
 
     impl Music {
@@ -99,6 +101,7 @@ mod player {
                 sink,
                 queue: Vec::new(),
                 volume: 0.0,
+                silent: false,
             })
         }
 
@@ -117,20 +120,23 @@ mod player {
                 return;
             }
             self.sink.play();
-            if self.sink.empty() {
-                self.queue_next();
+            if self.sink.empty() && !self.silent {
+                self.silent = !self.queue_next();
             }
         }
 
-        /// Append the next playable track; skips files that don't decode.
-        fn queue_next(&mut self) {
+        /// Append the next playable track, skipping files that don't decode;
+        /// false when none in a whole round could be played.
+        fn queue_next(&mut self) -> bool {
             // Bounded: each attempt consumes a track, a whole round at most.
             for _ in 0..=self.queue.len().max(tracks(&self.dir).len()) {
                 if self.queue.is_empty() {
                     // Picks up files added or removed since the last round.
                     self.queue = shuffled(tracks(&self.dir), seed());
                 }
-                let Some(path) = self.queue.pop() else { return };
+                let Some(path) = self.queue.pop() else {
+                    return false;
+                };
                 let decoded = File::open(&path)
                     .map_err(|e| e.to_string())
                     .and_then(|f| Decoder::new(BufReader::new(f)).map_err(|e| e.to_string()));
@@ -138,11 +144,13 @@ mod player {
                     Ok(source) => {
                         info!("Music: {}", path.display());
                         self.sink.append(source);
-                        return;
+                        return true;
                     }
                     Err(e) => warn!("Music: skipping {}: {e}", path.display()),
                 }
             }
+            warn!("Music off: no playable file in {}", self.dir.display());
+            false
         }
     }
 }
