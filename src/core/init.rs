@@ -58,13 +58,8 @@ fn config_text(feature_paths: &[(String, String)]) -> String {
 }
 
 /// Written to `system/README.txt`; its first word marks the folder as ours.
-const WORKSPACE_README_TEXT: &str = "\
-Cartouche workspace: settings (config.txt), caches and thumbnails.
-
-Cartouche is portable: this folder, the app next to it and your games folder
-travel together. Move, copy or back up the whole parent folder as one piece.
-Edit config.txt by hand or in the app's SETTINGS tab.
-";
+/// Shared with the release archives' template, so both always match.
+const WORKSPACE_README_TEXT: &str = include_str!("../../packaging/cartridge/system/README.txt");
 
 /// Create `parent/system/`, the chosen folders (relative to `parent` or
 /// absolute) and `config.txt` (kept if it exists). Returns the config path.
@@ -350,5 +345,12 @@ mod tests {
         assert!(advice[0].contains("portable"));
         assert!(advice.iter().any(|a| a.contains("other files")));
         assert_eq!(folder_advice(&dir.path().join("empty-new")).len(), 1);
+    }
+
+    #[test]
+    fn the_archive_template_marks_system_as_a_workspace() {
+        let dir = TempDir::new();
+        dir.write("system/README.txt", WORKSPACE_README_TEXT.as_bytes());
+        assert!(is_workspace(&dir.path().join("system")));
     }
 }

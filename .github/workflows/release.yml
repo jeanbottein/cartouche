@@ -3,9 +3,14 @@ name: Release
 on:
   push:
     tags: ['v*']
-  # Build every artifact (AppImages included) from the Actions tab, without
-  # tagging; the GitHub release itself is only created for v* tags.
+  # Build every archive from the Actions tab, without tagging; the GitHub
+  # release itself is only created for v* tags.
   workflow_dispatch:
+
+env:
+  # Releases ship ready-to-use cartridge archives (package.sh). Set to true to
+  # also publish the bare binaries (plain executables, AppImages).
+  PUBLISH_BARE_BINARIES: false
 
 jobs:
   build:
@@ -14,61 +19,111 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            artifact: cartouche-linux-x86_64
+            archive: cartouche-linux-x86_64
+            app: dist/cartouche-linux-x86_64.AppImage
+            app_name: Cartouche.AppImage
+            run: Cartouche.AppImage
           - os: ubuntu-24.04-arm
-            artifact: cartouche-linux-aarch64
-          - os: macos-26-intel
-            artifact: cartouche-darwin-x86_64
+            archive: cartouche-linux-aarch64
+            app: dist/cartouche-linux-aarch64.AppImage
+            app_name: Cartouche.AppImage
+            run: Cartouche.AppImage
+          # One universal app (Intel + Apple Silicon), cross-built on ARM.
           - os: macos-latest
-            artifact: cartouche-darwin-arm64
+            archive: cartouche-macos
+            app: dist/Cartouche.app
+            app_name: Cartouche.app
+            run: Cartouche.app/Contents/MacOS/cartouche
+            targets: x86_64-apple-darwin,aarch64-apple-darwin
           - os: windows-latest
-            artifact: cartouche-windows-x86_64
+            archive: cartouche-windows-x86_64
+            app: dist/cartouche-windows-x86_64.exe
+            app_name: cartouche.exe
+            run: cartouche.exe
 
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      # Embedded (obfuscated) as the default SteamGridDB key, see build.rs.
+      STEAMGRIDDB_API_KEY: ${{ secrets.STEAMGRIDDB_API_KEY }}
 
     steps:
       - uses: actions/checkout@v7
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.targets }}
 
-      # Runtime libraries for the AppImage smoke test (the build itself runs
-      # in the Debian 12 container, which has its own -dev packages).
+      # Runtime libraries for the smoke tests (the build itself runs in the
+      # Debian 12 container, which has its own -dev packages).
       - name: Linux runtime libs
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libudev-dev libx11-dev libxi-dev libgl1-mesa-dev libasound2-dev
 
       - name: Build
-        shell: bash
+        if: runner.os != 'macOS'
         env:
-          # Embedded (obfuscated) as the default SteamGridDB key, see build.rs.
-          STEAMGRIDDB_API_KEY: ${{ secrets.STEAMGRIDDB_API_KEY }}
           # Linux builds in the Containerfile's Debian 12 (glibc 2.36): a
           # binary built on the runner's Ubuntu would need its newer glibc.
           CARGO: ${{ runner.os == 'Linux' && './container.sh' || 'cargo' }}
         run: bash release.sh
 
+      - name: Build (macOS universal)
+        if: runner.os == 'macOS'
+        run: |
+          cargo build --release --target x86_64-apple-darwin
+          cargo build --release --target aarch64-apple-darwin
+          bins="target/x86_64-apple-darwin/release/cartouche target/aarch64-apple-darwin/release/cartouche"
+          mkdir -p dist
+          lipo -create $bins -output dist/cartouche-macos-universal
+          bash macapp.sh $bins
+
       - name: Check the glibc floor
         if: runner.os == 'Linux'
         run: |
-          need=$(objdump -T dist/${{ matrix.artifact }} | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1)
+          need=$(objdump -T dist/${{ matrix.archive }} | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1)
           echo "Requires $need (max allowed GLIBC_2.36, Debian 12)"
           [ "$(printf '%s\n' "$need" GLIBC_2.36 | sort -V | tail -1)" = GLIBC_2.36 ]
 
       - name: AppImage
         if: runner.os == 'Linux'
-        run: bash appimage.sh dist/${{ matrix.artifact }}
+        run: bash appimage.sh dist/${{ matrix.archive }}
 
-      - name: Smoke-test the AppImage
-        if: runner.os == 'Linux'
+      - name: Package
+        run: bash package.sh ${{ matrix.app }} ${{ matrix.app_name }} ${{ matrix.archive }}
+
+      # Extract the archive and run the app inside it: it must find its
+      # system/ folder (portable mode) and create a config with the games folder.
+      - name: Smoke-test the archive
         run: |
-          APPIMAGE_EXTRACT_AND_RUN=1 dist/${{ matrix.artifact }}.AppImage --version
+          test_dir="$RUNNER_TEMP/extracted"
+          mkdir -p "$test_dir"
+          case "$RUNNER_OS" in
+            Linux)   tar -xzf dist/${{ matrix.archive }}.tar.gz -C "$test_dir" ;;
+            macOS)   ditto -x -k dist/${{ matrix.archive }}.zip "$test_dir" ;;
+            Windows) 7z x "$(cygpath -w dist/${{ matrix.archive }}.zip)" -o"$(cygpath -w "$test_dir")" >/dev/null ;;
+          esac
+          cd "$RUNNER_TEMP"
+          APPIMAGE_EXTRACT_AND_RUN=1 "$test_dir/Cartouche/${{ matrix.run }}" --version
+          APPIMAGE_EXTRACT_AND_RUN=1 "$test_dir/Cartouche/${{ matrix.run }}" -g parse < /dev/null
+          grep -x 'FREEGAMES_PATH=games' "$test_dir/Cartouche/system/config.txt"
+          test -d "$test_dir/Cartouche/games"
+
+      - name: Collect
+        run: |
+          mkdir -p upload/bare
+          mv dist/*.tar.gz dist/*.zip upload/ 2>/dev/null || true
+          find dist -maxdepth 1 -type f -exec mv {} upload/bare/ \;
+          ls -la upload upload/bare
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ matrix.artifact }}
-          path: dist/*
+          name: ${{ matrix.archive }}
+          path: upload/
 
   release:
     needs: build
@@ -82,10 +137,14 @@ jobs:
         with:
           path: artifacts
 
-      - name: Collect binaries
+      - name: Collect files
         run: |
           mkdir -p release
-          find artifacts -type f -exec cp {} release/ \;
+          find artifacts -path '*/bare/*' -prune -o -type f -exec cp {} release/ \;
+          if [ "$PUBLISH_BARE_BINARIES" = true ]; then
+            find artifacts -path '*/bare/*' -type f -exec cp {} release/ \;
+          fi
+          (cd release && sha256sum * > SHA256SUMS)
           ls -la release/
 
       - name: Create GitHub release

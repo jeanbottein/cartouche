@@ -87,11 +87,17 @@ The host (Bazzite) has no Rust toolchain on purpose: build in the container.
 ./target/release/cartouche             # run on the host (UI)
 ```
 
-Releases (`v*` tags, or run the Release workflow by hand) build every platform
-plus Linux AppImages (`appimage.sh`). In an AppImage the binary sits in a
-temporary mount: `core::app::launched_file()` returns `$APPIMAGE` instead, so
-portable mode and the Steam self-shortcut use the `.AppImage` file, and the
-app name comes from its file name, lowercased (`Cartouche.AppImage` -> `cartouche`).
+Releases (`v*` tags, or run the Release workflow by hand) ship ready-to-use
+cartridge archives (`package.sh`, template in `packaging/cartridge/`): a
+`Cartouche/` folder with the app (`Cartouche.AppImage` via `appimage.sh`,
+universal `Cartouche.app` via `macapp.sh`, `cartouche.exe`), READMEs and an
+empty `system/`. No `config.txt` is shipped: the app creates it on first
+launch, so extracting a newer release over a cartridge keeps its settings.
+CI extracts each archive and runs the app inside it. Bare binaries are only
+published with `PUBLISH_BARE_BINARIES: true` in `release.yml`. In an AppImage
+or `.app` the binary sits in a mount/bundle: `core::app::launched_file()`
+returns the `.AppImage` / `.app` instead, for portable mode, the Steam
+self-shortcut and the app name (lowercased: `Cartouche.app` -> `cartouche`).
 
 With a native toolchain instead:
 
