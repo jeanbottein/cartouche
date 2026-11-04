@@ -18,8 +18,8 @@ You are a specialist in the •cartridge pipeline (`src/core/`).
 | Persist | `persister::persist` (`needs_persist`) | `PERSIST_DATA` != False |
 | SteamClean / SteamExport | `steam::clean` / `steam::export` + `steam_self::register` | `STEAM_EXPOSE` / `STEAM_ADD_SELF` |
 | Manifest | `manifest::write` | `MANIFEST_EXPORT` != False |
-| Patch | `patcher::run` | `PATCHES_PATH` |
-| Save | `saver::run` | `SAVESCOPY_PATH` |
+| Patch | `patcher::run` | `mods/` |
+| Save | `saver::run` | `saves-copies/`, `saves-links/` |
 | PostCommands | `commands::run` | `RUN_AFTER_*` |
 
 ## Debugging

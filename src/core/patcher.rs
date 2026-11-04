@@ -1,4 +1,4 @@
-//! Pipeline step 8: apply mods from `PATCHES_PATH`. Each folder with a
+//! Pipeline step 8: apply mods from the cartridge's `mods/` folder. Each folder with a
 //! `patch.json` lists patches:
 //! `[{"file": "fix.bps", "target": "Game/data.pak", "method": "patch"|"replace",
 //!    "target_crc32": "1A2B3C4D", "patched_crc32": "..."}]`.
@@ -228,10 +228,11 @@ fn patch_folders(root: &Path) -> Vec<PathBuf> {
 }
 
 pub fn run(cfg: &Config) {
-    let Some(root) = cfg.path_of("PATCHES_PATH").filter(|p| p.is_dir()) else {
-        warn!("🤖 PATCHES_PATH not configured or invalid");
+    let root = cfg.mods_dir();
+    if !root.is_dir() {
+        info!("No {} folder, nothing to patch", root.display());
         return;
-    };
+    }
     info!("🤖 Looking for patches in {}", root.display());
     let folders = patch_folders(&root);
     if folders.is_empty() {

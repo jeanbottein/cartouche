@@ -31,22 +31,29 @@ Options:
   -h, --help           Print this help
   -V, --version        Print the version
 
+A cartridge is a portable folder (DIR = the app's folder by default). Its
+layout is fixed; replace a folder with a symbolic link to put it elsewhere.
+
 Files:
   DIR/system/config.txt          Settings, KEY=value. Created on first run (UI or
                                  terminal wizard) with every key documented in
                                  comments; also editable in the UI's SETTINGS tab.
-  GAMES/<Game>/                  One folder per game (GAMES = FREEGAMES_PATH)
-  GAMES/<Game>/.cartridge/game.json
+  DIR/system/cartridge-id        This cartridge's identity (Steam ownership)
+  DIR/system/*.png               Optional Steam art for the cartridge itself
+  DIR/games/<Game>/              One folder per game
+  DIR/games/<Game>/.cartridge/game.json
                                  Title, targets (os/arch/exe), savePaths, year,
                                  players, description, size. Filled by `-g parse`.
-  GAMES/<Game>.cartridge.tar     A packaged game: shared/copied, not playable
+  DIR/games/<Game>.cartridge.tar A packaged game: shared/copied, not playable
                                  until unpacked (--unpack or the UI).
+  DIR/mods/                      Patches (folders with a patch.json)
+  DIR/saves-copies/              Save backups (`-g backup`)
+  DIR/saves-links/               Links to live save folders (for Syncthing)
 
 Main settings:
-  FREEGAMES_PATH=<dir>           Games folder (required; relative to DIR allowed)
   STEAM_EXPOSE=True              Add games to Steam as non-Steam shortcuts
+  STEAM_ADD_SELF=True            Add the cartridge itself (named after DIR)
   STEAMGRIDDB_API_KEY=<key>      Artwork, names and years from SteamGridDB
-  SAVESCOPY_PATH=<dir>           Back up saves there (`-g backup`)
   SHARE_ENABLED=True             Share games on the LAN while the UI runs
   SHARE_PORT=47800               TCP + UDP port used for sharing
   SHARE_PEERS=host[:port],...    Peers the LAN broadcast can't reach
@@ -62,7 +69,8 @@ Share games between machines:
 Examples:
   cartridge                      Open the UI (first run: setup)
   cartridge -t                   Run every phase in the terminal
-  cartridge -g parse ~/games-ws  Detect, measure and enrich games only
+  cartridge -g parse ~/Potato-games
+                                 Detect, measure and enrich that cartridge's games
   cartridge -n                   Show what a Steam sync would change
 
 Exit codes: 0 success, 1 failure (see the log on stderr), 2 bad arguments.";

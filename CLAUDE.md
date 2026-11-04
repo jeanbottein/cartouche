@@ -70,7 +70,8 @@ Packages: a plain tar of `Foo/` with `.cartridge/package.json` first and `.cartr
 ## Key Conventions
 
 - **Compatibility is the contract:** game.json (4-space JSON), shortcuts.vdf, AppIDs (`crc32(exe+title) | 0x80000000`), path normalization and save layout must stay byte-compatible with existing workspaces. Golden tests in `testdata/` guard this.
-- **`Config`** keeps raw values (Settings editor) and resolved values (relative path keys + `BACKUP_*` resolved against the workspace).
+- **Fixed layout, no path settings:** `games/`, `mods/`, `saves-copies/`, `saves-links/` sit next to `system/` (`core::app::FOLDERS`, `Config::games_dir()`/`mods_dir()`/...). Users who want a folder elsewhere replace it with a symlink. `RUN_AFTER_*` commands still get `${FREEGAMES_PATH}`, `${PATCHES_PATH}`, `${SAVESCOPY_PATH}`, `${SAVESLINK_PATH}` as read-only folder variables.
+- **`Config`** keeps raw values (Settings editor) and resolved values (only `BACKUP_*` sources are paths, resolved against the cartridge folder).
 - Flags: `is_true` for opt-in keys (STEAM_EXPOSE, ...), `is_not_false` for opt-out keys (PERSIST_DATA, MANIFEST_EXPORT).
 - **Ownership tag** in Steam shortcuts is the app name (also recognizes legacy `"gamer-sidekick"`); the self shortcut uses `<app>-self`.
 - **Logging:** `log` macros; `core::logging` prints to stderr and mirrors to the UI Status log.

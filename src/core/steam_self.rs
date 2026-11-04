@@ -1,6 +1,6 @@
 //! Pipeline step 6c: add the cartridge itself to Steam (`STEAM_ADD_SELF=True`,
 //! independent of `STEAM_EXPOSE`). The shortcut is named after the cartridge
-//! (its folder name), launches this app (or `STEAM_SELF_TARGET`) and starts
+//! (its folder name), launches this app (binary, AppImage or `.app`) and starts
 //! in the cartridge folder, so the app finds its config. Its artwork is
 //! `system/cover.png`, `wide.png`, `hero.png`, `logo.png` and `icon.png` when
 //! present (easy to swap), else the retro art embedded in the binary.
@@ -48,19 +48,12 @@ fn self_tag(owner: &Owner) -> String {
     format!("{}-self", owner.tag)
 }
 
-/// What the shortcut launches: `STEAM_SELF_TARGET`, else this binary (or the
-/// AppImage it runs from).
-pub fn self_target(cfg: &Config) -> PathBuf {
-    match cfg
-        .get("STEAM_SELF_TARGET")
-        .map(str::trim)
-        .filter(|t| !t.is_empty())
-    {
-        Some(target) => paths::resolve(&paths::expand(target)),
-        None => super::app::launched_file()
-            .map(|p| paths::resolve(&p))
-            .unwrap_or_default(),
-    }
+/// What the shortcut launches: this app (the binary, or the AppImage / `.app`
+/// it runs from).
+pub fn self_target() -> PathBuf {
+    super::app::launched_file()
+        .map(|p| paths::resolve(&p))
+        .unwrap_or_default()
 }
 
 fn find_existing(shortcuts: &Map, exe: &str, tag: &str) -> Option<String> {
@@ -172,7 +165,7 @@ pub fn register(cfg: &Config) {
         return;
     }
     let owner = Owner::of(cfg);
-    let exe = self_target(cfg);
+    let exe = self_target();
     // A path that exists: a binary/AppImage file or a macOS .app bundle.
     if !exe.exists() {
         warn!(

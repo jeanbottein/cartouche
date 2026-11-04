@@ -1,8 +1,15 @@
+# •cartridge settings. The cartridge's folders are fixed, next to system/:
+#   games/          one folder per game
+#   mods/           patches and file replacements
+#   saves-copies/   backups of your save files
+#   saves-links/    links to the live save folders (for Syncthing & co)
+# Need one elsewhere (another drive...)? Replace it with a symbolic link.
+
 # ==========================================
 # 1. GENERAL SETTINGS
 # ==========================================
 
-# Machine name (used to prefix config backup in SAVESCOPY_PATH)
+# Machine name (used to prefix the config backup in saves-copies/)
 #MACHINE_NAME=my-device
 
 # Persist game data (optional)
@@ -17,49 +24,35 @@
 
 
 # ==========================================
-# 2. PATHS & DIRECTORIES
+# 2. SAVE BACKUP & SYNC
 # ==========================================
 
-#FREEGAMES_PATH=/run/media/deck/SteamDeck-SD/linux-games
-#PATCHES_PATH=/run/media/deck/SteamDeck-SD/mods
-
-
-# ==========================================
-# 3. SAVE BACKUP & SYNC
-# ==========================================
-
-#SAVESCOPY_PATH=/run/media/deck/SteamDeck-SD/cartridge-backup
-
+# Saves are copied into saves-copies/ and linked from saves-links/ (point
+# Syncthing or similar at saves-links/ for automatic sync).
 # SAVESCOPY_STRATEGY
-# backup: Create a backup of save files in the backup location
+# backup: Create a backup of save files in saves-copies/
 # sync: Synchronize save files between the original and backup locations
-# restore: Restore save files from the backup location to the original location
+# restore: Restore save files from saves-copies/ to the original location
 # (Dangerous, use with caution, will replace save files with backup files, each time the script is run)
-# (Removing a game from the freegames folder will not remove the backup)
+# (Removing a game from games/ will not remove its backup or link)
 # Default: backup
 #SAVESCOPY_STRATEGY=backup
 
-# SAVESLINK_PATH (optional)
-# Creates a folder of symlinks pointing to original save directories.
-# Use with Syncthing or similar tools for automatic bidirectional sync.
-# (Removing a game from the freegames folder will not remove the symlink)
-#SAVESLINK_PATH=/run/media/deck/SteamDeck-SD/cartridge-sync
-
-# Custom directory backups (optional)
-# Format: BACKUP_<name>=<path>
-# The <name> becomes the backup folder name under SAVESCOPY_PATH
+# Custom directory backups (optional): folders outside the cartridge to back up too
+# Format: BACKUP_<name>=<path>  (relative paths start at the cartridge folder)
+# The <name> becomes the backup folder name under saves-copies/
 # Example: BACKUP_gamescope-shaders=/home/deck/.local/share/gamescope/reshade/Shaders
 #BACKUP_gamescope-shaders=/home/deck/.local/share/gamescope/reshade/Shaders
 
 
 # ==========================================
-# 4. GAME LAUNCHERS & INTEGRATION
+# 3. GAME LAUNCHERS & INTEGRATION
 # ==========================================
 
 # Steam Non-Steam Shortcut Integration (optional)
 # Automatically add/remove DRM-free games as non-Steam shortcuts in your Steam library.
-# Shortcuts are tagged with "cartridge" so they can be managed without affecting
-# your other manually-added non-Steam games.
+# Shortcuts are tagged with this cartridge's id (system/cartridge-id) so they can be
+# managed without affecting your other non-Steam games, or other cartridges' games.
 #STEAM_EXPOSE=False
 
 # Optionally target a specific Steam user ID (leave commented to update all users)
@@ -69,11 +62,10 @@
 # Common values: proton_experimental, proton_9-0-4, proton_8-0
 #PROTON_VERSION=proton_experimental
 
-# Add •cartridge itself to Steam as ".cartridge", with its retro artwork (optional)
-# Works even when STEAM_EXPOSE is off. The shortcut launches this binary.
+# Add this cartridge itself to Steam under its folder name (optional), with retro
+# artwork, or your own: cover.png, wide.png, hero.png, logo.png, icon.png in system/
+# Works even when STEAM_EXPOSE is off. The shortcut launches this app.
 #STEAM_ADD_SELF=False
-# Optionally force what the shortcut launches
-#STEAM_SELF_TARGET=
 
 # If you want to automatically download artwork (grids, heroes, logos) from SteamGridDB,
 # you must provide a free API key from https://www.steamgriddb.com/profile/preferences/api
@@ -84,22 +76,21 @@
 #STEAMGRIDDB_HUMOR=False
 #STEAMGRIDDB_EPILEPSY=False
 
-# Manifest export (optional)
+# Manifest export (optional): games/manifests.json for Steam ROM Manager
 # Set to False to skip writing manifests.json
 #MANIFEST_EXPORT=True
 
-# Custom path for manifests.json (default: FREEGAMES_PATH/manifests.json)
-#MANIFEST_PATH=
-
 
 # ==========================================
-# 5. CUSTOM TASKS
+# 4. CUSTOM TASKS
 # ==========================================
 
 # Post-run commands (optional)
 # Format: RUN_AFTER_<number>=<command>
 # Commands are executed in alphabetical order by name after all modules finish.
-# Variables from this config can be used with ${VARIABLE_NAME}
+# Variables from this config can be used with ${VARIABLE_NAME}, plus the folders:
+# ${FREEGAMES_PATH} (games/), ${PATCHES_PATH} (mods/), ${SAVESCOPY_PATH}
+# (saves-copies/), ${SAVESLINK_PATH} (saves-links/), ${_CONFIG_PATH}, ${_SCRIPT_DIR}
 # Example: RUN_AFTER_01=echo "Syncing ${SAVESLINK_PATH}"
 #
 # Example: Sync the symlink folder to a Google Drive remote named "gdrive"

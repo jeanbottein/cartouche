@@ -25,7 +25,10 @@ pub fn locate_config(cli_dir: Option<&Path>) -> Option<PathBuf> {
 fn load(cli_dir: Option<&Path>) -> Result<Config, ExitCode> {
     let config = Config::load(&locate_config(cli_dir).ok_or(ExitCode::SUCCESS)?);
     if config.games_dir().is_none() {
-        error!("FREEGAMES_PATH not configured or invalid. Stopping the app.");
+        error!(
+            "No games/ folder in {}. Stopping the app.",
+            config.workspace().display()
+        );
         return Err(ExitCode::FAILURE);
     }
     Ok(config)

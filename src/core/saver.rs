@@ -1,9 +1,9 @@
-//! Pipeline step 9: back up (or restore) save folders into `SAVESCOPY_PATH`,
+//! Pipeline step 9: back up (or restore) save folders into `saves-copies/`,
 //! plus `BACKUP_<name>` folders, the config file, and an optional tree of
-//! symlinks to the live save folders in `SAVESLINK_PATH` (for Syncthing & co).
+//! symlinks to the live save folders in `saves-links/` (for Syncthing & co).
 //!
-//! One save path  → `SAVESCOPY_PATH/<Title>/`
-//! 2+ save paths  → `SAVESCOPY_PATH/<Title>/<folder name>/`
+//! One save path  → `saves-copies/<Title>/`
+//! 2+ save paths  → `saves-copies/<Title>/<folder name>/`
 
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -167,7 +167,7 @@ fn sync_directory(title: &str, src: &Path, dst: &Path, strategy: Strategy) {
     match strategy {
         Strategy::Backup => backup_dir(title, src, dst),
         Strategy::Sync => {
-            info!("  {title}: 'sync' strategy behaves like 'backup' (use SAVESLINK_PATH + Syncthing for bidirectional sync)");
+            info!("  {title}: 'sync' strategy behaves like 'backup' (use saves-links/ + Syncthing for bidirectional sync)");
             backup_dir(title, src, dst);
         }
         Strategy::Restore => restore_dir(title, src, dst),
@@ -331,11 +331,7 @@ fn process_custom_backups(cfg: &Config, saves_root: &Path, strategy: Strategy) -
 }
 
 pub fn run(games: &[Game], cfg: &Config) {
-    let Some(raw_root) = cfg.get("SAVESCOPY_PATH") else {
-        info!("SAVESCOPY_PATH not configured, skipping save backup");
-        return;
-    };
-    let saves_root = base_path(raw_root);
+    let saves_root = cfg.saves_copies_dir();
     if let Err(e) = std::fs::create_dir_all(&saves_root) {
         error!("Cannot create {}: {e}", saves_root.display());
         return;
@@ -350,9 +346,7 @@ pub fn run(games: &[Game], cfg: &Config) {
     let mut links = process_game_saves(games, &saves_root, strategy);
     links.extend(process_custom_backups(cfg, &saves_root, strategy));
 
-    let Some(link_root) = cfg.get("SAVESLINK_PATH").map(base_path) else {
-        return;
-    };
+    let link_root = cfg.saves_links_dir();
     if links.is_empty() {
         return;
     }
@@ -408,24 +402,19 @@ mod tests {
             ..Default::default()
         };
         game.resolved_save_paths = vec![saves.clone()];
-        let raw = crate::core::config::parse(&format!(
-            "SAVESCOPY_PATH={}\nSAVESLINK_PATH={}\n",
-            dir.path().join("copies").display(),
-            dir.path().join("links").display()
-        ));
-        dir.mkdir("links");
-        std::os::unix::fs::symlink(&saves, dir.path().join("links/Stale")).unwrap();
-        let cfg = Config::from_raw(dir.path().join(".cartridge/config.txt"), raw);
+        dir.mkdir("saves-links");
+        std::os::unix::fs::symlink(&saves, dir.path().join("saves-links/Stale")).unwrap();
+        let cfg = Config::from_raw(dir.path().join("system/config.txt"), Default::default());
 
         run(&[game], &cfg);
         assert_eq!(
-            std::fs::read(dir.path().join("copies/My_Game/a.sav")).unwrap(),
+            std::fs::read(dir.path().join("saves-copies/My_Game/a.sav")).unwrap(),
             b"a"
         );
         assert_eq!(
-            std::fs::read_link(dir.path().join("links/My_Game")).unwrap(),
+            std::fs::read_link(dir.path().join("saves-links/My_Game")).unwrap(),
             saves
         );
-        assert!(!dir.path().join("links/Stale").exists());
+        assert!(!dir.path().join("saves-links/Stale").exists());
     }
 }

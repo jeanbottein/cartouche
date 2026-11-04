@@ -37,6 +37,14 @@ pub const GAME_DATA_DIR: &str = ".cartridge";
 /// The workspace folder next to the app: `system/config.txt`, caches, thumbnails.
 pub const WORKSPACE_DIR: &str = "system";
 
+/// The cartridge's fixed folders, next to `system/` (no settings: symlink
+/// one elsewhere if needed).
+pub const GAMES_DIR: &str = "games";
+pub const MODS_DIR: &str = "mods";
+pub const SAVES_COPIES_DIR: &str = "saves-copies";
+pub const SAVES_LINKS_DIR: &str = "saves-links";
+pub const FOLDERS: [&str; 4] = [GAMES_DIR, MODS_DIR, SAVES_COPIES_DIR, SAVES_LINKS_DIR];
+
 /// Marks a `system/` folder as ours even before `config.txt` exists (e.g.
 /// freshly unpacked from a release archive).
 pub const WORKSPACE_README: &str = "README.txt";

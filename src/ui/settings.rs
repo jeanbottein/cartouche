@@ -19,7 +19,6 @@ enum Kind {
     Secret,
     Flag(bool),
     Choice(&'static [&'static str]),
-    Path,
 }
 
 struct Setting {
@@ -38,24 +37,16 @@ const fn s(key: &'static str, label: &'static str, kind: Kind, help: &'static st
     }
 }
 
-const SCHEMA: [(&str, &[Setting]); 5] = [
+const SCHEMA: [(&str, &[Setting]); 3] = [
     ("GENERAL", &[
         s("MACHINE_NAME", "Machine name", Kind::Text, "Prefixes the config backup in the save copies folder."),
         s("PERSIST_DATA", "Persist game data", Kind::Flag(true), "Write .cartridge/ folders (game.json, artwork) in game folders."),
+        s("SAVESCOPY_STRATEGY", "Save strategy", Kind::Choice(STRATEGIES), "backup: copy saves into saves-copies/. restore: copy them back over the saves, every run (careful!)."),
         s("MUSIC_ENABLED", "Background music", Kind::Flag(true), "Shuffle the audio files in the workspace's system/ folder (mp3, flac, ogg, wav, m4a). Fades out while a game runs."),
-    ]),
-    ("PATHS", &[
-        s("FREEGAMES_PATH", "Games folder", Kind::Path, "Where your DRM-free games are stored. Relative paths are relative to the workspace."),
-        s("PATCHES_PATH", "Patches folder", Kind::Path, "Mods and patches (folders with a patch.json)."),
-    ]),
-    ("SAVES", &[
-        s("SAVESCOPY_PATH", "Save copies", Kind::Path, "Where save backups are stored."),
-        s("SAVESCOPY_STRATEGY", "Strategy", Kind::Choice(STRATEGIES), "backup: copy saves to the backup. restore: copy the backup over the saves, every run (careful!)."),
-        s("SAVESLINK_PATH", "Save links", Kind::Path, "Folder of symlinks to the live save folders, for Syncthing & co."),
     ]),
     ("STEAM & ARTWORK", &[
         s("STEAM_EXPOSE", "Add games to Steam", Kind::Flag(false), "Add games as non-Steam shortcuts, with artwork."),
-        s("STEAM_ADD_SELF", "Add •cartridge to Steam", Kind::Flag(false), "Add this app to Steam as '.cartridge', with retro artwork."),
+        s("STEAM_ADD_SELF", "Add •cartridge to Steam", Kind::Flag(false), "Add this cartridge to Steam under its folder name, with retro artwork (or your cover.png, hero.png... in system/)."),
         s("STEAM_USERID", "Steam user ID", Kind::Text, "Only update this Steam user (empty: all users)."),
         s("PROTON_VERSION", "Proton version", Kind::Text, "Compatibility tool for Windows games, e.g. proton_experimental."),
         s("STEAMGRIDDB_API_KEY", "SteamGridDB API key", Kind::Secret, "For automatic artwork: steamgriddb.com/profile/preferences/api"),
@@ -63,7 +54,6 @@ const SCHEMA: [(&str, &[Setting]); 5] = [
         s("STEAMGRIDDB_HUMOR", "Artwork: humor", Kind::Flag(false), "Include humor content in artwork results."),
         s("STEAMGRIDDB_EPILEPSY", "Artwork: epilepsy", Kind::Flag(false), "Include epilepsy-triggering content in artwork results."),
         s("MANIFEST_EXPORT", "Export manifests", Kind::Flag(true), "Write manifests.json for Steam ROM Manager."),
-        s("MANIFEST_PATH", "Manifest file", Kind::Path, "Custom manifests.json path (default: in the games folder)."),
     ]),
     ("SHARING", &[
         s("SHARE_ENABLED", "Share games on the LAN", Kind::Flag(false), "Let other •cartridge machines on the network see and copy your games."),
@@ -92,7 +82,6 @@ fn fields(cfg: &Config) -> Vec<Field> {
                 Kind::Secret => Field::secret(s.key, s.label, v),
                 Kind::Flag(default) => Field::flag(s.key, s.label, v, default),
                 Kind::Choice(options) => Field::choice(s.key, s.label, v, options),
-                Kind::Path => Field::path(s.key, s.label, v, true, &workspace),
             };
             field.with_help(s.help)
         }));
@@ -110,11 +99,6 @@ fn fields(cfg: &Config) -> Vec<Field> {
         "Type KEY=value, e.g. BACKUP_shaders=~/.local/share/shaders or RUN_AFTER_01=echo done",
     ));
     out
-}
-
-/// A key the user changed; the app reloads the config afterwards.
-pub struct Saved {
-    pub key: String,
 }
 
 pub struct Settings {
@@ -158,7 +142,8 @@ impl Settings {
         Rect::new(area.x, area.y, area.w, area.h - 22.0)
     }
 
-    pub fn update(&mut self, ui: &mut Ui, area: Rect, cfg: &Config) -> Option<Saved> {
+    /// `Some` when a value was saved to `config.txt` (the app reloads it).
+    pub fn update(&mut self, ui: &mut Ui, area: Rect, cfg: &Config) -> Option<()> {
         let FormEvent::Changed(id) = self.form.update(ui, Settings::form_area(area))? else {
             return None;
         };
@@ -172,7 +157,7 @@ impl Settings {
         match config::update_file(&cfg.path, &BTreeMap::from([(key.clone(), value)])) {
             Ok(()) => {
                 self.message = Some((format!("Saved {key}."), theme::ACCENT));
-                Some(Saved { key })
+                Some(())
             }
             Err(e) => {
                 self.message = Some((format!("Could not save: {e}"), theme::RED));

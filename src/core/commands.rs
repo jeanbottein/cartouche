@@ -1,5 +1,7 @@
 //! Pipeline step 10: `RUN_AFTER_<label>=<command>` shell commands, run in key
-//! order, with `${KEY}` replaced by config values.
+//! order, with `${KEY}` replaced by config values, or by the cartridge's
+//! folders: `${FREEGAMES_PATH}`, `${PATCHES_PATH}`, `${SAVESCOPY_PATH}` and
+//! `${SAVESLINK_PATH}` (the names of the former path settings).
 
 use std::process::Command;
 
@@ -9,17 +11,26 @@ use super::config::Config;
 use super::paths;
 
 fn expand_template(command: &str, cfg: &Config) -> String {
+    let workspace = cfg.workspace();
     let builtins = [
         ("_CONFIG_PATH", paths::lossy(&cfg.path)),
         ("_SCRIPT_DIR", paths::lossy(&super::app::exe_dir())),
+        (
+            "FREEGAMES_PATH",
+            paths::lossy(&workspace.join(super::app::GAMES_DIR)),
+        ),
+        ("PATCHES_PATH", paths::lossy(&cfg.mods_dir())),
+        ("SAVESCOPY_PATH", paths::lossy(&cfg.saves_copies_dir())),
+        ("SAVESLINK_PATH", paths::lossy(&cfg.saves_links_dir())),
     ];
+    // Built-ins first: a leftover `SAVESLINK_PATH=` line in an old config
+    // must not override the cartridge's fixed folders.
     let lookup = |name: &str| {
-        cfg.get(name).map(str::to_string).or_else(|| {
-            builtins
-                .iter()
-                .find(|(k, _)| *k == name)
-                .map(|(_, v)| v.clone())
-        })
+        builtins
+            .iter()
+            .find(|(k, _)| *k == name)
+            .map(|(_, v)| v.clone())
+            .or_else(|| cfg.get(name).map(str::to_string))
     };
     // Only the braced form: `$1`-style shell syntax must reach the shell intact.
     command
@@ -103,8 +114,9 @@ mod tests {
 
     #[test]
     fn expands_config_keys_and_leaves_the_rest() {
-        let raw = config::parse("SAVESLINK_PATH=/links\nMACHINE_NAME=deck\n");
-        let cfg = Config::from_raw("/ws/.cartridge/config.txt".into(), raw);
+        // A leftover path setting is ignored: the folder is fixed.
+        let raw = config::parse("SAVESLINK_PATH=/elsewhere\nMACHINE_NAME=deck\n");
+        let cfg = Config::from_raw("/ws/system/config.txt".into(), raw);
         assert_eq!(
             expand_template(
                 "rclone sync -L \"${SAVESLINK_PATH}\" r:${MACHINE_NAME} ${UNKNOWN} $1",
@@ -112,13 +124,12 @@ mod tests {
             ),
             format!(
                 "rclone sync -L \"{}\" r:deck ${{UNKNOWN}} $1",
-                // Resolved like the config does (`D:\links` on Windows).
-                paths::lossy(&paths::resolve(std::path::Path::new("/links")))
+                paths::lossy(&std::path::Path::new("/ws").join("saves-links"))
             )
         );
         assert_eq!(
             expand_template("${_CONFIG_PATH}", &cfg),
-            "/ws/.cartridge/config.txt"
+            "/ws/system/config.txt"
         );
     }
 }

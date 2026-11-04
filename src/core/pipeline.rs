@@ -124,7 +124,7 @@ pub struct Pipeline<'a> {
 
 impl<'a> Pipeline<'a> {
     pub fn new(cfg: &'a Config) -> Pipeline<'a> {
-        let games_dir = cfg.path_of("FREEGAMES_PATH").unwrap_or_default();
+        let games_dir = cfg.workspace().join(super::app::GAMES_DIR);
         Pipeline {
             cfg,
             games_dir,
@@ -160,10 +160,7 @@ impl<'a> Pipeline<'a> {
                 steam_self::register(cfg);
             }
             (Phase::Manifest, Some(games)) if cfg.is_not_false("MANIFEST_EXPORT") => {
-                let output = cfg
-                    .path_of("MANIFEST_PATH")
-                    .unwrap_or_else(|| self.games_dir.join("manifests.json"));
-                manifest::write(games, &output);
+                manifest::write(games, &self.games_dir.join("manifests.json"));
             }
             (Phase::Patch, _) => patcher::run(cfg),
             (Phase::Save, Some(games)) => saver::run(games, cfg),

@@ -184,7 +184,7 @@ pub enum Install {
 
 #[derive(Clone, Debug, Default)]
 pub struct Game {
-    /// Subfolder name under `FREEGAMES_PATH`.
+    /// Subfolder name under `games/`.
     pub folder_name: String,
     pub dir: PathBuf,
     pub title: String,

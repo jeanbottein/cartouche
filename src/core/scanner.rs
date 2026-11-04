@@ -1,4 +1,4 @@
-//! Pipeline step 1: read every game folder under `FREEGAMES_PATH` into memory
+//! Pipeline step 1: read every game folder under `games/` into memory
 //! and resolve the target and save paths for the current machine.
 
 use std::collections::HashMap;
@@ -313,7 +313,7 @@ pub fn load_library(games_dir: &Path) -> Vec<Game> {
 /// Pipeline step 1: [`load_library`] with a log line per game.
 pub fn scan(games_dir: &Path) -> Vec<Game> {
     if !games_dir.is_dir() {
-        warn!("FREEGAMES_PATH not configured or invalid");
+        warn!("No games folder at {}", games_dir.display());
         return Vec::new();
     }
     info!("Scanning for games in {}", games_dir.display());

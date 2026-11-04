@@ -1,5 +1,6 @@
-//! First run in the UI: choose where the workspace goes and which folders to
-//! create, then write `system/config.txt`.
+//! First run in the UI: no cartridge next to the app yet. Explain the
+//! portable layout, then create it there (`system/`, `games/`, `mods/`,
+//! `saves-copies/`, `saves-links/`). No choices: folders are fixed.
 
 use std::path::{Path, PathBuf};
 
@@ -8,8 +9,8 @@ use macroquad::prelude::*;
 use super::engine::theme;
 use super::form::{Event as FormEvent, Field, Form};
 use super::{Hint, Ui};
-use crate::core::app::{exe_dir, DISPLAY_NAME, WORKSPACE_DIR};
-use crate::core::{init, paths};
+use crate::core::app::{label, DISPLAY_NAME, FOLDERS, WORKSPACE_DIR};
+use crate::core::init;
 
 pub enum Outcome {
     Created(PathBuf),
@@ -17,98 +18,44 @@ pub enum Outcome {
 }
 
 pub struct Setup {
+    /// Where the cartridge goes: next to the app, or the folder given on the
+    /// command line.
+    dir: PathBuf,
     form: Form,
     message: Option<String>,
-    /// What creating a workspace in the chosen folder means (and its pitfalls).
+    /// What creating a cartridge here means (and its pitfalls).
     advice: Vec<String>,
 }
 
 const LINE: f32 = 20.0;
 
-fn advice_for(workspace: &str) -> Vec<String> {
-    init::folder_advice(&paths::abspath(&paths::expand(workspace)))
-}
-
-fn fields(workspace: &str, previous: Option<&Form>) -> Vec<Field> {
-    let base = paths::expand(workspace);
-    let keep =
-        |id: &str, default: &str| previous.map_or(default.to_string(), |f| f.value(id).to_string());
-    let help = format!("A {WORKSPACE_DIR}/ folder is created here, with your settings.");
-    let mut out = vec![
+fn fields(dir: &Path) -> Vec<Field> {
+    // The folder name, not the full path: it is the cartridge's label, and
+    // fits on the help line.
+    let help = format!(
+        "Creates {WORKSPACE_DIR}/, {} in {}/",
+        FOLDERS.join("/, ") + "/",
+        label(dir)
+    );
+    vec![
         Field::section(&format!("WELCOME TO {DISPLAY_NAME}")),
-        Field::path(
-            "workspace",
-            "Workspace folder",
-            workspace,
-            true,
-            Path::new("/"),
-        )
-        .with_help(&help),
-        Field::section("FOLDERS  (relative to the workspace, or absolute)"),
-    ];
-    for feature in &init::FEATURES {
-        out.push(
-            Field::flag(
-                &format!("{}.on", feature.key),
-                feature.label,
-                &keep(&format!("{}.on", feature.key), "True"),
-                true,
-            )
-            .with_help(feature.description),
-        );
-        out.push(
-            Field::path(
-                &format!("{}.path", feature.key),
-                &format!("  {} folder", feature.label),
-                &keep(&format!("{}.path", feature.key), feature.default),
-                true,
-                &base,
-            )
-            .with_help(feature.description),
-        );
-    }
-    out.extend([
-        Field::section(""),
-        Field::button("create", "Create workspace", "", theme::ACCENT),
+        Field::button("create", "Create the cartridge here", "", theme::ACCENT).with_help(&help),
         Field::button("quit", "Quit", "", theme::MUTED),
-    ]);
-    out
+    ]
 }
 
 impl Setup {
-    pub fn new() -> Setup {
-        // Portable first: next to the app (the current folder means nothing
-        // when launched from a file manager or Steam).
-        let next_to_app = paths::lossy(&exe_dir());
+    pub fn new(dir: PathBuf) -> Setup {
         Setup {
-            form: Form::new(fields(&next_to_app, None)),
-            advice: advice_for(&next_to_app),
+            form: Form::new(fields(&dir)),
+            advice: init::folder_advice(&dir),
+            dir,
             message: None,
         }
     }
 
     fn create(&mut self) -> Option<Outcome> {
-        let parent = paths::abspath(&paths::expand(self.form.value("workspace")));
-        let chosen: Vec<(String, String)> = init::FEATURES
-            .iter()
-            .filter(|f| {
-                self.form
-                    .get(&format!("{}.on", f.key))
-                    .is_some_and(|field| field.is_on())
-            })
-            .map(|f| {
-                let value = self.form.value(&format!("{}.path", f.key)).trim();
-                (
-                    f.key.to_string(),
-                    if value.is_empty() {
-                        f.default.to_string()
-                    } else {
-                        value.to_string()
-                    },
-                )
-            })
-            .collect();
-        match init::initialize(&parent, &chosen) {
+        match init::initialize(&self.dir) {
             Ok(config) => Some(Outcome::Created(config)),
             Err(e) => {
                 self.message = Some(format!("Setup failed: {e}"));
@@ -137,13 +84,6 @@ impl Setup {
         match self.form.update(ui, form_area)? {
             FormEvent::Pressed(id) if id == "create" => self.create(),
             FormEvent::Pressed(id) if id == "quit" => Some(Outcome::Quit),
-            FormEvent::Changed(id) if id == "workspace" => {
-                let workspace = self.form.value("workspace").to_string();
-                let rebuilt = fields(&workspace, Some(&self.form));
-                self.form.set_fields(rebuilt);
-                self.advice = advice_for(&workspace);
-                None
-            }
             _ => None,
         }
     }

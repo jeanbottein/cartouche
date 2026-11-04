@@ -1,26 +1,20 @@
 //! `system/config.txt`: `KEY=value` lines, `#` comments (whole-line and
-//! inline). Path-like values may be relative to the workspace root (the
-//! `system/` parent) and are resolved on load; the raw text values are kept
-//! for the Settings editor, which rewrites the file preserving comments.
+//! inline). The cartridge's folders are fixed (`games/`, `mods/`, ... next to
+//! `system/`); only `BACKUP_*` sources are paths, and may be relative to the
+//! cartridge folder. Raw text values are kept for the Settings editor, which
+//! rewrites the file preserving comments.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use super::app::{GAMES_DIR, MODS_DIR, SAVES_COPIES_DIR, SAVES_LINKS_DIR};
 use super::paths;
 
 pub const DEFAULT_CONFIG: &str = include_str!("../../assets/config-default.txt");
 
-/// Keys whose values may be relative to the workspace root (plus `BACKUP_*`).
-const RELATIVE_PATH_KEYS: [&str; 5] = [
-    "FREEGAMES_PATH",
-    "PATCHES_PATH",
-    "SAVESCOPY_PATH",
-    "SAVESLINK_PATH",
-    "MANIFEST_PATH",
-];
-
+/// `BACKUP_<name>=<path>`: an extra folder (outside the cartridge) to back up.
 pub fn is_path_key(key: &str) -> bool {
-    RELATIVE_PATH_KEYS.contains(&key) || key.starts_with("BACKUP_")
+    key.starts_with("BACKUP_")
 }
 
 #[derive(Clone, Debug)]
@@ -69,10 +63,6 @@ impl Config {
         &self.values
     }
 
-    pub fn path_of(&self, key: &str) -> Option<PathBuf> {
-        self.get(key).map(PathBuf::from)
-    }
-
     /// Opt-in flag: true only when set to `true` (any case).
     pub fn is_true(&self, key: &str) -> bool {
         self.get(key)
@@ -109,9 +99,21 @@ impl Config {
         super::app::cartridge_id(&self.app_dir())
     }
 
-    /// `FREEGAMES_PATH`, when it points at an existing directory.
+    /// `games/`, when it exists.
     pub fn games_dir(&self) -> Option<PathBuf> {
-        self.path_of("FREEGAMES_PATH").filter(|p| p.is_dir())
+        Some(self.workspace().join(GAMES_DIR)).filter(|p| p.is_dir())
+    }
+
+    pub fn mods_dir(&self) -> PathBuf {
+        self.workspace().join(MODS_DIR)
+    }
+
+    pub fn saves_copies_dir(&self) -> PathBuf {
+        self.workspace().join(SAVES_COPIES_DIR)
+    }
+
+    pub fn saves_links_dir(&self) -> PathBuf {
+        self.workspace().join(SAVES_LINKS_DIR)
     }
 }
 
@@ -208,18 +210,19 @@ mod tests {
     }
 
     #[test]
-    fn relative_paths_resolve_against_workspace() {
-        let raw = parse("FREEGAMES_PATH=games\nBACKUP_x=/abs\nMACHINE_NAME=deck\n");
-        let cfg = Config::from_raw(PathBuf::from("/ws/.cartridge/config.txt"), raw);
+    fn backup_sources_resolve_against_the_cartridge() {
+        let raw = parse("BACKUP_x=emu/saves\nBACKUP_y=/abs\nMACHINE_NAME=deck\n");
+        let cfg = Config::from_raw(PathBuf::from("/ws/system/config.txt"), raw);
         // Resolved like the code does, so `/ws` reads `D:\ws` on Windows.
         let resolved = |p: &str| paths::lossy(&paths::resolve(Path::new(p)));
         assert_eq!(
-            cfg.get("FREEGAMES_PATH"),
-            Some(resolved("/ws/games").as_str())
+            cfg.get("BACKUP_x"),
+            Some(resolved("/ws/emu/saves").as_str())
         );
-        assert_eq!(cfg.get("BACKUP_x"), Some(resolved("/abs").as_str()));
+        assert_eq!(cfg.get("BACKUP_y"), Some(resolved("/abs").as_str()));
         assert_eq!(cfg.get("MACHINE_NAME"), Some("deck"));
-        assert_eq!(cfg.raw()["FREEGAMES_PATH"], "games");
+        assert_eq!(cfg.raw()["BACKUP_x"], "emu/saves");
+        assert_eq!(cfg.mods_dir(), Path::new("/ws/mods"));
     }
 
     #[test]

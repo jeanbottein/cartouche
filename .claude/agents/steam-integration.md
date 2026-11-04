@@ -11,5 +11,5 @@ You are a specialist in •cartridge's Steam layer (`src/core/steam.rs`, `steam_
 - **Clean:** owned shortcuts (tag = app name or `gamer-sidekick`) whose exe is no longer a resolved target are removed, keys renumbered.
 - **Export:** add, or replace when title/icon changed; artwork copied to `config/grid/` (`<appid>p`, `<appid>`, `_hero`, `_logo`, `_icon`) when missing.
 - **Proton:** `set_compat_tools` adds `CompatToolMapping` entries (`PROTON_VERSION`, priority 250) to `config/config.vdf` (text KeyValues, keys matched case-insensitively, escapes kept verbatim).
-- **Self shortcut** (`STEAM_ADD_SELF`): `.cartridge` → this binary (or `STEAM_SELF_TARGET`), start dir = workspace, embedded art, tag `<app>-self`; keeps AppID and LastPlayTime.
+- **Self shortcut** (`STEAM_ADD_SELF`): named after the cartridge folder → this app (binary/AppImage/.app), start dir = cartridge folder, art from `system/*.png` else embedded; ownership tag `cartridge:<id>` (`system/cartridge-id`), tag `<app>-self`; keeps AppID and LastPlayTime.
 - Preview without changes: `cargo run -- -n`.

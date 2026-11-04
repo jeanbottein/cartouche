@@ -19,7 +19,7 @@ use super::settings::Settings;
 use super::setup::{self, Setup};
 use super::status::Status;
 use super::{Hint, Ui};
-use crate::core::app::find_app_dir;
+use crate::core::app::{exe_dir, find_app_dir};
 use crate::core::config::Config;
 use crate::core::logging::{self, Line};
 use crate::core::package;
@@ -119,7 +119,12 @@ impl App {
         };
         match find_app_dir(cli_dir.as_deref()) {
             Some(app_dir) => app.open(Config::load(&init::config_in(&app_dir))),
-            None => app.setup = Some(Setup::new()),
+            // Portable: the cartridge goes next to the app (or in the folder
+            // given on the command line).
+            None => {
+                let dir = cli_dir.unwrap_or_else(exe_dir);
+                app.setup = Some(Setup::new(dir));
+            }
         }
         app
     }
@@ -318,11 +323,8 @@ impl App {
                 let (Some(settings), Some(cfg)) = (&mut self.settings, &self.config) else {
                     return;
                 };
-                if let Some(saved) = settings.update(&mut self.ui, area, cfg) {
+                if settings.update(&mut self.ui, area, cfg).is_some() {
                     self.reload_config();
-                    if saved.key == "FREEGAMES_PATH" {
-                        self.reload_library();
-                    }
                 }
             }
         }
