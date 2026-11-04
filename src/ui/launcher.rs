@@ -136,11 +136,10 @@ fn spawn_detached(mut cmd: Command) -> std::io::Result<Arc<AtomicBool>> {
     Ok(running)
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 
-    #[cfg(unix)]
     #[test]
     fn session_ends_when_process_exits() {
         let running = spawn_detached(Command::new("true")).unwrap();

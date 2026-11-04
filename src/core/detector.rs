@@ -433,6 +433,7 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     fn elf() -> Vec<u8> {
         let mut bytes = b"\x7fELF".to_vec();
         bytes.resize(64, 0);
@@ -503,6 +504,7 @@ mod tests {
             .iter()
             .map(|p| paths::lossy(p))
             .collect();
-        assert_eq!(found, vec!["", "Studio", "Studio/Game Saves"]);
+        let nested = paths::lossy(&Path::new("Studio").join("Game Saves"));
+        assert_eq!(found, vec!["", "Studio", nested.as_str()]);
     }
 }

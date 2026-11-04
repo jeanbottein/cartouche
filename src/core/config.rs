@@ -201,8 +201,13 @@ mod tests {
     fn relative_paths_resolve_against_workspace() {
         let raw = parse("FREEGAMES_PATH=games\nBACKUP_x=/abs\nMACHINE_NAME=deck\n");
         let cfg = Config::from_raw(PathBuf::from("/ws/.cartouche/config.txt"), raw);
-        assert_eq!(cfg.get("FREEGAMES_PATH"), Some("/ws/games"));
-        assert_eq!(cfg.get("BACKUP_x"), Some("/abs"));
+        // Resolved like the code does, so `/ws` reads `D:\ws` on Windows.
+        let resolved = |p: &str| paths::lossy(&paths::resolve(Path::new(p)));
+        assert_eq!(
+            cfg.get("FREEGAMES_PATH"),
+            Some(resolved("/ws/games").as_str())
+        );
+        assert_eq!(cfg.get("BACKUP_x"), Some(resolved("/abs").as_str()));
         assert_eq!(cfg.get("MACHINE_NAME"), Some("deck"));
         assert_eq!(cfg.raw()["FREEGAMES_PATH"], "games");
     }

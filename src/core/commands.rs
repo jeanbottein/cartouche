@@ -110,7 +110,11 @@ mod tests {
                 "rclone sync -L \"${SAVESLINK_PATH}\" r:${MACHINE_NAME} ${UNKNOWN} $1",
                 &cfg
             ),
-            "rclone sync -L \"/links\" r:deck ${UNKNOWN} $1"
+            format!(
+                "rclone sync -L \"{}\" r:deck ${{UNKNOWN}} $1",
+                // Resolved like the config does (`D:\links` on Windows).
+                paths::lossy(&paths::resolve(std::path::Path::new("/links")))
+            )
         );
         assert_eq!(
             expand_template("${_CONFIG_PATH}", &cfg),
