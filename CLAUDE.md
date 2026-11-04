@@ -14,7 +14,7 @@ core::pipeline::Pipeline (groups: all / parse / steam / backup / patch)
     sizer::measure           #   + size on disk into game.json
  3. sgdb::enrich             # SteamGridDB names/IDs/artwork (if API key)
  4. persister::persist       # Write game.json + download images (PERSIST_DATA)
- 5. steam::clean             # Remove stale Steam shortcuts (STEAM_EXPOSE)
+ 5. steam::clean             # Remove this cartridge's shortcuts for games no longer in Steam
  6. steam::export            # Insert/update shortcuts + Proton compat
     steam_self::register     #   + •cartridge itself (STEAM_ADD_SELF)
  7. manifest::write          # manifests.json (MANIFEST_EXPORT)
@@ -74,8 +74,8 @@ Packages: a plain tar of `Foo/` with `.cartridge/package.json` first and `.cartr
 - **Compatibility is the contract:** game.json (4-space JSON), shortcuts.vdf, AppIDs (`crc32(exe+title) | 0x80000000`), path normalization and save layout must stay byte-compatible with existing workspaces. Golden tests in `testdata/` guard this.
 - **Fixed layout, no path settings:** `games/`, `mods/`, `saves-copies/`, `saves-links/` sit next to `system/` (`core::app::FOLDERS`, `Config::games_dir()`/`mods_dir()`/...). Users who want a folder elsewhere replace it with a symlink. `RUN_AFTER_*` commands still get `${FREEGAMES_PATH}`, `${PATCHES_PATH}`, `${SAVESCOPY_PATH}`, `${SAVESLINK_PATH}` as read-only folder variables.
 - **`Config`** keeps raw values (Settings editor) and resolved values (only `BACKUP_*` sources are paths, resolved against the cartridge folder).
-- Flags: `is_true` for opt-in keys (STEAM_EXPOSE, ...), `is_not_false` for opt-out keys (PERSIST_DATA, MANIFEST_EXPORT).
-- **Ownership tag** in Steam shortcuts is the app name (also recognizes legacy `"gamer-sidekick"`); the self shortcut uses `<app>-self`.
+- Flags: `is_true` for opt-in keys (STEAM_ADD_SELF, SHARE_ENABLED, ...), `is_not_false` for opt-out keys (PERSIST_DATA, MANIFEST_EXPORT).
+- **Steam, per game:** the user adds/removes each game (Library, Y), remembered in `system/steam.json`; the pipeline keeps exactly those shortcuts current. Ownership tag `cartridge:<id>` (`system/cartridge-id`) plus the folder-name label as a visible tag; the self-shortcut (`STEAM_ADD_SELF`, first SETTINGS option) uses `<owner tag>-self` and is applied as soon as it's toggled. Steam reads shortcuts at startup: the UI says "restart Steam" when it runs.
 - **Logging:** `log` macros; `core::logging` prints to stderr and mirrors to the UI Status log.
 - **Minimal dependencies:** macroquad, gilrs (feature `gamepad`), rodio (feature `music`, ALSA at build time), serde/serde_json, image, ureq, crc32fast, tar, log.
 

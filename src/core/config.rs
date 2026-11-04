@@ -227,9 +227,9 @@ mod tests {
 
     #[test]
     fn flags_have_opt_in_and_opt_out_defaults() {
-        let raw = parse("STEAM_EXPOSE=TRUE\nPERSIST_DATA=false\n");
+        let raw = parse("SHARE_ENABLED=TRUE\nPERSIST_DATA=false\n");
         let cfg = Config::from_raw(PathBuf::from("/ws/.cartridge/config.txt"), raw);
-        assert!(cfg.is_true("STEAM_EXPOSE"));
+        assert!(cfg.is_true("SHARE_ENABLED"));
         assert!(!cfg.is_true("STEAM_ADD_SELF"));
         assert!(!cfg.is_not_false("PERSIST_DATA"));
         assert!(cfg.is_not_false("MANIFEST_EXPORT"));

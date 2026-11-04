@@ -5,15 +5,20 @@
 //! Shortcuts we own carry this cartridge's ownership tag (`cartridge:<id>`),
 //! so other non-Steam games, and other cartridges' games, are never touched.
 //! The cartridge's label (its folder name) is a second, visible tag.
+//!
+//! The user picks which games are in Steam, per game (Library, Y);
+//! `system/steam.json` remembers the choice, and the pipeline keeps exactly
+//! those shortcuts up to date. Steam reads shortcuts at startup: a change
+//! shows after Steam restarts (see `is_running`).
 
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 
 use super::app::APP_NAME;
 use super::config::Config;
-use super::models::{Game, ImageSlot};
+use super::models::{to_pretty_json, Game, ImageSlot};
 use super::paths;
 use super::vdf::{self, Map, Value};
 
@@ -59,7 +64,7 @@ pub fn userdata_config_dirs() -> Vec<PathBuf> {
 pub fn select_config_dirs(cfg: &Config) -> Vec<PathBuf> {
     let dirs = userdata_config_dirs();
     if dirs.is_empty() {
-        warn!("No Steam userdata directories found");
+        debug!("No Steam userdata directories found");
         return dirs;
     }
     let Some(uid) = cfg
@@ -80,13 +85,71 @@ pub fn select_config_dirs(cfg: &Config) -> Vec<PathBuf> {
     filtered
 }
 
-/// User config dirs to sync games into; empty unless `STEAM_EXPOSE=True`.
-pub fn exposed_config_dirs(cfg: &Config) -> Vec<PathBuf> {
-    if cfg.is_true("STEAM_EXPOSE") {
-        select_config_dirs(cfg)
-    } else {
-        Vec::new()
-    }
+const SELECTION_FILE: &str = "steam.json";
+
+#[derive(Default, serde::Serialize, serde::Deserialize)]
+struct Selection {
+    /// Game folder names.
+    games: BTreeSet<String>,
+}
+
+fn selection_path(cfg: &Config) -> PathBuf {
+    cfg.app_dir().join(SELECTION_FILE)
+}
+
+fn load_selection(cfg: &Config) -> Option<BTreeSet<String>> {
+    let text = std::fs::read_to_string(selection_path(cfg)).ok()?;
+    serde_json::from_str::<Selection>(&text)
+        .ok()
+        .map(|s| s.games)
+}
+
+fn save_selection(cfg: &Config, games: BTreeSet<String>) -> Result<(), String> {
+    let path = selection_path(cfg);
+    std::fs::write(&path, to_pretty_json(&Selection { games }))
+        .map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// The games that already have one of our shortcuts (first run, before
+/// `steam.json` exists).
+fn games_with_shortcuts(cfg: &Config, games: &[Game]) -> BTreeSet<String> {
+    let owner = Owner::of(cfg);
+    let exes: HashSet<String> = userdata_config_dirs()
+        .iter()
+        .filter_map(|dir| load_shortcuts(&shortcuts_path(dir)).ok())
+        .flat_map(|shortcuts| {
+            shortcuts
+                .values()
+                .filter_map(as_shortcut)
+                .filter(|s| has_ownership_tag(s, &owner.tag))
+                .map(|s| exe_of(s).to_string())
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    games
+        .iter()
+        .filter(|g| resolved_target(g).is_some_and(|t| exes.contains(&t)))
+        .map(|g| g.folder_name.clone())
+        .collect()
+}
+
+/// This cartridge's games the user put in Steam.
+pub fn games_in_steam(cfg: &Config, games: &[Game]) -> BTreeSet<String> {
+    load_selection(cfg).unwrap_or_else(|| games_with_shortcuts(cfg, games))
+}
+
+/// Steam reads its shortcuts at startup and rewrites them from memory:
+/// changes made while it runs show (and stick) only after a restart.
+pub fn is_running() -> bool {
+    let name = match std::env::consts::OS {
+        "linux" => "steam",
+        "macos" => "steam_osx",
+        _ => return false,
+    };
+    std::process::Command::new("pgrep")
+        .args(["-x", name])
+        .output()
+        .is_ok_and(|out| out.status.success())
 }
 
 pub fn user_id(config_dir: &Path) -> String {
@@ -199,7 +262,7 @@ pub fn next_index(shortcuts: &Map) -> String {
 }
 
 /// Renumber entries "0", "1", ... keeping their order.
-fn reindex(shortcuts: Map) -> Map {
+pub fn reindex(shortcuts: Map) -> Map {
     let mut entries = shortcuts.0;
     entries.sort_by_key(|(k, _)| k.parse::<u64>().unwrap_or(0));
     Map(entries
@@ -268,40 +331,55 @@ fn resolved_target(game: &Game) -> Option<String> {
 
 // ── Step 5: remove stale shortcuts ───────────────────────────────────────
 
+/// Remove our shortcuts whose executable matches `doomed`. Returns how many.
+fn remove_owned(
+    config_dir: &Path,
+    owner_tag: &str,
+    doomed: impl Fn(&str) -> bool,
+) -> Result<usize, String> {
+    let path = shortcuts_path(config_dir);
+    let shortcuts = load_shortcuts(&path)?;
+    let (removed, kept): (Vec<_>, Vec<_>) = shortcuts.0.into_iter().partition(|(_, v)| {
+        as_shortcut(v).is_some_and(|s| has_ownership_tag(s, owner_tag) && doomed(exe_of(s)))
+    });
+    if removed.is_empty() {
+        return Ok(0);
+    }
+    for (_, shortcut) in &removed {
+        info!(
+            "  Removing shortcut: {}",
+            as_shortcut(shortcut).map(appname).unwrap_or("")
+        );
+    }
+    save_shortcuts(&path, reindex(Map(kept))).map_err(|e| format!("{}: {e}", path.display()))?;
+    Ok(removed.len())
+}
+
 fn remove_stale(
     config_dir: &Path,
     valid_targets: &HashSet<String>,
     owner_tag: &str,
 ) -> Result<(), String> {
-    let path = shortcuts_path(config_dir);
-    let shortcuts = load_shortcuts(&path)?;
-    let (stale, kept): (Vec<_>, Vec<_>) = shortcuts.0.into_iter().partition(|(_, v)| {
-        as_shortcut(v)
-            .is_some_and(|s| has_ownership_tag(s, owner_tag) && !valid_targets.contains(exe_of(s)))
-    });
-    if stale.is_empty() {
-        return Ok(());
-    }
-    for (_, shortcut) in &stale {
+    let removed = remove_owned(config_dir, owner_tag, |exe| !valid_targets.contains(exe))?;
+    if removed > 0 {
         info!(
-            "  Removing stale shortcut: {}",
-            as_shortcut(shortcut).map(appname).unwrap_or("")
+            "  Steam user {}: removed {removed} stale shortcut(s)",
+            user_id(config_dir)
         );
     }
-    save_shortcuts(&path, reindex(Map(kept))).map_err(|e| format!("{}: {e}", path.display()))?;
-    info!(
-        "  Steam user {}: removed {} stale shortcut(s)",
-        user_id(config_dir),
-        stale.len()
-    );
     Ok(())
 }
 
 /// Remove our shortcuts whose executable is no longer in the library.
 pub fn clean(games: &[Game], cfg: &Config) {
-    let valid_targets: HashSet<String> = games.iter().filter_map(resolved_target).collect();
+    let selected = games_in_steam(cfg, games);
+    let valid_targets: HashSet<String> = games
+        .iter()
+        .filter(|g| selected.contains(&g.folder_name))
+        .filter_map(resolved_target)
+        .collect();
     let owner = Owner::of(cfg);
-    for config_dir in exposed_config_dirs(cfg) {
+    for config_dir in select_config_dirs(cfg) {
         if let Err(e) = remove_stale(&config_dir, &valid_targets, &owner.tag) {
             error!("  Skipping Steam user {}: {e}", user_id(&config_dir));
         }
@@ -428,31 +506,22 @@ fn export_to_user(
 
 /// Create/update shortcuts for every game with a target, then set Proton for
 /// Windows games.
-pub fn export(games: &[Game], cfg: &Config) {
-    let config_dirs = exposed_config_dirs(cfg);
-    let with_targets: Vec<(&Game, u32)> = games
-        .iter()
-        .filter_map(|g| resolved_target(g).map(|t| (g, generate_appid(&g.title, &t))))
-        .collect();
-    if config_dirs.is_empty() || with_targets.is_empty() {
-        return;
-    }
-
+/// Write shortcuts (and Proton for Windows games) for `with_targets` into
+/// each Steam user's config. Returns (added, updated).
+fn export_games(
+    cfg: &Config,
+    config_dirs: &[PathBuf],
+    with_targets: &[(&Game, u32)],
+) -> (usize, usize) {
     let owner = Owner::of(cfg);
-    let (added, updated) = config_dirs
+    let counts = config_dirs
         .iter()
         .filter_map(|dir| {
-            export_to_user(dir, &with_targets, &owner)
+            export_to_user(dir, with_targets, &owner)
                 .map_err(|e| error!("  Skipping Steam user {}: {e}", user_id(dir)))
                 .ok()
         })
         .fold((0, 0), |(a, u), (da, du)| (a + da, u + du));
-    if added + updated > 0 {
-        info!("Steam export complete: {added} added, {updated} updated");
-    } else {
-        info!("Steam shortcuts already up to date");
-    }
-
     let tool = cfg
         .get("PROTON_VERSION")
         .unwrap_or("proton_experimental")
@@ -468,6 +537,59 @@ pub fn export(games: &[Game], cfg: &Config) {
             set_compat_tools(&windows_appids, &tool, dir);
         });
     }
+    counts
+}
+
+fn with_appid(game: &Game) -> Option<(&Game, u32)> {
+    resolved_target(game).map(|t| (game, generate_appid(&game.title, &t)))
+}
+
+/// Pipeline step 6: create/update the shortcuts of the games the user put in
+/// Steam, then set Proton for the Windows ones.
+pub fn export(games: &[Game], cfg: &Config) {
+    let selected = games_in_steam(cfg, games);
+    let with_targets: Vec<(&Game, u32)> = games
+        .iter()
+        .filter(|g| selected.contains(&g.folder_name))
+        .filter_map(with_appid)
+        .collect();
+    if with_targets.is_empty() {
+        info!("No games to keep in Steam");
+        return;
+    }
+    let (added, updated) = export_games(cfg, &select_config_dirs(cfg), &with_targets);
+    if added + updated > 0 {
+        info!("Steam export complete: {added} added, {updated} updated");
+    } else {
+        info!("Steam shortcuts already up to date");
+    }
+}
+
+/// Put one game in Steam now, and remember it.
+pub fn add_game(cfg: &Config, library: &[Game], game: &Game) -> Result<(), String> {
+    let entry =
+        with_appid(game).ok_or("No executable found yet: run the pipeline from STATUS first")?;
+    let config_dirs = select_config_dirs(cfg);
+    if config_dirs.is_empty() {
+        return Err("Steam not found on this machine".into());
+    }
+    let mut selected = games_in_steam(cfg, library);
+    export_games(cfg, &config_dirs, &[entry]);
+    selected.insert(game.folder_name.clone());
+    save_selection(cfg, selected)
+}
+
+/// Take one game out of Steam now (only this cartridge's shortcut), and remember it.
+pub fn remove_game(cfg: &Config, library: &[Game], game: &Game) -> Result<(), String> {
+    let mut selected = games_in_steam(cfg, library);
+    if let Some(target) = resolved_target(game) {
+        let owner = Owner::of(cfg);
+        for dir in select_config_dirs(cfg) {
+            remove_owned(&dir, &owner.tag, |exe| exe == target)?;
+        }
+    }
+    selected.remove(&game.folder_name);
+    save_selection(cfg, selected)
 }
 
 // ── Step 6b: Proton for Windows games ────────────────────────────────────
@@ -685,5 +807,41 @@ mod tests {
             mapping.get_map("456").unwrap().get_str("name"),
             Some("proton_9")
         );
+    }
+
+    #[test]
+    fn the_selection_is_remembered_in_system() {
+        let dir = TempDir::new();
+        dir.write("system/config.txt", b"");
+        let cfg = Config::load(&dir.path().join("system/config.txt"));
+        assert!(load_selection(&cfg).is_none());
+        save_selection(&cfg, BTreeSet::from(["Celeste".to_string()])).unwrap();
+        assert_eq!(
+            games_in_steam(&cfg, &[]),
+            BTreeSet::from(["Celeste".to_string()])
+        );
+    }
+
+    #[test]
+    fn removing_one_game_keeps_the_others() {
+        let dir = TempDir::new();
+        let config_dir = dir.mkdir("userdata/1/config");
+        let shortcuts = Map(vec![
+            ("0".into(), shortcut("A", "/g/a", "cartridge:1")),
+            ("1".into(), shortcut("B", "/g/b", "cartridge:1")),
+            ("2".into(), shortcut("Mine", "/g/a", "favorite")),
+        ]);
+        save_shortcuts(&shortcuts_path(&config_dir), shortcuts).unwrap();
+        assert_eq!(
+            remove_owned(&config_dir, "cartridge:1", |exe| exe == "/g/a").unwrap(),
+            1
+        );
+        let after = load_shortcuts(&shortcuts_path(&config_dir)).unwrap();
+        let names: Vec<&str> = after
+            .values()
+            .filter_map(as_shortcut)
+            .map(appname)
+            .collect();
+        assert_eq!(names, ["B", "Mine"]);
     }
 }

@@ -51,7 +51,6 @@ Files:
   DIR/saves-links/               Links to live save folders (for Syncthing)
 
 Main settings:
-  STEAM_EXPOSE=True              Add games to Steam as non-Steam shortcuts
   STEAM_ADD_SELF=True            Add the cartridge itself (named after DIR)
   STEAMGRIDDB_API_KEY=<key>      Artwork, names and years from SteamGridDB
   SHARE_ENABLED=True             Share games on the LAN while the UI runs

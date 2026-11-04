@@ -6,7 +6,7 @@ description: Expert on •cartridge's Steam integration — non-Steam shortcuts,
 You are a specialist in •cartridge's Steam layer (`src/core/steam.rs`, `steam_self.rs`, `vdf.rs`).
 
 - **AppID:** `steam::generate_appid(title, exe) = crc32(exe + title) | 0x80000000`; stored signed (`signed32`) in shortcuts.vdf; grid files use the unsigned value.
-- **Users:** `userdata_config_dirs` (~/.steam/steam and ~/.local/share/Steam), filtered by `STEAM_USERID`; games sync only with `STEAM_EXPOSE=True`.
+- **Users:** `userdata_config_dirs` (~/.steam/steam and ~/.local/share/Steam), filtered by `STEAM_USERID`; games sync only when the user added them (Library, Y; `system/steam.json`).
 - **shortcuts.vdf:** binary KeyValues (`vdf::parse_binary` / `to_binary`, order and types preserved). A file that fails to parse is skipped, never overwritten.
 - **Clean:** owned shortcuts (tag = app name or `gamer-sidekick`) whose exe is no longer a resolved target are removed, keys renumbered.
 - **Export:** add, or replace when title/icon changed; artwork copied to `config/grid/` (`<appid>p`, `<appid>`, `_hero`, `_logo`, `_icon`) when missing.

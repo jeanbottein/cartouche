@@ -188,6 +188,12 @@ impl Input {
         self.fired.contains(&a)
     }
 
+    /// Fire `a` this frame, as if its key or button was pressed (a click on
+    /// a footer button).
+    pub fn press(&mut self, a: Action) {
+        self.fired.insert(a);
+    }
+
     /// Seconds `a` has been held, if its press started while input was live.
     pub fn held_for(&self, a: Action) -> Option<f64> {
         if !self.armed.contains(&a) {

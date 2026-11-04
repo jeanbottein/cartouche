@@ -4,6 +4,8 @@
 //! background and are drawn at full window resolution over the pixel canvas,
 //! so photos stay crisp while the UI keeps its retro look.
 
+use std::collections::BTreeSet;
+
 use macroquad::prelude::*;
 
 use super::covers::{self, ImageLoader};
@@ -17,7 +19,7 @@ use super::{draw_spinner, stroke_rect, Hint, Ui};
 use crate::core::config::Config;
 use crate::core::models::{Game, Install};
 use crate::core::scanner;
-use crate::core::sizer;
+use crate::core::{sizer, steam};
 
 const ROW_H: f32 = 26.0;
 const ROW_GAP: f32 = 4.0;
@@ -31,8 +33,8 @@ pub enum Event {
     Edit(usize),
     /// Unpack the focused packaged game.
     Unpack(usize),
-    /// Create a package of the focused installed game.
-    Pack(usize),
+    /// Add the focused game to Steam, or take it out.
+    Steam(usize),
     /// Cancel the transfer of this game.
     Cancel(String),
 }
@@ -42,6 +44,8 @@ pub struct Library {
     pub games: Vec<Game>,
     /// Package file size per game (read once per load, not every frame).
     package_sizes: Vec<Option<u64>>,
+    /// Folder names of the games the user put in Steam.
+    in_steam: BTreeSet<String>,
     covers: Vec<Option<Texture2D>>,
     loader: Option<ImageLoader>,
     cursor: usize,
@@ -64,6 +68,7 @@ impl Library {
             .iter()
             .map(|g| Some(std::fs::metadata(g.package()?).ok()?.len()))
             .collect();
+        self.in_steam = steam::games_in_steam(cfg, &self.games);
         self.covers = vec![None; self.games.len()];
         self.loader = Some(ImageLoader::spawn(covers::cover_jobs(
             &self.games,
@@ -151,7 +156,7 @@ impl Library {
         let id = game.folder_name.clone();
         let busy = jobs.for_game(&id).is_some();
         let installed = game.is_installed();
-        let packable = game.install == Install::Installed;
+
         if ui.action(Action::Edit) {
             return match (busy, installed) {
                 (true, _) => Some(Event::Cancel(id)),
@@ -162,8 +167,8 @@ impl Library {
                 }
             };
         }
-        if ui.action(Action::Alt) && packable && !busy {
-            return Some(Event::Pack(self.cursor));
+        if ui.action(Action::Alt) && installed && !busy {
+            return Some(Event::Steam(self.cursor));
         }
         if !launch {
             return None;
@@ -253,13 +258,13 @@ impl Library {
                 (theme::BORDER, 1.0)
             };
             stroke_rect(Rect::new(list.x, y, list.w, ROW_H), th, border);
-            let tag = self.row_tag(i, ui.canvas.mode == AspectMode::Square);
+            let (tag, tag_color) = self.row_tag(i, ui.canvas.mode == AspectMode::Square);
             let tag_w = if tag.is_empty() {
                 0.0
             } else {
                 ui.measure(&tag) + 12.0
             };
-            ui.text(&tag, list.right() - tag_w, y + 18.0, theme::AMBER);
+            ui.text(&tag, list.right() - tag_w, y + 18.0, tag_color);
             let title = ui.truncate(&self.games[i].title, list.w - 18.0 - tag_w);
             ui.text(
                 &title,
@@ -278,19 +283,27 @@ impl Library {
     }
 
     /// Short install marker on a row; with the size when there is no side panel.
-    fn row_tag(&self, index: usize, with_size: bool) -> String {
+    /// Whether the game is one the user put in Steam.
+    pub fn is_in_steam(&self, game: &Game) -> bool {
+        self.in_steam.contains(&game.folder_name)
+    }
+
+    /// Short marker on a row (`PKG`, `STEAM`) and its color; with the size
+    /// when there is no side panel.
+    fn row_tag(&self, index: usize, with_size: bool) -> (String, Color) {
         let game = &self.games[index];
-        let tag = match game.install {
-            Install::Installed => "",
-            Install::Packaged { .. } => "PKG",
-            // Shown only in the side panel for now, to keep the list calm.
-            Install::InstalledWithPackage { .. } => "",
+        let (tag, color) = match game.install {
+            Install::Packaged { .. } => ("PKG", theme::AMBER),
+            _ if self.is_in_steam(game) => ("STEAM", theme::BLUE),
+            // A kept package shows only in the side panel, to keep the list calm.
+            _ => ("", theme::MUTED),
         };
-        match game.size.filter(|_| with_size) {
+        let text = match game.size.filter(|_| with_size) {
             Some(size) if tag.is_empty() => sizer::human(size),
             Some(size) => format!("{tag} {}", sizer::human(size)),
             None => tag.to_string(),
-        }
+        };
+        (text, color)
     }
 
     /// Install state and sizes of the focused game, e.g. `Installed · 1.2 GB`.
@@ -367,17 +380,18 @@ impl Library {
         if jobs.for_game(&game.folder_name).is_some() {
             return vec![ui.hint(Action::Edit, "Cancel", theme::RED)];
         }
-        match game.install {
-            Install::Packaged { .. } => vec![ui.hint(Action::Confirm, "Unpack", theme::ACCENT)],
-            Install::Installed => vec![
-                ui.hint(Action::Confirm, "Play", theme::ACCENT),
-                ui.hint(Action::Edit, "Edit", theme::BLUE),
-                ui.hint(Action::Alt, "Package", theme::AMBER),
-            ],
-            Install::InstalledWithPackage { .. } => vec![
-                ui.hint(Action::Confirm, "Play", theme::ACCENT),
-                ui.hint(Action::Edit, "Edit", theme::BLUE),
-            ],
+        if !game.is_installed() {
+            return vec![ui.hint(Action::Confirm, "Unpack", theme::ACCENT)];
         }
+        let steam = if self.is_in_steam(game) {
+            "Remove from Steam"
+        } else {
+            "Add to Steam"
+        };
+        vec![
+            ui.hint(Action::Confirm, "Play", theme::ACCENT),
+            ui.hint(Action::Edit, "Edit", theme::BLUE),
+            ui.hint(Action::Alt, steam, theme::BLUE),
+        ]
     }
 }

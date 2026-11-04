@@ -23,9 +23,9 @@ use super::{Hint, Ui};
 use crate::core::app::{exe_dir, find_app_dir};
 use crate::core::config::Config;
 use crate::core::logging::{self, Line};
-use crate::core::package;
 use crate::core::share::{self, client, server::Server};
 use crate::core::{init, migrations};
+use crate::core::{package, steam, steam_self};
 
 const MARGIN: f32 = 16.0;
 const HEADER_H: f32 = 34.0;
@@ -251,6 +251,7 @@ impl App {
             let typing = self.ui.input.text_mode;
             self.ui.input.text_mode = false; // the on-screen keyboard re-enables it while open
             if !typing {
+                self.click_footer();
                 self.handle_global();
             }
             self.update_screen();
@@ -340,8 +341,11 @@ impl App {
                 let (Some(settings), Some(cfg)) = (&mut self.settings, &self.config) else {
                     return;
                 };
-                if settings.update(&mut self.ui, area, cfg).is_some() {
+                if let Some(key) = settings.update(&mut self.ui, area, cfg) {
                     self.reload_config();
+                    if key == "STEAM_ADD_SELF" {
+                        self.apply_self_shortcut();
+                    }
                 }
             }
         }
@@ -357,6 +361,15 @@ impl App {
                 Some(editor::Event::Saved) => {
                     if let Some(cfg) = &self.config {
                         self.library.load(cfg);
+                    }
+                }
+                Some(editor::Event::Pack) => {
+                    let id = editor.folder_name().to_string();
+                    self.editor = None;
+                    self.back_held_over = true;
+                    if let Some(index) = self.library.games.iter().position(|g| g.folder_name == id)
+                    {
+                        self.start_pack(index);
                     }
                 }
                 None => {}
@@ -392,19 +405,77 @@ impl App {
                         package::unpack(&source, &dir, p)
                     });
             }
-            library::Event::Pack(index) => {
-                let (Some(game), Some(dir)) = (self.library.games.get(index), games_dir) else {
-                    return;
-                };
-                let game = game.clone();
-                let target = package::package_path(&dir, &game.folder_name);
-                let (id, title) = (game.folder_name.clone(), game.title.clone());
-                self.jobs.start(Kind::Pack, &id, &title, move |p| {
-                    package::pack(&game, &target, p).map(|_| target)
-                });
-            }
+            library::Event::Steam(index) => self.toggle_steam(index),
             library::Event::Cancel(id) => self.jobs.cancel(&id),
         }
+    }
+
+    /// Pack an installed game into `games/<name>.cartridge.tar`, in the background.
+    fn start_pack(&mut self, index: usize) {
+        let games_dir = self.config.as_ref().and_then(Config::games_dir);
+        let (Some(game), Some(dir)) = (self.library.games.get(index), games_dir) else {
+            return;
+        };
+        let game = game.clone();
+        let target = package::package_path(&dir, &game.folder_name);
+        let (id, title) = (game.folder_name.clone(), game.title.clone());
+        self.jobs.start(Kind::Pack, &id, &title, move |p| {
+            package::pack(&game, &target, p).map(|_| target)
+        });
+    }
+
+    /// "•cartridge in Steam" changed: add or remove the self-shortcut now.
+    fn apply_self_shortcut(&mut self) {
+        let Some(cfg) = &self.config else { return };
+        let adding = cfg.is_true("STEAM_ADD_SELF");
+        if adding {
+            steam_self::register(cfg);
+        } else {
+            steam_self::unregister(cfg);
+        }
+        let done = if adding { "added to" } else { "removed from" };
+        let restart = if steam::is_running() {
+            ": restart Steam to see it"
+        } else {
+            ""
+        };
+        let message = format!("{} {done} Steam{restart}", cfg.label());
+        if let Some(settings) = &mut self.settings {
+            settings.note(&message, theme::ACCENT);
+        }
+    }
+
+    /// Add the game to Steam or take it out, now.
+    fn toggle_steam(&mut self, index: usize) {
+        let (Some(cfg), Some(game)) = (&self.config, self.library.games.get(index)) else {
+            return;
+        };
+        let game = game.clone();
+        let adding = !self.library.is_in_steam(&game);
+        let result = if adding {
+            steam::add_game(cfg, &self.library.games, &game)
+        } else {
+            steam::remove_game(cfg, &self.library.games, &game)
+        };
+        let message = match &result {
+            Ok(()) => {
+                let done = if adding { "added to" } else { "removed from" };
+                let restart = if steam::is_running() {
+                    ": restart Steam to see it"
+                } else {
+                    ""
+                };
+                format!("{} {done} Steam{restart}", game.title)
+            }
+            Err(e) => e.clone(),
+        };
+        let color = if result.is_ok() {
+            theme::ACCENT
+        } else {
+            theme::RED
+        };
+        self.reload_library();
+        self.library.toast(&message, color);
     }
 
     fn update_network(&mut self, area: Rect) {
@@ -575,6 +646,8 @@ impl App {
                 let mut hints = self.library.hints(ui, &self.jobs);
                 hints.push(Hint {
                     progress: self.quit_progress(),
+                    // A hold gesture: a click would quit too easily.
+                    action: None,
                     ..ui.hint(Action::Back, "Hold: Quit", theme::AMBER)
                 });
                 hints
@@ -591,18 +664,47 @@ impl App {
         hints
     }
 
+    /// Each hint that fits in the footer, with its rect (key + label).
+    fn footer_layout(&self) -> Vec<(Hint, Rect)> {
+        let (w, h) = self.ui.canvas.size();
+        let top = h - FOOTER_H;
+        let mut x = MARGIN;
+        let mut out = Vec::new();
+        for hint in self.hints() {
+            let key_w = self.ui.measure(hint.key).ceil() + 8.0;
+            let label_w = self.ui.measure(&hint.label).ceil();
+            let width = key_w + 4.0 + label_w;
+            if x + width > w - MARGIN {
+                break; // out of room (narrow / square layouts)
+            }
+            out.push((hint, Rect::new(x, top, width, FOOTER_H)));
+            x += width + 14.0;
+        }
+        out
+    }
+
+    /// Mouse users: a click on a footer hint does what its key does.
+    fn click_footer(&mut self) {
+        let Some(point) = self.ui.click() else { return };
+        let action = self
+            .footer_layout()
+            .into_iter()
+            .find(|(_, rect)| rect.contains(point))
+            .and_then(|(hint, _)| hint.action);
+        if let Some(action) = action {
+            self.ui.input.press(action);
+        }
+    }
+
     fn draw_footer(&self) {
         let (w, h) = self.ui.canvas.size();
         let top = h - FOOTER_H;
         draw_rectangle(0.0, top, w, FOOTER_H, theme::BG);
         draw_rectangle(0.0, top, w, 1.0, theme::BORDER);
-        let mut x = MARGIN;
-        for hint in self.hints() {
+        for (hint, rect) in self.footer_layout() {
+            let mut x = rect.x;
             let key_w = self.ui.measure(hint.key).ceil() + 8.0;
             let label_w = self.ui.measure(&hint.label).ceil();
-            if x + key_w + 4.0 + label_w > w - MARGIN {
-                break; // out of room (narrow / square layouts)
-            }
             draw_rectangle(x, top + 2.0, key_w, 18.0, hint.color);
             self.ui.text(hint.key, x + 4.0, top + 17.0, theme::BG);
             x += key_w + 4.0;
@@ -616,7 +718,6 @@ impl App {
                     hint.color,
                 );
             }
-            x += label_w + 14.0;
         }
     }
 

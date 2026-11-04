@@ -71,6 +71,8 @@ pub struct Hint {
     pub color: Color,
     /// Fill (0..1) for hold-to-activate hints.
     pub progress: f32,
+    /// What a click on this hint does (mouse users); `None` for hold gestures.
+    pub action: Option<Action>,
 }
 
 impl Hint {
@@ -80,6 +82,7 @@ impl Hint {
             label: label.into(),
             color,
             progress: 0.0,
+            action: None,
         }
     }
 }
@@ -200,7 +203,10 @@ impl Ui {
     }
 
     pub fn hint(&self, a: Action, label: impl Into<String>, color: Color) -> Hint {
-        Hint::new(self.key(a), label, color)
+        Hint {
+            action: Some(a),
+            ..Hint::new(self.key(a), label, color)
+        }
     }
 
     /// Draw a texture letterboxed into a canvas-space rect at full window

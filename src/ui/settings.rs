@@ -39,14 +39,13 @@ const fn s(key: &'static str, label: &'static str, kind: Kind, help: &'static st
 
 const SCHEMA: [(&str, &[Setting]); 3] = [
     ("GENERAL", &[
+        s("STEAM_ADD_SELF", "•cartridge in Steam", Kind::Flag(false), "Add this cartridge to Steam under its folder name, with retro artwork (or your cover.png, hero.png... in system/). Applied right away."),
         s("MACHINE_NAME", "Machine name", Kind::Text, "Prefixes the config backup in the save copies folder."),
         s("PERSIST_DATA", "Persist game data", Kind::Flag(true), "Write .cartridge/ folders (game.json, artwork) in game folders."),
         s("SAVESCOPY_STRATEGY", "Save strategy", Kind::Choice(STRATEGIES), "backup: copy saves into saves-copies/. restore: copy them back over the saves, every run (careful!)."),
         s("MUSIC_ENABLED", "Background music", Kind::Flag(true), "Shuffle the audio files in the workspace's system/ folder (mp3, flac, ogg, wav, m4a). Fades out while a game runs."),
     ]),
     ("STEAM & ARTWORK", &[
-        s("STEAM_EXPOSE", "Add games to Steam", Kind::Flag(false), "Add games as non-Steam shortcuts, with artwork."),
-        s("STEAM_ADD_SELF", "Add •cartridge to Steam", Kind::Flag(false), "Add this cartridge to Steam under its folder name, with retro artwork (or your cover.png, hero.png... in system/)."),
         s("STEAM_USERID", "Steam user ID", Kind::Text, "Only update this Steam user (empty: all users)."),
         s("PROTON_VERSION", "Proton version", Kind::Text, "Compatibility tool for Windows games, e.g. proton_experimental."),
         s("STEAMGRIDDB_API_KEY", "SteamGridDB API key", Kind::Secret, "For automatic artwork: steamgriddb.com/profile/preferences/api"),
@@ -142,8 +141,13 @@ impl Settings {
         Rect::new(area.x, area.y, area.w, area.h - 22.0)
     }
 
-    /// `Some` when a value was saved to `config.txt` (the app reloads it).
-    pub fn update(&mut self, ui: &mut Ui, area: Rect, cfg: &Config) -> Option<()> {
+    /// Show a message under the form (e.g. what applying a setting did).
+    pub fn note(&mut self, message: &str, color: Color) {
+        self.message = Some((message.to_string(), color));
+    }
+
+    /// The key saved to `config.txt`, if any (the app reloads it).
+    pub fn update(&mut self, ui: &mut Ui, area: Rect, cfg: &Config) -> Option<String> {
         let FormEvent::Changed(id) = self.form.update(ui, Settings::form_area(area))? else {
             return None;
         };
@@ -157,7 +161,7 @@ impl Settings {
         match config::update_file(&cfg.path, &BTreeMap::from([(key.clone(), value)])) {
             Ok(()) => {
                 self.message = Some((format!("Saved {key}."), theme::ACCENT));
-                Some(())
+                Some(key)
             }
             Err(e) => {
                 self.message = Some((format!("Could not save: {e}"), theme::RED));

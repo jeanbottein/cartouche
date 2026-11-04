@@ -68,12 +68,13 @@ pub fn preview(cli_dir: Option<&Path>) -> ExitCode {
             "NOT SET"
         }
     );
+    let in_steam = steam::games_in_steam(&config, &games);
     info!(
-        "Steam sync (STEAM_EXPOSE): {}\n",
-        if config.is_true("STEAM_EXPOSE") {
-            "on"
+        "Games in Steam: {}\n",
+        if in_steam.is_empty() {
+            "none yet (add them per game: Library, Y)".to_string()
         } else {
-            "off"
+            in_steam.into_iter().collect::<Vec<_>>().join(", ")
         }
     );
 

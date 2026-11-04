@@ -1,5 +1,5 @@
 //! Pipeline step 6c: add the cartridge itself to Steam (`STEAM_ADD_SELF=True`,
-//! independent of `STEAM_EXPOSE`). The shortcut is named after the cartridge
+//! the first option in SETTINGS). The shortcut is named after the cartridge
 //! (its folder name), launches this app (binary, AppImage or `.app`) and starts
 //! in the cartridge folder, so the app finds its config. Its artwork is
 //! `system/cover.png`, `wide.png`, `hero.png`, `logo.png` and `icon.png` when
@@ -195,6 +195,35 @@ pub fn register(cfg: &Config) {
         .count();
     if changed == 0 {
         info!("{} shortcut already up to date", owner.label);
+    }
+}
+
+/// Take the cartridge's own shortcut out of Steam (`STEAM_ADD_SELF` turned off).
+pub fn unregister(cfg: &Config) {
+    let tag = self_tag(&Owner::of(cfg));
+    for dir in steam::select_config_dirs(cfg) {
+        let path = steam::shortcuts_path(&dir);
+        let Ok(shortcuts) = steam::load_shortcuts(&path) else {
+            continue;
+        };
+        let before = shortcuts.0.len();
+        let kept: Vec<(String, Value)> = shortcuts
+            .0
+            .into_iter()
+            .filter(|(_, v)| {
+                !steam::as_shortcut(v).is_some_and(|s| steam::tag_values(s).contains(&tag.as_str()))
+            })
+            .collect();
+        if kept.len() == before {
+            continue;
+        }
+        match steam::save_shortcuts(&path, steam::reindex(Map(kept))) {
+            Ok(()) => info!(
+                "  Steam user {}: removed the cartridge's shortcut",
+                steam::user_id(&dir)
+            ),
+            Err(e) => warn!("  Steam user {}: {e}", steam::user_id(&dir)),
+        }
     }
 }
 

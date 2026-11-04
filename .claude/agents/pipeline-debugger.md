@@ -16,7 +16,7 @@ You are a specialist in the •cartridge pipeline (`src/core/`).
 | Detect | `detector::detect` (games without targets) | — |
 | Enrich | `sgdb::enrich` | API key |
 | Persist | `persister::persist` (`needs_persist`) | `PERSIST_DATA` != False |
-| SteamClean / SteamExport | `steam::clean` / `steam::export` + `steam_self::register` | `STEAM_EXPOSE` / `STEAM_ADD_SELF` |
+| SteamClean / SteamExport | `steam::clean` / `steam::export` + `steam_self::register` | `system/steam.json` (per-game choice) / `STEAM_ADD_SELF` |
 | Manifest | `manifest::write` | `MANIFEST_EXPORT` != False |
 | Patch | `patcher::run` | `mods/` |
 | Save | `saver::run` | `saves-copies/`, `saves-links/` |

@@ -14,7 +14,7 @@ use super::engine::theme;
 use super::form::{Event as FormEvent, Field, Form};
 use super::{open_external, Hint, Ui};
 use crate::core::config::Config;
-use crate::core::models::{Game, ImageSlot, Images, SavePath, Target};
+use crate::core::models::{Game, ImageSlot, Images, Install, SavePath, Target};
 use crate::core::platform::{arch_tag, os_tag};
 use crate::core::{detector, paths, persister, scanner, sgdb};
 
@@ -25,6 +25,8 @@ pub enum Event {
     Closed,
     /// `game.json` was written; the library should reload.
     Saved,
+    /// Create a package of this game (one file to share or back up).
+    Pack,
 }
 
 enum Pending {
@@ -162,16 +164,23 @@ fn fields(game: &Game) -> Vec<Field> {
                 .with_help("Select to remove this image."),
         );
     }
+    out.extend([Field::button(
+        "fetch_art",
+        "Fetch all artwork",
+        "replaces existing",
+        theme::BLUE,
+    )
+    .with_help(
+        "Download every image from SteamGridDB (needs an API key and the SteamGridDB ID).",
+    )]);
+    if game.install == Install::Installed {
+        out.push(
+            Field::button("pack", "Create a package", "one file", theme::AMBER).with_help(
+                "Pack this game into games/<name>.cartridge.tar, to share or back it up.",
+            ),
+        );
+    }
     out.extend([
-        Field::button(
-            "fetch_art",
-            "Fetch all artwork",
-            "replaces existing",
-            theme::BLUE,
-        )
-        .with_help(
-            "Download every image from SteamGridDB (needs an API key and the SteamGridDB ID).",
-        ),
         Field::section(""),
         Field::button("save", "Save", "", theme::ACCENT),
     ]);
@@ -185,6 +194,11 @@ fn row_field(id: &str, prefix: char) -> Option<(usize, &str)> {
 }
 
 impl Editor {
+    /// The game's folder name (which game this editor is about).
+    pub fn folder_name(&self) -> &str {
+        &self.game.folder_name
+    }
+
     pub fn new(game: &Game, cfg: &Config) -> Editor {
         let mut editor = Editor {
             game: game.clone(),
@@ -453,6 +467,7 @@ impl Editor {
                 self.form
                     .select_id(&format!("s{}.path", self.game.save_paths.len() - 1));
             }
+            "pack" => return Some(Event::Pack),
             "detect_targets" => self.detect_targets(),
             "detect_saves" => self.detect_saves(),
             "fetch_art" if self.fetch.is_none() => self.start_fetch(),

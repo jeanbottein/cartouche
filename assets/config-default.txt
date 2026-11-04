@@ -49,11 +49,10 @@
 # 3. GAME LAUNCHERS & INTEGRATION
 # ==========================================
 
-# Steam Non-Steam Shortcut Integration (optional)
-# Automatically add/remove DRM-free games as non-Steam shortcuts in your Steam library.
-# Shortcuts are tagged with this cartridge's id (system/cartridge-id) so they can be
-# managed without affecting your other non-Steam games, or other cartridges' games.
-#STEAM_EXPOSE=False
+# Games in Steam: choose per game in the Library (Y), remembered in
+# system/steam.json. Shortcuts are tagged with this cartridge's id
+# (system/cartridge-id), so your other non-Steam games, and other cartridges'
+# games, are never touched. Steam shows changes after it restarts.
 
 # Optionally target a specific Steam user ID (leave commented to update all users)
 #STEAM_USERID=
@@ -64,7 +63,7 @@
 
 # Add this cartridge itself to Steam under its folder name (optional), with retro
 # artwork, or your own: cover.png, wide.png, hero.png, logo.png, icon.png in system/
-# Works even when STEAM_EXPOSE is off. The shortcut launches this app.
+# The shortcut launches this app.
 #STEAM_ADD_SELF=False
 
 # If you want to automatically download artwork (grids, heroes, logos) from SteamGridDB,
