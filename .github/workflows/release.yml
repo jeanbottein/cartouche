@@ -3,6 +3,9 @@ name: Release
 on:
   push:
     tags: ['v*']
+  # Build every artifact (AppImages included) from the Actions tab, without
+  # tagging; the GitHub release itself is only created for v* tags.
+  workflow_dispatch:
 
 jobs:
   build:
@@ -14,7 +17,7 @@ jobs:
             artifact: cartouche-linux-x86_64
           - os: ubuntu-24.04-arm
             artifact: cartouche-linux-aarch64
-          - os: macos-13
+          - os: macos-26-intel
             artifact: cartouche-darwin-x86_64
           - os: macos-latest
             artifact: cartouche-darwin-arm64
@@ -24,7 +27,7 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -40,20 +43,30 @@ jobs:
           STEAMGRIDDB_API_KEY: ${{ secrets.STEAMGRIDDB_API_KEY }}
         run: bash release.sh
 
+      - name: AppImage
+        if: runner.os == 'Linux'
+        run: bash appimage.sh dist/${{ matrix.artifact }}
+
+      - name: Smoke-test the AppImage
+        if: runner.os == 'Linux'
+        run: |
+          APPIMAGE_EXTRACT_AND_RUN=1 dist/${{ matrix.artifact }}.AppImage --version
+
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact }}
           path: dist/*
 
   release:
     needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
 
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts
 
@@ -64,7 +77,7 @@ jobs:
           ls -la release/
 
       - name: Create GitHub release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: release/*
           generate_release_notes: true

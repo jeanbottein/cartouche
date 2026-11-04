@@ -37,7 +37,8 @@ fn self_name() -> String {
     format!(".{}", app_name())
 }
 
-/// What the shortcut launches: `STEAM_SELF_TARGET`, else this binary.
+/// What the shortcut launches: `STEAM_SELF_TARGET`, else this binary (or the
+/// AppImage it runs from).
 pub fn self_target(cfg: &Config) -> PathBuf {
     match cfg
         .get("STEAM_SELF_TARGET")
@@ -45,7 +46,7 @@ pub fn self_target(cfg: &Config) -> PathBuf {
         .filter(|t| !t.is_empty())
     {
         Some(target) => paths::resolve(&paths::expand(target)),
-        None => std::env::current_exe()
+        None => super::app::launched_file()
             .map(|p| paths::resolve(&p))
             .unwrap_or_default(),
     }

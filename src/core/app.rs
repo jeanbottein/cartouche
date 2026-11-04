@@ -24,10 +24,25 @@ pub fn data_dir_name() -> String {
     format!(".{}", app_name())
 }
 
-/// Directory holding the running binary.
+/// The file the user launched: the `.AppImage` when running from one (its
+/// runtime sets `APPIMAGE`), else the binary itself. Inside an AppImage the
+/// binary lives in a temporary read-only mount, useless for portable files or
+/// a Steam shortcut.
+pub fn launched_file() -> Option<PathBuf> {
+    launched_from(std::env::var_os("APPIMAGE"), std::env::current_exe().ok())
+}
+
+fn launched_from(appimage: Option<std::ffi::OsString>, exe: Option<PathBuf>) -> Option<PathBuf> {
+    appimage
+        .filter(|a| !a.is_empty())
+        .map(PathBuf::from)
+        .or(exe)
+}
+
+/// Directory holding the launched file (portable mode: the workspace sits
+/// next to the binary or the AppImage).
 pub fn exe_dir() -> PathBuf {
-    std::env::current_exe()
-        .ok()
+    launched_file()
         .and_then(|p| p.parent().map(Path::to_path_buf))
         .unwrap_or_else(|| PathBuf::from("."))
 }
@@ -60,4 +75,20 @@ pub fn find_app_dir(cli_dir: Option<&Path>) -> Option<PathBuf> {
         .chain([exe_dir(), cwd])
         .map(|dir| dir.join(&name))
         .find(|p| is_app_dir(p))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_appimage_stands_in_for_the_mounted_binary() {
+        let exe = Some(PathBuf::from("/tmp/.mount_abc/usr/bin/cartouche"));
+        assert_eq!(
+            launched_from(Some("/games/Cartouche.AppImage".into()), exe.clone()),
+            Some(PathBuf::from("/games/Cartouche.AppImage"))
+        );
+        assert_eq!(launched_from(None, exe.clone()), exe);
+        assert_eq!(launched_from(Some("".into()), exe.clone()), exe);
+    }
 }

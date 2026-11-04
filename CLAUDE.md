@@ -84,6 +84,11 @@ The host (Bazzite) has no Rust toolchain on purpose: build in the container.
 ./target/release/cartouche             # run on the host (UI)
 ```
 
+Releases (`v*` tags, or run the Release workflow by hand) build every platform
+plus Linux AppImages (`appimage.sh`). In an AppImage the binary sits in a
+temporary mount: `core::app::launched_file()` returns `$APPIMAGE` instead, so
+portable mode and the Steam self-shortcut use the `.AppImage` file.
+
 With a native toolchain instead:
 
 ```bash

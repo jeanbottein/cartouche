@@ -8,7 +8,8 @@
 #   ./release.sh                        # build for this machine
 #   STEAMGRIDDB_API_KEY=xxx ./release.sh # embed a default SteamGridDB key
 #
-# Linux build deps: libudev-dev libx11-dev libxi-dev libgl1-mesa-dev pkg-config
+# Linux build deps: libudev-dev libx11-dev libxi-dev libgl1-mesa-dev libasound2-dev pkg-config
+# Linux AppImage: ./appimage.sh dist/cartouche-linux-<arch> (done in CI on release)
 # (or build keyboard/mouse-only with: CARGO_FLAGS=--no-default-features).
 set -euo pipefail
 
