@@ -86,7 +86,7 @@ jobs:
         run: bash package.sh ${{ matrix.app }} ${{ matrix.app_name }} ${{ matrix.archive }}
 
       # Extract the archive and run the app inside it: it must find its
-      # system/ folder (portable mode) and create a config with the games folder.
+      # system/ folder (portable mode), create its config and the fixed folders.
       - name: Smoke-test the archive
         run: |
           test_dir="$RUNNER_TEMP/extracted"
@@ -99,8 +99,10 @@ jobs:
           cd "$RUNNER_TEMP"
           APPIMAGE_EXTRACT_AND_RUN=1 "$test_dir/Cartridge/${{ matrix.run }}" --version
           APPIMAGE_EXTRACT_AND_RUN=1 "$test_dir/Cartridge/${{ matrix.run }}" -g parse < /dev/null
-          grep -x 'FREEGAMES_PATH=games' "$test_dir/Cartridge/system/config.txt"
-          test -d "$test_dir/Cartridge/games"
+          test -f "$test_dir/Cartridge/system/config.txt"
+          for folder in games mods saves-copies saves-links; do
+            test -d "$test_dir/Cartridge/$folder"
+          done
 
       - name: Collect
         run: |
