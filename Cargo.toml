@@ -35,3 +35,6 @@ music = ["dep:rodio"]
 opt-level = 3
 lto = true
 strip = true
+# One unit: the optimizer sees the whole crate at once. Measured: 4% smaller
+# binary (and usually a bit faster), for a few more seconds of release build.
+codegen-units = 1
