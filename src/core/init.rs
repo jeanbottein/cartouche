@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use log::{error, info};
 
-use super::app::{app_name, is_workspace, WORKSPACE_DIR, WORKSPACE_README};
+use super::app::{app_name, is_workspace, launched_file, WORKSPACE_DIR, WORKSPACE_README};
 use super::config::DEFAULT_CONFIG;
 
 pub struct Feature {
@@ -90,21 +90,109 @@ pub fn initialize(parent: &Path, feature_paths: &[(String, String)]) -> std::io:
     Ok(config)
 }
 
-/// `config.txt` inside `app_dir`, seeded from the defaults when missing.
+/// The setup wizard's defaults: every feature on, in its standard folder.
+pub fn default_paths() -> Vec<(String, String)> {
+    FEATURES
+        .iter()
+        .map(|f| (f.key.to_string(), f.default.to_string()))
+        .collect()
+}
+
+/// `config.txt` inside `app_dir`. When missing (e.g. a `system/` fresh from a
+/// release archive), it is created with the standard folders, ready to use.
 pub fn config_in(app_dir: &Path) -> PathBuf {
     let config = app_dir.join("config.txt");
     if config.exists() {
         info!("Loaded config from {}", config.display());
         return config;
     }
-    match std::fs::write(&config, DEFAULT_CONFIG) {
-        Ok(()) => info!(
-            "config.txt missing. Copied defaults to {}",
-            config.display()
+    let parent = app_dir.parent().unwrap_or(app_dir);
+    match initialize(parent, &default_paths()) {
+        Ok(created) => info!(
+            "config.txt missing: created {} with the standard folders",
+            created.display()
         ),
-        Err(e) => error!("Failed to write {}: {e}", config.display()),
+        Err(e) => error!("Failed to create {}: {e}", config.display()),
     }
     config
+}
+
+/// Folder names a cartridge holds besides the app itself.
+const CARTRIDGE_NAMES: [&str; 7] = [
+    WORKSPACE_DIR,
+    "games",
+    "mods",
+    "saves-copies",
+    "saves-links",
+    "README.txt",
+    ".DS_Store",
+];
+
+/// How many entries of `dir` are neither the app nor part of a cartridge.
+fn unrelated_entries(names: &[String], app_file: Option<&str>) -> usize {
+    names
+        .iter()
+        .filter(|n| Some(n.as_str()) != app_file && !CARTRIDGE_NAMES.contains(&n.as_str()))
+        .count()
+}
+
+/// Folders where AppImage managers (Gear Lever, AppImageLauncher) move files.
+fn is_appimage_manager_dir(dir: &Path) -> bool {
+    let name = dir.file_name().map(|n| n.to_string_lossy().to_lowercase());
+    matches!(name.as_deref(), Some("appimages" | "applications"))
+}
+
+fn is_writable(dir: &Path) -> bool {
+    let probe = dir.join(".cartouche-write-test");
+    let ok = std::fs::write(&probe, b"").is_ok();
+    let _ = std::fs::remove_file(&probe);
+    ok
+}
+
+/// The app name for sentences: `cartouche` -> `Cartouche`.
+fn display_name() -> String {
+    let name = app_name();
+    let mut chars = name.chars();
+    chars
+        .next()
+        .map(|c| c.to_uppercase().chain(chars).collect())
+        .unwrap_or_default()
+}
+
+/// What to tell the user before creating a workspace in `dir`: the portable
+/// idea, plus warnings when `dir` is a poor home for a cartridge.
+pub fn folder_advice(dir: &Path) -> Vec<String> {
+    let mut advice = vec![format!(
+        "{} is portable: {WORKSPACE_DIR}/, games and saves live next to the app, \
+         so the whole folder moves and backs up as one piece.",
+        display_name()
+    )];
+    let launched = launched_file();
+    let app_here = launched
+        .as_deref()
+        .filter(|f| f.parent() == Some(dir))
+        .and_then(|f| f.file_name())
+        .map(|n| n.to_string_lossy().into_owned());
+    let is_appimage = std::env::var_os("APPIMAGE").is_some_and(|a| !a.is_empty());
+    if dir.exists() && !is_writable(dir) {
+        advice.push("This folder can't be written: move the app to a folder of its own.".into());
+    }
+    if is_appimage && app_here.is_some() && is_appimage_manager_dir(dir) {
+        advice.push(
+            "This AppImage looks moved by an AppImage manager, away from its folder: \
+             launch the copy inside your Cartouche folder instead."
+                .into(),
+        );
+    }
+    let names = super::paths::sorted_entries(dir);
+    if unrelated_entries(&names, app_here.as_deref()) > 2 {
+        advice.push(format!(
+            "This folder already holds other files: better give {name} a folder of its \
+             own, e.g. a new {name}/ folder here, and move the app into it.",
+            name = display_name()
+        ));
+    }
+    advice
 }
 
 /// Where the workspace can go: next to the binary and/or the current directory.
@@ -133,6 +221,9 @@ pub fn run_terminal_wizard(exe_dir: &Path, cwd: &Path) -> Option<PathBuf> {
     let mut input = std::io::stdin().lock();
 
     eprintln!("\nInitialize {}\n{}", app_name(), "=".repeat(40));
+    for line in folder_advice(exe_dir) {
+        eprintln!("\n{line}");
+    }
     eprintln!("\nWorkspace location (a {WORKSPACE_DIR}/ folder will be created here for settings and app files):\n");
     for (i, (label, path)) in locations.iter().enumerate() {
         eprintln!("  {}. {label}  ({})", i + 1, path.display());
@@ -208,5 +299,47 @@ mod tests {
         dir.write("system/notes.txt", b"not ours");
         assert!(initialize(dir.path(), &[]).is_err());
         assert!(!dir.path().join("system/config.txt").exists());
+    }
+
+    #[test]
+    fn a_missing_config_gets_the_standard_folders() {
+        let dir = TempDir::new();
+        dir.write("system/README.txt", b"Cartouche workspace");
+        let config = config_in(&dir.path().join("system"));
+        let text = std::fs::read_to_string(config).unwrap();
+        assert!(text.contains("FREEGAMES_PATH=games\n"));
+        assert!(dir.path().join("games").is_dir());
+        assert!(dir.path().join("saves-links").is_dir());
+    }
+
+    #[test]
+    fn only_unrelated_entries_count_as_clutter() {
+        let names: Vec<String> = ["cartouche", "system", "games", "README.txt", "notes.pdf"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert_eq!(unrelated_entries(&names, Some("cartouche")), 1);
+        assert_eq!(unrelated_entries(&names, None), 2);
+    }
+
+    #[test]
+    fn appimage_manager_folders_are_recognised() {
+        assert!(is_appimage_manager_dir(Path::new("/home/deck/AppImages")));
+        assert!(is_appimage_manager_dir(Path::new(
+            "/home/deck/Applications"
+        )));
+        assert!(!is_appimage_manager_dir(Path::new("/home/deck/Cartouche")));
+    }
+
+    #[test]
+    fn advice_warns_about_a_cluttered_folder() {
+        let dir = TempDir::new();
+        ["a.pdf", "b.zip", "c.txt"].iter().for_each(|n| {
+            dir.write(n, b"");
+        });
+        let advice = folder_advice(dir.path());
+        assert!(advice[0].contains("portable"));
+        assert!(advice.iter().any(|a| a.contains("other files")));
+        assert_eq!(folder_advice(&dir.path().join("empty-new")).len(), 1);
     }
 }

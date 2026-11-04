@@ -19,16 +19,21 @@ pub enum Outcome {
 pub struct Setup {
     form: Form,
     message: Option<String>,
+    /// What creating a workspace in the chosen folder means (and its pitfalls).
+    advice: Vec<String>,
+}
+
+const LINE: f32 = 20.0;
+
+fn advice_for(workspace: &str) -> Vec<String> {
+    init::folder_advice(&paths::abspath(&paths::expand(workspace)))
 }
 
 fn fields(workspace: &str, previous: Option<&Form>) -> Vec<Field> {
     let base = paths::expand(workspace);
     let keep =
         |id: &str, default: &str| previous.map_or(default.to_string(), |f| f.value(id).to_string());
-    let help = format!(
-        "A {WORKSPACE_DIR}/ folder is created here. Portable setup: {}",
-        exe_dir().display()
-    );
+    let help = format!("A {WORKSPACE_DIR}/ folder is created here, with your settings.");
     let mut out = vec![
         Field::section(&format!("WELCOME TO {}", app_name().to_uppercase())),
         Field::path(
@@ -72,9 +77,12 @@ fn fields(workspace: &str, previous: Option<&Form>) -> Vec<Field> {
 
 impl Setup {
     pub fn new() -> Setup {
-        let cwd = paths::lossy(&std::env::current_dir().unwrap_or_else(|_| paths::home_dir()));
+        // Portable first: next to the app (the current folder means nothing
+        // when launched from a file manager or Steam).
+        let next_to_app = paths::lossy(&exe_dir());
         Setup {
-            form: Form::new(fields(&cwd, None)),
+            form: Form::new(fields(&next_to_app, None)),
+            advice: advice_for(&next_to_app),
             message: None,
         }
     }
@@ -109,8 +117,23 @@ impl Setup {
         }
     }
 
+    /// Wrapped advice lines, warnings flagged, for the panel under the form.
+    fn advice_lines(&self, ui: &Ui, width: f32) -> Vec<(String, bool)> {
+        self.advice
+            .iter()
+            .enumerate()
+            .flat_map(|(i, text)| ui.wrap(text, width).into_iter().map(move |l| (l, i > 0)))
+            .collect()
+    }
+
+    /// The form's rect: what remains above the advice and the message line.
+    fn form_area(&self, ui: &Ui, area: Rect) -> Rect {
+        let advice_h = self.advice_lines(ui, area.w).len() as f32 * LINE + 10.0;
+        Rect::new(area.x, area.y, area.w, area.h - 22.0 - advice_h)
+    }
+
     pub fn update(&mut self, ui: &mut Ui, area: Rect) -> Option<Outcome> {
-        let form_area = Rect::new(area.x, area.y, area.w, area.h - 22.0);
+        let form_area = self.form_area(ui, area);
         match self.form.update(ui, form_area)? {
             FormEvent::Pressed(id) if id == "create" => self.create(),
             FormEvent::Pressed(id) if id == "quit" => Some(Outcome::Quit),
@@ -118,6 +141,7 @@ impl Setup {
                 let workspace = self.form.value("workspace").to_string();
                 let rebuilt = fields(&workspace, Some(&self.form));
                 self.form.set_fields(rebuilt);
+                self.advice = advice_for(&workspace);
                 None
             }
             _ => None,
@@ -133,8 +157,14 @@ impl Setup {
                 theme::RED,
             );
         }
-        self.form
-            .draw(ui, Rect::new(area.x, area.y, area.w, area.h - 22.0));
+        let form_area = self.form_area(ui, area);
+        self.form.draw(ui, form_area);
+        let mut y = form_area.bottom() + 24.0;
+        for (line, warning) in self.advice_lines(ui, area.w) {
+            let color = if warning { theme::AMBER } else { theme::MUTED };
+            ui.text(&line, area.x, y, color);
+            y += LINE;
+        }
     }
 
     pub fn hints(&self, ui: &Ui) -> Vec<Hint> {
