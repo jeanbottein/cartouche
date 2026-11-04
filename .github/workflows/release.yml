@@ -32,7 +32,9 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Linux build deps
+      # Runtime libraries for the AppImage smoke test (the build itself runs
+      # in the Debian 12 container, which has its own -dev packages).
+      - name: Linux runtime libs
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libudev-dev libx11-dev libxi-dev libgl1-mesa-dev libasound2-dev
 
@@ -41,7 +43,17 @@ jobs:
         env:
           # Embedded (obfuscated) as the default SteamGridDB key, see build.rs.
           STEAMGRIDDB_API_KEY: ${{ secrets.STEAMGRIDDB_API_KEY }}
+          # Linux builds in the Containerfile's Debian 12 (glibc 2.36): a
+          # binary built on the runner's Ubuntu would need its newer glibc.
+          CARGO: ${{ runner.os == 'Linux' && './container.sh' || 'cargo' }}
         run: bash release.sh
+
+      - name: Check the glibc floor
+        if: runner.os == 'Linux'
+        run: |
+          need=$(objdump -T dist/${{ matrix.artifact }} | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1)
+          echo "Requires $need (max allowed GLIBC_2.36, Debian 12)"
+          [ "$(printf '%s\n' "$need" GLIBC_2.36 | sort -V | tail -1)" = GLIBC_2.36 ]
 
       - name: AppImage
         if: runner.os == 'Linux'
