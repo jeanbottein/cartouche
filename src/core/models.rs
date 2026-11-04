@@ -1,4 +1,4 @@
-//! In-memory game model and the `.cartouche/game.json` schema (version 2).
+//! In-memory game model and the `.cartridge/game.json` schema (version 2).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -55,7 +55,7 @@ pub struct SavePath {
     pub path: String,
 }
 
-/// Artwork filenames stored in `.cartouche/`.
+/// Artwork filenames stored in `.cartridge/`.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Images {
     #[serde(
@@ -169,14 +169,14 @@ pub struct Resolved {
 /// SteamGridDB artwork URLs by art type (`grid`, `poster`, `hero`, `logo`, `icon`).
 pub type ArtworkUrls = BTreeMap<String, Option<String>>;
 
-/// Where a game lives on disk. A package (`Foo.cartouche.tar`) and the folder
+/// Where a game lives on disk. A package (`Foo.cartridge.tar`) and the folder
 /// `Foo/` are the same game: the scanner merges them into one entry.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum Install {
     /// Only `Foo/`.
     #[default]
     Installed,
-    /// Only `Foo.cartouche.tar`: not runnable, read-only until unpacked.
+    /// Only `Foo.cartridge.tar`: not runnable, read-only until unpacked.
     Packaged { package: PathBuf },
     /// Both; `verified` when `Foo/` was unpacked from this very package.
     InstalledWithPackage { package: PathBuf, verified: bool },
@@ -197,11 +197,11 @@ pub struct Game {
     /// Free text, e.g. `1`, `1-4`.
     pub players: String,
     pub description: String,
-    /// Bytes of the game's own files (`.cartouche/` excluded).
+    /// Bytes of the game's own files (`.cartridge/` excluded).
     pub size: Option<u64>,
     pub install: Install,
-    /// `.cartouche/game.json` exists on disk.
-    pub has_cartouche: bool,
+    /// `.cartridge/game.json` exists on disk.
+    pub has_cartridge: bool,
     /// In-memory data differs from disk.
     pub needs_persist: bool,
     /// Runtime-resolved, never persisted.
@@ -295,7 +295,7 @@ impl Game {
             players: scalar_text(file.players),
             description: scalar_text(file.description),
             size: as_id(&file.size).and_then(|s| u64::try_from(s).ok()),
-            has_cartouche: true,
+            has_cartridge: true,
             ..Default::default()
         })
     }

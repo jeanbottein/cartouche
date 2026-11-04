@@ -6,7 +6,7 @@
 #MACHINE_NAME=my-device
 
 # Persist game data (optional)
-# Set to False to skip writing .cartouche/ folders in game directories
+# Set to False to skip writing .cartridge/ folders in game directories
 #PERSIST_DATA=True
 
 # Background music (optional)
@@ -28,7 +28,7 @@
 # 3. SAVE BACKUP & SYNC
 # ==========================================
 
-#SAVESCOPY_PATH=/run/media/deck/SteamDeck-SD/cartouche-backup
+#SAVESCOPY_PATH=/run/media/deck/SteamDeck-SD/cartridge-backup
 
 # SAVESCOPY_STRATEGY
 # backup: Create a backup of save files in the backup location
@@ -43,7 +43,7 @@
 # Creates a folder of symlinks pointing to original save directories.
 # Use with Syncthing or similar tools for automatic bidirectional sync.
 # (Removing a game from the freegames folder will not remove the symlink)
-#SAVESLINK_PATH=/run/media/deck/SteamDeck-SD/cartouche-sync
+#SAVESLINK_PATH=/run/media/deck/SteamDeck-SD/cartridge-sync
 
 # Custom directory backups (optional)
 # Format: BACKUP_<name>=<path>
@@ -58,7 +58,7 @@
 
 # Steam Non-Steam Shortcut Integration (optional)
 # Automatically add/remove DRM-free games as non-Steam shortcuts in your Steam library.
-# Shortcuts are tagged with "cartouche" so they can be managed without affecting
+# Shortcuts are tagged with "cartridge" so they can be managed without affecting
 # your other manually-added non-Steam games.
 #STEAM_EXPOSE=False
 
@@ -69,7 +69,7 @@
 # Common values: proton_experimental, proton_9-0-4, proton_8-0
 #PROTON_VERSION=proton_experimental
 
-# Add Cartouche itself to Steam as ".cartouche", with its retro artwork (optional)
+# Add •cartridge itself to Steam as ".cartridge", with its retro artwork (optional)
 # Works even when STEAM_EXPOSE is off. The shortcut launches this binary.
 #STEAM_ADD_SELF=False
 # Optionally force what the shortcut launches
@@ -104,14 +104,14 @@
 #
 # Example: Sync the symlink folder to a Google Drive remote named "gdrive"
 # Note: The -L flag is required for rclone to follow the symlinks and copy the actual save files.
-#RUN_AFTER_02=rclone sync -L "${SAVESLINK_PATH}" gdrive:cartouche-saves
+#RUN_AFTER_02=rclone sync -L "${SAVESLINK_PATH}" gdrive:cartridge-saves
 
 
 # ==========================================
 # 5. SHARING ON THE LAN
 # ==========================================
 
-# Let other Cartouche machines on the network see and copy your games (optional).
+# Let other •cartridge machines on the network see and copy your games (optional).
 # No password: only enable on a network you trust.
 #SHARE_ENABLED=False
 

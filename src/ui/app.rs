@@ -489,8 +489,9 @@ impl App {
         draw_rectangle(0.0, HEADER_H, w, 1.0, theme::BORDER);
     }
 
-    /// Right side of the header: pipeline run, transfers, sharing. Stops
-    /// before running into the tabs (which end at `tabs_end`).
+    /// Right side of the header: the cartridge's name, then the pipeline run,
+    /// transfers and sharing. Stops before running into the tabs (which end
+    /// at `tabs_end`).
     fn draw_indicators(&self, tabs_end: f32, w: f32) {
         let mut x = w - MARGIN;
         let mut indicator = |label: &str, color: Color, busy: bool| {
@@ -507,6 +508,9 @@ impl App {
             }
             x -= 14.0;
         };
+        if let Some(cfg) = &self.config {
+            indicator(&cfg.label(), theme::MUTED, false);
+        }
         if self.status.is_running() {
             indicator("RUNNING", theme::AMBER, true);
         }

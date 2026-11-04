@@ -99,6 +99,16 @@ impl Config {
         workspace_of(&self.path)
     }
 
+    /// The cartridge's label: its folder's name.
+    pub fn label(&self) -> String {
+        super::app::label(&self.workspace())
+    }
+
+    /// The cartridge's stable id (`system/cartridge-id`, created on first use).
+    pub fn cartridge_id(&self) -> String {
+        super::app::cartridge_id(&self.app_dir())
+    }
+
     /// `FREEGAMES_PATH`, when it points at an existing directory.
     pub fn games_dir(&self) -> Option<PathBuf> {
         self.path_of("FREEGAMES_PATH").filter(|p| p.is_dir())
@@ -200,7 +210,7 @@ mod tests {
     #[test]
     fn relative_paths_resolve_against_workspace() {
         let raw = parse("FREEGAMES_PATH=games\nBACKUP_x=/abs\nMACHINE_NAME=deck\n");
-        let cfg = Config::from_raw(PathBuf::from("/ws/.cartouche/config.txt"), raw);
+        let cfg = Config::from_raw(PathBuf::from("/ws/.cartridge/config.txt"), raw);
         // Resolved like the code does, so `/ws` reads `D:\ws` on Windows.
         let resolved = |p: &str| paths::lossy(&paths::resolve(Path::new(p)));
         assert_eq!(
@@ -215,7 +225,7 @@ mod tests {
     #[test]
     fn flags_have_opt_in_and_opt_out_defaults() {
         let raw = parse("STEAM_EXPOSE=TRUE\nPERSIST_DATA=false\n");
-        let cfg = Config::from_raw(PathBuf::from("/ws/.cartouche/config.txt"), raw);
+        let cfg = Config::from_raw(PathBuf::from("/ws/.cartridge/config.txt"), raw);
         assert!(cfg.is_true("STEAM_EXPOSE"));
         assert!(!cfg.is_true("STEAM_ADD_SELF"));
         assert!(!cfg.is_not_false("PERSIST_DATA"));

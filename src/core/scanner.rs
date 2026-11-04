@@ -225,7 +225,7 @@ pub fn resolve_runtime(game: &mut Game) {
     });
 }
 
-/// Load `.cartouche/game.json` from `dir`: a skeleton when it doesn't exist,
+/// Load `.cartridge/game.json` from `dir`: a skeleton when it doesn't exist,
 /// `None` when it exists but can't be read (so it is never overwritten).
 pub fn load_game(dir: &Path) -> Option<Game> {
     let path = Game::skeleton(dir).game_json_path();
@@ -281,7 +281,7 @@ fn with_package(mut game: Game, package: &Path) -> Game {
 }
 
 /// Every visible subfolder of `games_dir` as a game (a skeleton when it has no
-/// metadata yet), with runtime fields resolved, plus packages (`Foo.cartouche.tar`)
+/// metadata yet), with runtime fields resolved, plus packages (`Foo.cartridge.tar`)
 /// merged into their folder when it exists. Silent: the UI reloads often.
 pub fn load_library(games_dir: &Path) -> Vec<Game> {
     let installed: Vec<Game> = paths::visible_subdirs(games_dir)
@@ -321,7 +321,7 @@ pub fn scan(games_dir: &Path) -> Vec<Game> {
     for game in &games {
         if !game.is_installed() {
             info!("  Packaged: {}", game.title);
-        } else if game.has_cartouche {
+        } else if game.has_cartridge {
             info!("  Loaded: {}", game.title);
         } else {
             info!("  Discovered: {} (needs detection)", game.folder_name);
@@ -438,13 +438,13 @@ mod tests {
         dir.mkdir("Bare Game");
         dir.mkdir(".hidden");
         dir.write(
-            "Known/.cartouche/game.json",
+            "Known/.cartridge/game.json",
             br#"{"title": "Known Game", "targets": [{"os": "any", "target": "run.sh"}], "savePaths": [{"os": "", "path": "saves"}]}"#,
         );
         let games = scan(dir.path());
         assert_eq!(games.len(), 2);
         assert_eq!(games[0].title, "Bare Game");
-        assert!(!games[0].has_cartouche);
+        assert!(!games[0].has_cartridge);
         let known = &games[1];
         assert_eq!(known.title, "Known Game");
         assert_eq!(
@@ -460,7 +460,7 @@ mod tests {
     #[test]
     fn broken_game_json_is_skipped_not_replaced() {
         let dir = TempDir::new();
-        let path = dir.write("Broken/.cartouche/game.json", b"{ not json");
+        let path = dir.write("Broken/.cartridge/game.json", b"{ not json");
         assert!(scan(dir.path()).is_empty());
         assert_eq!(std::fs::read(path).unwrap(), b"{ not json");
     }

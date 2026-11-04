@@ -1,4 +1,4 @@
-//! Pipeline step 4: write `.cartouche/game.json` and download artwork for every
+//! Pipeline step 4: write `.cartridge/game.json` and download artwork for every
 //! game changed in memory.
 
 use std::io::Read;
@@ -47,7 +47,7 @@ fn download_images(game: &mut Game, wanted: impl Fn(&Path) -> bool) {
 pub fn write_game_json(game: &mut Game) -> std::io::Result<()> {
     std::fs::create_dir_all(game.data_dir())?;
     std::fs::write(game.game_json_path(), game.to_json())?;
-    game.has_cartouche = true;
+    game.has_cartridge = true;
     game.needs_persist = false;
     Ok(())
 }
@@ -105,6 +105,6 @@ mod tests {
         persist(&mut games);
         assert!(!games[0].game_json_path().exists());
         assert!(games[1].game_json_path().is_file());
-        assert!(!games[1].needs_persist && games[1].has_cartouche);
+        assert!(!games[1].needs_persist && games[1].has_cartridge);
     }
 }

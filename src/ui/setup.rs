@@ -8,7 +8,7 @@ use macroquad::prelude::*;
 use super::engine::theme;
 use super::form::{Event as FormEvent, Field, Form};
 use super::{Hint, Ui};
-use crate::core::app::{app_name, exe_dir, WORKSPACE_DIR};
+use crate::core::app::{exe_dir, DISPLAY_NAME, WORKSPACE_DIR};
 use crate::core::{init, paths};
 
 pub enum Outcome {
@@ -35,7 +35,7 @@ fn fields(workspace: &str, previous: Option<&Form>) -> Vec<Field> {
         |id: &str, default: &str| previous.map_or(default.to_string(), |f| f.value(id).to_string());
     let help = format!("A {WORKSPACE_DIR}/ folder is created here, with your settings.");
     let mut out = vec![
-        Field::section(&format!("WELCOME TO {}", app_name().to_uppercase())),
+        Field::section(&format!("WELCOME TO {DISPLAY_NAME}")),
         Field::path(
             "workspace",
             "Workspace folder",

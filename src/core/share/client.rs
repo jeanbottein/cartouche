@@ -1,5 +1,5 @@
 //! Client side: find peers, list their games, and copy a game either as a
-//! package (Download: kept as `Foo.cartouche.tar`, e.g. on a library machine)
+//! package (Download: kept as `Foo.cartridge.tar`, e.g. on a library machine)
 //! or straight into a folder (Install: unpacked while it streams, no tar on disk).
 
 use std::fs::{self, File};
@@ -135,7 +135,7 @@ impl<R: Read, W: Write> Read for Tee<R, W> {
     }
 }
 
-/// Copy a remote game as `games_dir/<id>.cartouche.tar`, verified while it
+/// Copy a remote game as `games_dir/<id>.cartridge.tar`, verified while it
 /// downloads (one pass) and renamed into place only once complete.
 pub fn download(
     addr: SocketAddr,

@@ -1,46 +1,17 @@
-//! Application identity and the `system/` workspace directory.
+//! Application identity, the cartridge folder and its `system/` workspace.
 //!
-//! The app name comes from the binary filename — everything before the first
-//! `-` or `.` — so `cartouche-linux-x86_64` is still "cartouche", and renaming
-//! the binary rebrands the app (Steam tags, window title). Folder names don't
-//! follow the name: every game keeps its metadata in `.cartouche/` (a format,
-//! shared between machines and packages) and the workspace is `system/`.
-//! In an AppImage the name comes from the `.AppImage` file instead (the inner
-//! binary is always `cartouche`), lowercased so `Cartouche.AppImage` stays
-//! "cartouche".
+//! The app is `cartridge`, shown as `•cartridge` ("dot cartridge"): every game
+//! keeps its metadata in a `.cartridge/` folder, and a portable folder holding
+//! the app, `system/` and the games is a cartridge. Names are fixed; renaming
+//! the binary, the app bundle or the folder changes nothing but the label,
+//! which is the cartridge folder's name.
 
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
 
-pub fn app_name() -> &'static str {
-    static NAME: OnceLock<String> = OnceLock::new();
-    NAME.get_or_init(|| {
-        name_from(
-            std::env::var_os("APPIMAGE").map(PathBuf::from),
-            std::env::current_exe().ok(),
-        )
-    })
-}
-
-/// Everything before the first `-` or `.` of the launched file's name. A
-/// wrapper (AppImage, macOS `.app`) is a name users pick, like
-/// `Cartouche.app`: it is lowercased, so it still reads "cartouche".
-fn name_from(appimage: Option<PathBuf>, exe: Option<PathBuf>) -> String {
-    let stem_of = |path: &Path| {
-        let file = path.file_name()?.to_string_lossy().into_owned();
-        let stem = file.split(['-', '.']).next()?.to_string();
-        (!stem.is_empty()).then_some(stem)
-    };
-    let wrapper = appimage
-        .filter(|a| !a.as_os_str().is_empty())
-        .or_else(|| exe.as_deref().and_then(app_bundle));
-    wrapper
-        .as_deref()
-        .and_then(stem_of)
-        .map(|s| s.to_lowercase())
-        .or_else(|| exe.as_deref().and_then(stem_of))
-        .unwrap_or_else(|| "cartouche".into())
-}
+/// Identifier: binary, Steam ownership prefix, user agent.
+pub const APP_NAME: &str = "cartridge";
+/// How the app is written in text: "dot cartridge".
+pub const DISPLAY_NAME: &str = "•cartridge";
 
 /// The macOS bundle holding `exe` (`X.app/Contents/MacOS/exe`), if any.
 fn app_bundle(exe: &Path) -> Option<PathBuf> {
@@ -59,9 +30,9 @@ pub fn is_translocated(path: &Path) -> bool {
     path.to_string_lossy().contains("/AppTranslocation/")
 }
 
-/// Per-game metadata folder (`<game>/.cartouche/game.json`). Fixed: it is
-/// part of the game format, whatever the app is called.
-pub const GAME_DATA_DIR: &str = ".cartouche";
+/// Per-game metadata folder (`<game>/.cartridge/game.json`): part of the game
+/// and package format.
+pub const GAME_DATA_DIR: &str = ".cartridge";
 
 /// The workspace folder next to the app: `system/config.txt`, caches, thumbnails.
 pub const WORKSPACE_DIR: &str = "system";
@@ -69,7 +40,11 @@ pub const WORKSPACE_DIR: &str = "system";
 /// Marks a `system/` folder as ours even before `config.txt` exists (e.g.
 /// freshly unpacked from a release archive).
 pub const WORKSPACE_README: &str = "README.txt";
-const README_SIGNATURE: &str = "Cartouche";
+const README_SIGNATURE: &str = DISPLAY_NAME;
+/// The cartridge's stable identity, in `system/`: Steam shortcuts are owned by
+/// this id, so renaming or moving the folder never orphans them, and two
+/// cartridges on one machine don't clean up each other's games.
+const CARTRIDGE_ID_FILE: &str = "cartridge-id";
 
 pub fn data_dir_name() -> String {
     GAME_DATA_DIR.to_string()
@@ -116,49 +91,50 @@ pub fn is_workspace(dir: &Path) -> bool {
     dir.join("config.txt").is_file() || readme.starts_with(README_SIGNATURE)
 }
 
-/// A pre-`system/` workspace: `.cartouche/` (or `.<app name>/` from a renamed
-/// binary) with a `config.txt` and no `game.json` (so not a game's own folder).
-fn legacy_workspace(parent: &Path) -> Option<PathBuf> {
-    [GAME_DATA_DIR.to_string(), format!(".{}", app_name())]
-        .into_iter()
-        .map(|name| parent.join(name))
-        .find(|p| p.join("config.txt").is_file() && !p.join("game.json").exists())
-}
-
-/// The workspace in `parent`, moving a legacy `.cartouche/` to `system/` once.
-/// The legacy folder is kept as is when an unrelated `system/` exists.
 fn workspace_in(parent: &Path) -> Option<PathBuf> {
     let system = parent.join(WORKSPACE_DIR);
-    if is_workspace(&system) {
-        return Some(system);
-    }
-    let legacy = legacy_workspace(parent)?;
-    if system.exists() {
-        log::warn!(
-            "Keeping {}: {} exists and isn't a Cartouche workspace",
-            legacy.display(),
-            system.display()
+    is_workspace(&system).then_some(system)
+}
+
+/// The cartridge's label: its folder's name (`Potato-games/system/` ->
+/// "Potato-games"). Shown in the app and as the Steam self-shortcut name.
+pub fn label(workspace: &Path) -> String {
+    workspace
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .filter(|n| !n.is_empty())
+        .unwrap_or_else(|| DISPLAY_NAME.to_string())
+}
+
+fn new_id() -> String {
+    use std::hash::{BuildHasher, Hasher};
+    // Two independently seeded hashes: unpredictable enough for an identity.
+    let part = || {
+        let mut hasher = std::collections::hash_map::RandomState::new().build_hasher();
+        hasher.write_u128(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_nanos()),
         );
-        return Some(legacy);
+        hasher.write_u32(std::process::id());
+        hasher.finish()
+    };
+    format!("{:016x}{:016x}", part(), part())
+}
+
+/// The id in `app_dir/cartridge-id`, created on first use.
+pub fn cartridge_id(app_dir: &Path) -> String {
+    let path = app_dir.join(CARTRIDGE_ID_FILE);
+    let existing = std::fs::read_to_string(&path).unwrap_or_default();
+    let existing = existing.trim();
+    if !existing.is_empty() {
+        return existing.to_string();
     }
-    match std::fs::rename(&legacy, &system) {
-        Ok(()) => {
-            log::info!(
-                "Moved workspace {} -> {}",
-                legacy.display(),
-                system.display()
-            );
-            Some(system)
-        }
-        Err(e) => {
-            log::warn!(
-                "Cannot move {} to {}: {e}",
-                legacy.display(),
-                system.display()
-            );
-            Some(legacy)
-        }
+    let id = new_id();
+    if let Err(e) = std::fs::write(&path, format!("{id}\n")) {
+        log::warn!("Cannot save {}: {e}", path.display());
     }
+    id
 }
 
 /// Locate the workspace dir (`system/`). First match wins:
@@ -186,7 +162,10 @@ mod tests {
         assert!(!is_workspace(&system));
         dir.write("system/README.txt", b"Some other project");
         assert!(!is_workspace(&system));
-        dir.write("system/README.txt", b"Cartouche workspace: settings...");
+        dir.write(
+            "system/README.txt",
+            "•cartridge workspace: settings...".as_bytes(),
+        );
         assert!(is_workspace(&system));
         let other = dir.mkdir("other/system");
         dir.write("other/system/config.txt", b"");
@@ -194,43 +173,36 @@ mod tests {
     }
 
     #[test]
-    fn a_legacy_workspace_moves_to_system_once() {
+    fn the_workspace_is_system_next_to_the_app_only() {
         let dir = TempDir::new();
-        dir.write(".cartouche/config.txt", b"FREEGAMES_PATH=games\n");
-        let found = workspace_in(dir.path()).unwrap();
-        assert_eq!(found, dir.path().join("system"));
-        assert!(found.join("config.txt").is_file());
-        assert!(!dir.path().join(".cartouche").exists());
-        assert_eq!(workspace_in(dir.path()), Some(found));
-    }
-
-    #[test]
-    fn an_unrelated_system_folder_is_never_merged() {
-        let dir = TempDir::new();
-        dir.write(".cartouche/config.txt", b"");
-        dir.write("system/notes.txt", b"not ours");
-        assert_eq!(
-            workspace_in(dir.path()),
-            Some(dir.path().join(".cartouche"))
-        );
-        assert!(dir.path().join("system/notes.txt").is_file());
-    }
-
-    #[test]
-    fn a_game_data_folder_is_not_a_workspace() {
-        let dir = TempDir::new();
-        dir.write(".cartouche/config.txt", b"");
-        dir.write(".cartouche/game.json", b"{}");
+        dir.write(".cartridge/config.txt", b"");
         assert_eq!(workspace_in(dir.path()), None);
-        assert!(!dir.path().join("system").exists());
+        dir.write("system/config.txt", b"");
+        assert_eq!(workspace_in(dir.path()), Some(dir.path().join("system")));
+    }
+
+    #[test]
+    fn the_label_is_the_cartridge_folder_name() {
+        assert_eq!(label(Path::new("/games/Potato-games")), "Potato-games");
+        assert_eq!(label(Path::new("/")), DISPLAY_NAME);
+    }
+
+    #[test]
+    fn the_cartridge_id_is_created_once_and_kept() {
+        let dir = TempDir::new();
+        let id = cartridge_id(dir.path());
+        assert_eq!(id.len(), 32);
+        assert_eq!(cartridge_id(dir.path()), id);
+        let other = TempDir::new();
+        assert_ne!(cartridge_id(other.path()), id);
     }
 
     #[test]
     fn an_appimage_stands_in_for_the_mounted_binary() {
-        let exe = Some(PathBuf::from("/tmp/.mount_abc/usr/bin/cartouche"));
+        let exe = Some(PathBuf::from("/tmp/.mount_abc/usr/bin/cartridge"));
         assert_eq!(
-            launched_from(Some("/games/Cartouche.AppImage".into()), exe.clone()),
-            Some(PathBuf::from("/games/Cartouche.AppImage"))
+            launched_from(Some("/games/Cartridge.AppImage".into()), exe.clone()),
+            Some(PathBuf::from("/games/Cartridge.AppImage"))
         );
         assert_eq!(launched_from(None, exe.clone()), exe);
         assert_eq!(launched_from(Some("".into()), exe.clone()), exe);
@@ -238,44 +210,20 @@ mod tests {
 
     #[test]
     fn a_mac_bundle_stands_in_for_its_binary() {
-        let exe = PathBuf::from("/Games/Cartouche.app/Contents/MacOS/cartouche");
+        let exe = PathBuf::from("/Games/Cartridge.app/Contents/MacOS/cartridge");
         assert_eq!(
-            launched_from(None, Some(exe.clone())),
-            Some(PathBuf::from("/Games/Cartouche.app"))
+            launched_from(None, Some(exe)),
+            Some(PathBuf::from("/Games/Cartridge.app"))
         );
-        assert_eq!(name_from(None, Some(exe)), "cartouche");
-        let renamed = PathBuf::from("/G/MyGames.app/Contents/MacOS/cartouche");
-        assert_eq!(name_from(None, Some(renamed)), "mygames");
-        let loose = PathBuf::from("/G/Contents/MacOS/cartouche");
+        let loose = PathBuf::from("/G/Contents/MacOS/cartridge");
         assert_eq!(launched_from(None, Some(loose.clone())), Some(loose));
     }
 
     #[test]
     fn translocated_paths_are_recognised() {
         assert!(is_translocated(Path::new(
-            "/private/var/folders/x/T/AppTranslocation/ABC/d/Cartouche.app"
+            "/private/var/folders/x/T/AppTranslocation/ABC/d/Cartridge.app"
         )));
-        assert!(!is_translocated(Path::new("/Users/me/Games/Cartouche.app")));
-    }
-
-    #[test]
-    fn the_name_follows_the_launched_file() {
-        let name = |appimage: Option<&str>, exe: &str| {
-            name_from(appimage.map(PathBuf::from), Some(PathBuf::from(exe)))
-        };
-        // Plain binary: exact case, as before.
-        assert_eq!(name(None, "/g/cartouche-linux-x86_64"), "cartouche");
-        assert_eq!(name(None, "/g/MyGames"), "MyGames");
-        // AppImage: its file name, lowercased; the inner binary is ignored.
-        let inner = "/tmp/.mount_x/usr/bin/cartouche";
-        assert_eq!(name(Some("/g/Cartouche.AppImage"), inner), "cartouche");
-        assert_eq!(
-            name(Some("/g/cartouche-linux-x86_64.AppImage"), inner),
-            "cartouche"
-        );
-        assert_eq!(name(Some("/g/MyGames.AppImage"), inner), "mygames");
-        // Nothing usable: the default.
-        assert_eq!(name_from(None, None), "cartouche");
-        assert_eq!(name(Some("/g/.AppImage"), inner), "cartouche");
+        assert!(!is_translocated(Path::new("/Users/me/Games/Cartridge.app")));
     }
 }

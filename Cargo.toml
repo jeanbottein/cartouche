@@ -1,5 +1,5 @@
 [package]
-name = "cartouche"
+name = "cartridge"
 version = "0.2.0"
 edition = "2021"
 description = "Manage DRM-free games on Linux / Steam Deck: detect, enrich, sync to Steam, patch, back up saves"
@@ -18,7 +18,7 @@ serde_json = { version = "1", features = ["preserve_order"] }
 image = { version = "0.24", default-features = false, features = ["png", "jpeg", "ico"] }
 ureq = "2"
 crc32fast = "1"
-# Game packages are plain tar files (readable with `tar xf`, no Cartouche needed).
+# Game packages are plain tar files (readable with `tar xf`, no •cartridge needed).
 tar = { version = "0.4", default-features = false }
 log = { version = "0.4", features = ["std"] }
 

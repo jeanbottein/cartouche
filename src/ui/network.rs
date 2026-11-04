@@ -1,4 +1,4 @@
-//! Network: games shared by other Cartouche machines on the LAN. Peers are
+//! Network: games shared by other •cartridge machines on the LAN. Peers are
 //! found in the background (broadcast + SHARE_PEERS), their games listed in
 //! one list; a game can be installed here (unpacked while it streams) or
 //! downloaded as a package (to unpack later or share again).
@@ -269,7 +269,7 @@ impl Network {
             return;
         }
         let headline = if self.peers.is_empty() {
-            "No other Cartouche machine found."
+            "No other •cartridge machine found."
         } else {
             "Other machines share no games."
         };
@@ -278,7 +278,7 @@ impl Network {
         let port = cfg.map_or(share::DEFAULT_PORT, share::port);
         let help = [
             "On the other machine: SETTINGS > Share games on the LAN, or run".to_string(),
-            "cartouche --serve. Both machines need the same sharing port".to_string(),
+            "cartridge --serve. Both machines need the same sharing port".to_string(),
             format!("({port}, TCP + UDP) open in their firewall."),
             String::new(),
             "Not on the same network segment? Add it in SETTINGS > Extra peers.".to_string(),

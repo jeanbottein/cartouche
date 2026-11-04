@@ -477,7 +477,7 @@ mod tests {
     fn title_descends_single_child_folders() {
         let dir = TempDir::new();
         dir.write("Pack/Real Game/run.sh", b"");
-        dir.mkdir("Pack/.cartouche");
+        dir.mkdir("Pack/.cartridge");
         assert_eq!(title_for(&dir.path().join("Pack")), "Real Game");
     }
 

@@ -1,29 +1,29 @@
-# AGENTS.md – AI Agent Guide for Cartouche
+# AGENTS.md – AI Agent Guide for •cartridge
 
 ## Project Overview
 
-Cartouche (French for "cartridge") is a Rust app for managing DRM-free games on Linux (primarily Steam Deck). One binary: a retro macroquad UI by default, terminal mode with `-t`. The backend is a pipeline of phases over an in-memory game list.
+•cartridge (French for "cartridge") is a Rust app for managing DRM-free games on Linux (primarily Steam Deck). One binary: a retro macroquad UI by default, terminal mode with `-t`. The backend is a pipeline of phases over an in-memory game list.
 
 ## Pipeline
 
 ```
 core::pipeline::Pipeline (groups: all / parse / steam / backup / patch)
  0. migrations::run_all      # Idempotent data migrations
- 1. scanner::scan            # Parse .cartouche/game.json into Vec<Game>
+ 1. scanner::scan            # Parse .cartridge/game.json into Vec<Game>
  2. detector::detect         # Fill missing targets (exe detection)
     sizer::measure           #   + size on disk into game.json
  3. sgdb::enrich             # SteamGridDB names/IDs/artwork (if API key)
  4. persister::persist       # Write game.json + download images (PERSIST_DATA)
  5. steam::clean             # Remove stale Steam shortcuts (STEAM_EXPOSE)
  6. steam::export            # Insert/update shortcuts + Proton compat
-    steam_self::register     #   + Cartouche itself (STEAM_ADD_SELF)
+    steam_self::register     #   + •cartridge itself (STEAM_ADD_SELF)
  7. manifest::write          # manifests.json (MANIFEST_EXPORT)
  8. patcher::run             # BPS patches / file replacements
  9. saver::run               # Backup/restore saves, symlink tree
 10. commands::run            # RUN_AFTER_* shell commands
 ```
 
-Migrations: `launch_manifest.json` → `.cartouche/game.json`, nested → flat `savePaths`, arch `x86_64` → `x64`. Add new ones to `migrations::run_all`; keep them idempotent.
+Migrations: `launch_manifest.json` → `.cartridge/game.json`, nested → flat `savePaths`, arch `x86_64` → `x64`. Add new ones to `migrations::run_all`; keep them idempotent.
 
 ## Architecture
 
@@ -37,7 +37,7 @@ src/
     models.rs            # Game, Target, SavePath, Images; game.json (de)serialization
     paths.rs, platform.rs# normpath/expandvars/relpath; OS/arch tags, ELF/PE/Mach-O headers
     migrations.rs scanner.rs detector.rs sgdb.rs persister.rs sizer.rs
-    package.rs           # Foo.cartouche.tar: pack/unpack with progress + crc verification
+    package.rs           # Foo.cartridge.tar: pack/unpack with progress + crc verification
     share/               # LAN sharing: server.rs (HTTP, GET only), discovery.rs (UDP broadcast), client.rs
     vdf.rs               # Binary (shortcuts.vdf) + text (config.vdf) KeyValues
     steam.rs steam_self.rs manifest.rs bps.rs patcher.rs saver.rs commands.rs
@@ -57,15 +57,15 @@ testdata/                # Golden fixtures produced by the former Python impleme
 ```
 WORKSPACE/
   system/config.txt, README.txt, steamgriddb_cache.json, ui-thumbs/   # workspace
-  cartouche (binary / .AppImage / .app)                               # portable: next to system/
-  games/MyGame/.cartouche/game.json, cover.png, icon.png, hero.png, logo.png
-  games/MyGame/.cartouche/unpacked_from.json   # id of the package it came from
-  games/Other.cartouche.tar                    # packaged game (not unpacked yet)
+  cartridge (binary / .AppImage / .app)                               # portable: next to system/
+  games/MyGame/.cartridge/game.json, cover.png, icon.png, hero.png, logo.png
+  games/MyGame/.cartridge/unpacked_from.json   # id of the package it came from
+  games/Other.cartridge.tar                    # packaged game (not unpacked yet)
 ```
 
-Folder names are fixed, whatever the binary is called: per-game metadata is always `.cartouche/` (part of the game and package format), the workspace is always `system/`. `system/` only counts with a `config.txt` or our README (the name is common). A legacy `.cartouche/` workspace is moved to `system/` once, unless an unrelated `system/` exists (`core::app::workspace_in`).
+Folder names are fixed, whatever the binary is called: per-game metadata is always `.cartridge/` (part of the game and package format), the workspace is always `system/`. `system/` only counts with a `config.txt` or our README (the name is common). A legacy `.cartridge/` workspace is moved to `system/` once, unless an unrelated `system/` exists (`core::app::workspace_in`).
 
-Packages: a plain tar of `Foo/` with `.cartouche/package.json` first and `.cartouche/checksums.json` last. The scanner merges `Foo.cartouche.tar` and `Foo/` into one game (`models::Install`). Packaged-only games are read-only: phases that write (detector, sgdb, persister, editor) skip them. Staging uses hidden `.Foo…part` names, which the scanner ignores.
+Packages: a plain tar of `Foo/` with `.cartridge/package.json` first and `.cartridge/checksums.json` last. The scanner merges `Foo.cartridge.tar` and `Foo/` into one game (`models::Install`). Packaged-only games are read-only: phases that write (detector, sgdb, persister, editor) skip them. Staging uses hidden `.Foo…part` names, which the scanner ignores.
 
 ## Key Conventions
 
@@ -84,20 +84,20 @@ The host (Bazzite) has no Rust toolchain on purpose: build in the container.
 ./container.sh                         # cargo build --release (any cargo args work)
 ./container.sh test
 ./container.sh clippy --all-targets
-./target/release/cartouche             # run on the host (UI)
+./target/release/cartridge             # run on the host (UI)
 ```
 
 Releases (`v*` tags, or run the Release workflow by hand) ship ready-to-use
 cartridge archives (`package.sh`, template in `packaging/cartridge/`): a
-`Cartouche/` folder with the app (`Cartouche.AppImage` via `appimage.sh`,
-universal `Cartouche.app` via `macapp.sh`, `cartouche.exe`), READMEs and an
+`Cartridge/` folder with the app (`Cartridge.AppImage` via `appimage.sh`,
+universal `Cartridge.app` via `macapp.sh`, `cartridge.exe`), READMEs and an
 empty `system/`. No `config.txt` is shipped: the app creates it on first
 launch, so extracting a newer release over a cartridge keeps its settings.
 CI extracts each archive and runs the app inside it. Bare binaries are only
 published with `PUBLISH_BARE_BINARIES: true` in `release.yml`. In an AppImage
 or `.app` the binary sits in a mount/bundle: `core::app::launched_file()`
 returns the `.AppImage` / `.app` instead, for portable mode, the Steam
-self-shortcut and the app name (lowercased: `Cartouche.app` -> `cartouche`).
+self-shortcut and the app name (lowercased: `Cartridge.app` -> `cartridge`).
 
 With a native toolchain instead:
 

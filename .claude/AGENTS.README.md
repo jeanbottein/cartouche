@@ -1,4 +1,4 @@
-# Cartouche Sub-Agents
+# •cartridge Sub-Agents
 
 Specialized agents for different areas of the codebase.
 

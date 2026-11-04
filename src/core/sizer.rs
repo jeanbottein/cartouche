@@ -9,7 +9,7 @@ use super::app::data_dir_name;
 use super::models::Game;
 use super::package;
 
-/// Bytes of the game's own files (`.cartouche/` excluded); symlinks not followed.
+/// Bytes of the game's own files (`.cartridge/` excluded); symlinks not followed.
 pub fn measure_game(dir: &Path) -> std::io::Result<u64> {
     let data = Path::new(&data_dir_name()).to_path_buf();
     Ok(package::walk(dir)?
@@ -83,7 +83,7 @@ mod tests {
         let new = Game::skeleton(&dir.path().join("New"));
         let mut packaged = Game::skeleton(&dir.path().join("Missing"));
         packaged.install = Install::Packaged {
-            package: dir.path().join("Missing.cartouche.tar"),
+            package: dir.path().join("Missing.cartridge.tar"),
         };
         let mut games = vec![same, new, packaged];
         measure(&mut games);

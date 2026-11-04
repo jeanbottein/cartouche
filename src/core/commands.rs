@@ -104,7 +104,7 @@ mod tests {
     #[test]
     fn expands_config_keys_and_leaves_the_rest() {
         let raw = config::parse("SAVESLINK_PATH=/links\nMACHINE_NAME=deck\n");
-        let cfg = Config::from_raw("/ws/.cartouche/config.txt".into(), raw);
+        let cfg = Config::from_raw("/ws/.cartridge/config.txt".into(), raw);
         assert_eq!(
             expand_template(
                 "rclone sync -L \"${SAVESLINK_PATH}\" r:${MACHINE_NAME} ${UNKNOWN} $1",
@@ -118,7 +118,7 @@ mod tests {
         );
         assert_eq!(
             expand_template("${_CONFIG_PATH}", &cfg),
-            "/ws/.cartouche/config.txt"
+            "/ws/.cartridge/config.txt"
         );
     }
 }

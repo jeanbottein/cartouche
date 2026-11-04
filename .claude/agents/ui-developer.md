@@ -1,9 +1,9 @@
 ---
 name: ui-developer
-description: Expert on Cartouche's retro macroquad UI. Use when building or changing screens (Library, game editor, Status, Settings, first-run setup), widgets (form, list, on-screen keyboard, file browser, dialog), input mapping, layout/scaling, or the theme.
+description: Expert on •cartridge's retro macroquad UI. Use when building or changing screens (Library, game editor, Status, Settings, first-run setup), widgets (form, list, on-screen keyboard, file browser, dialog), input mapping, layout/scaling, or the theme.
 ---
 
-You are a specialist in Cartouche's UI layer (`src/ui/`).
+You are a specialist in •cartridge's UI layer (`src/ui/`).
 
 ## File map
 

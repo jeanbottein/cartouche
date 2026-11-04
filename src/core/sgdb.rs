@@ -1,5 +1,5 @@
 //! Pipeline step 3: SteamGridDB metadata (official names, IDs, artwork URLs),
-//! with a JSON cache in `.cartouche/steamgriddb_cache.json` to spare API calls.
+//! with a JSON cache in `.cartridge/steamgriddb_cache.json` to spare API calls.
 
 use std::path::Path;
 use std::time::Duration;
@@ -7,7 +7,7 @@ use std::time::Duration;
 use log::{debug, info, warn};
 use serde_json::{json, Map, Value};
 
-use super::app::app_name;
+use super::app::APP_NAME;
 use super::config::Config;
 use super::models::{ArtworkUrls, Game, ImageSlot, Images};
 
@@ -33,7 +33,7 @@ pub fn api_key(cfg: &Config) -> Option<String> {
 }
 
 pub fn user_agent() -> String {
-    format!("{}/1.0", app_name())
+    format!("{APP_NAME}/1.0")
 }
 
 pub fn http_get(url: &str, timeout_secs: u64) -> Result<ureq::Response, String> {
@@ -191,7 +191,7 @@ fn url_extension(url: &str) -> String {
     }
 }
 
-/// Local `.cartouche/` filenames for the artwork that has a URL.
+/// Local `.cartridge/` filenames for the artwork that has a URL.
 pub fn image_names(urls: &ArtworkUrls) -> Images {
     let mut images = Images::default();
     for slot in ImageSlot::ALL {
@@ -461,7 +461,7 @@ mod tests {
 
     #[test]
     fn cached_entries_skip_the_network() {
-        let cfg = Config::from_raw("/ws/.cartouche/config.txt".into(), Default::default());
+        let cfg = Config::from_raw("/ws/.cartridge/config.txt".into(), Default::default());
         let mut cache = Map::new();
         cache.insert(
             "celeste".into(),

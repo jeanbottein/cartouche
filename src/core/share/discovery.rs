@@ -10,7 +10,7 @@ use log::warn;
 use super::server::Shared;
 use super::{ServerInfo, PROTOCOL};
 
-const QUERY: &[u8] = b"CARTOUCHE?";
+const QUERY: &[u8] = b"CARTRIDGE?";
 
 /// Server side: answer queries until the server stops.
 pub fn answer_loop(socket: UdpSocket, shared: Arc<Shared>) {

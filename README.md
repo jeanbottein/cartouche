@@ -1,12 +1,12 @@
-# Cartouche
+# •cartridge
 
-> *French for "cartridge" — because nothing beats the nostalgia of blowing into a plastic slot and praying your game boots.*
+> *Say "dot cartridge". Because nothing beats the nostalgia of blowing into a plastic slot and praying your game boots.*
 
 A no-nonsense tool for managing DRM-free games, patches, and save backups on Linux (and especially Steam Deck). One self-contained binary: a retro, controller-friendly UI by default, or a plain terminal run with `-t`.
 
 ---
 
-Don't like the name? **Change it.** Renaming things is literally what Cartouche does best — it'll happily override any game title with whatever you put in `game.json`. Rename the binary to "gamingblob" and it becomes GamingBlob: its `.gamingblob/` folder, its Steam tags, everything. It already survived being called *gamer-sidekick*.
+Every game carries a `.cartridge/` folder with its metadata and artwork, and a folder holding the app, its `system/` settings and your games *is* a cartridge: portable, easy to back up, and named however you like. Call the folder `Potato-games` and that's its label, in the app and in Steam. It already survived being called *gamer-sidekick* and *cartouche*.
 
 ---
 
@@ -16,18 +16,18 @@ Don't like the name? **Change it.** Renaming things is literally what Cartouche 
 - **Detect** — auto-detects executables when metadata is missing
 - **Enrich** — fetches official names and artwork from [SteamGridDB](https://www.steamgriddb.com/)
 - **Steam sync** — adds games to Steam as non-Steam shortcuts, complete with artwork, and sets Proton for Windows games
-- **Self shortcut** — `STEAM_ADD_SELF=True` adds Cartouche itself to Steam as `.cartouche`, with retro artwork
+- **Self shortcut** — `STEAM_ADD_SELF=True` adds the cartridge itself to Steam under its label, with retro artwork (or yours: drop `cover.png`, `hero.png`, ... into `system/`)
 - **Patch** — applies BPS patches or file replacements via `patch.json`
 - **Save backup** — backs up (or restores) save files, with multiple save paths per game, plus a symlink tree for Syncthing
 - **Manifest export** — generates `manifests.json` for [Steam ROM Manager](https://github.com/SteamGridDB/steam-rom-manager)
 - **Post-run commands** — `RUN_AFTER_<name>=<command>` entries run after everything else
 - **Retro UI** — browse and launch games, edit every game (targets, save paths, artwork), run the pipeline with live logs, and change every setting — with a gamepad (on-screen keyboard included), keyboard or mouse
 
-Metadata and artwork are stored in a `.cartouche/` subfolder inside each game's directory — no central database, no magic, just files.
+Metadata and artwork are stored in a `.cartridge/` subfolder inside each game's directory — no central database, no magic, just files.
 
 ### Save Path Variables
 
-When configuring save paths in `game.json`, you generally only need to provide the Windows path (e.g. `%APPDATA%`, `%USERPROFILE%`, or `C:\...`). If the game is run on Linux through Proton, Cartouche will automatically translate common Windows paths to their corresponding Proton prefix equivalents in `~/.local/share/Steam/steamapps/compatdata/<appid>/pfx/drive_c/`.
+When configuring save paths in `game.json`, you generally only need to provide the Windows path (e.g. `%APPDATA%`, `%USERPROFILE%`, or `C:\...`). If the game is run on Linux through Proton, •cartridge will automatically translate common Windows paths to their corresponding Proton prefix equivalents in `~/.local/share/Steam/steamapps/compatdata/<appid>/pfx/drive_c/`.
 
 For example, this `game.json` entry works for both Windows native and Linux Proton seamlessly:
 ```json
@@ -44,11 +44,11 @@ If you do need to write an explicit `linux` path overriding Proton, you can use 
 ## Getting started
 
 1. Download the binary for your platform from the releases (or build it, see below).
-2. Run it. On first launch it asks where to put the workspace (a `system/` folder with `config.txt`) and which folders to create. Cartouche is portable: keep it in its own folder, next to `system/` and your games.
+2. Run it. On first launch it asks where to put the workspace (a `system/` folder with `config.txt`) and which folders to create. •cartridge is portable: keep it in its own folder, next to `system/` and your games.
 3. Fill in the settings (in the UI, or by editing `system/config.txt`), then run the pipeline from the **Status** tab.
 
 ```text
-Usage: cartouche [OPTIONS] [DIR]
+Usage: cartridge [OPTIONS] [DIR]
 
   [DIR]                Folder holding the system/ workspace
                        (default: next to the binary, then the current folder)
@@ -60,7 +60,7 @@ Usage: cartouche [OPTIONS] [DIR]
   -V, --version        Print the version
 ```
 
-Without a display (e.g. over SSH) the UI isn't available, so Cartouche runs the full pipeline in the terminal instead. Set `CARTOUCHE_DEBUG=1` for verbose logs.
+Without a display (e.g. over SSH) the UI isn't available, so •cartridge runs the full pipeline in the terminal instead. Set `CARTRIDGE_DEBUG=1` for verbose logs.
 
 ### Controls
 
@@ -83,12 +83,12 @@ In text fields, the physical keyboard types directly; on a gamepad use the on-sc
 **In a container (recommended, nothing installed on the host):** needs only podman or docker.
 
 ```bash
-./container.sh                  # cargo build --release -> target/release/cartouche
+./container.sh                  # cargo build --release -> target/release/cartridge
 ./container.sh test             # any cargo command
 ./container.sh run -- -t        # (terminal mode only: the container has no display)
 ```
 
-The toolchain and build libraries live in the image (`Containerfile`, Debian 12, so the binary runs on SteamOS and other distros); the cargo cache stays in `target/`. Remove everything with `rm -rf target && podman rmi cartouche-build`.
+The toolchain and build libraries live in the image (`Containerfile`, Debian 12, so the binary runs on SteamOS and other distros); the cargo cache stays in `target/`. Remove everything with `rm -rf target && podman rmi cartridge-build`.
 
 **Natively:** with the Rust toolchain ([rustup](https://rustup.rs)):
 
@@ -96,7 +96,7 @@ The toolchain and build libraries live in the image (`Containerfile`, Debian 12,
 cargo run                       # UI
 cargo run -- -t                 # terminal mode
 cargo test
-./release.sh                    # dist/cartouche-<os>-<arch>
+./release.sh                    # dist/cartridge-<os>-<arch>
 ```
 
 Linux build deps: gamepad support (`gilrs`) needs `libudev` and the UI needs X11/OpenGL: `sudo apt-get install -y libudev-dev libx11-dev libxi-dev libgl1-mesa-dev`. Without them, build keyboard/mouse-only with `cargo build --no-default-features`.

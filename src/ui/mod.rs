@@ -30,7 +30,7 @@ use engine::{text, theme};
 
 fn window_conf() -> Conf {
     let mut conf = Conf {
-        window_title: "Cartouche".to_owned(),
+        window_title: "•cartridge".to_owned(),
         window_width: 1280,
         window_height: 720,
         high_dpi: true,

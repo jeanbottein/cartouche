@@ -1,4 +1,4 @@
-# Build environment for Cartouche: Rust + the libraries the UI and gamepad
+# Build environment for •cartridge: Rust + the libraries the UI and gamepad
 # support link against. Used by ./container.sh, so nothing is installed on the
 # host. Debian 12 keeps glibc old (2.36), so the binary also runs on SteamOS and
 # other distros.

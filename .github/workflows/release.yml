@@ -19,27 +19,27 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            archive: cartouche-linux-x86_64
-            app: dist/cartouche-linux-x86_64.AppImage
-            app_name: Cartouche.AppImage
-            run: Cartouche.AppImage
+            archive: cartridge-linux-x86_64
+            app: dist/cartridge-linux-x86_64.AppImage
+            app_name: Cartridge.AppImage
+            run: Cartridge.AppImage
           - os: ubuntu-24.04-arm
-            archive: cartouche-linux-aarch64
-            app: dist/cartouche-linux-aarch64.AppImage
-            app_name: Cartouche.AppImage
-            run: Cartouche.AppImage
+            archive: cartridge-linux-aarch64
+            app: dist/cartridge-linux-aarch64.AppImage
+            app_name: Cartridge.AppImage
+            run: Cartridge.AppImage
           # One universal app (Intel + Apple Silicon), cross-built on ARM.
           - os: macos-latest
-            archive: cartouche-macos
-            app: dist/Cartouche.app
-            app_name: Cartouche.app
-            run: Cartouche.app/Contents/MacOS/cartouche
+            archive: cartridge-macos
+            app: dist/Cartridge.app
+            app_name: Cartridge.app
+            run: Cartridge.app/Contents/MacOS/cartridge
             targets: x86_64-apple-darwin,aarch64-apple-darwin
           - os: windows-latest
-            archive: cartouche-windows-x86_64
-            app: dist/cartouche-windows-x86_64.exe
-            app_name: cartouche.exe
-            run: cartouche.exe
+            archive: cartridge-windows-x86_64
+            app: dist/cartridge-windows-x86_64.exe
+            app_name: cartridge.exe
+            run: cartridge.exe
 
     runs-on: ${{ matrix.os }}
     defaults:
@@ -76,9 +76,9 @@ jobs:
         run: |
           cargo build --release --target x86_64-apple-darwin
           cargo build --release --target aarch64-apple-darwin
-          bins="target/x86_64-apple-darwin/release/cartouche target/aarch64-apple-darwin/release/cartouche"
+          bins="target/x86_64-apple-darwin/release/cartridge target/aarch64-apple-darwin/release/cartridge"
           mkdir -p dist
-          lipo -create $bins -output dist/cartouche-macos-universal
+          lipo -create $bins -output dist/cartridge-macos-universal
           bash macapp.sh $bins
 
       - name: Check the glibc floor
@@ -107,10 +107,10 @@ jobs:
             Windows) 7z x "$(cygpath -w dist/${{ matrix.archive }}.zip)" -o"$(cygpath -w "$test_dir")" >/dev/null ;;
           esac
           cd "$RUNNER_TEMP"
-          APPIMAGE_EXTRACT_AND_RUN=1 "$test_dir/Cartouche/${{ matrix.run }}" --version
-          APPIMAGE_EXTRACT_AND_RUN=1 "$test_dir/Cartouche/${{ matrix.run }}" -g parse < /dev/null
-          grep -x 'FREEGAMES_PATH=games' "$test_dir/Cartouche/system/config.txt"
-          test -d "$test_dir/Cartouche/games"
+          APPIMAGE_EXTRACT_AND_RUN=1 "$test_dir/Cartridge/${{ matrix.run }}" --version
+          APPIMAGE_EXTRACT_AND_RUN=1 "$test_dir/Cartridge/${{ matrix.run }}" -g parse < /dev/null
+          grep -x 'FREEGAMES_PATH=games' "$test_dir/Cartridge/system/config.txt"
+          test -d "$test_dir/Cartridge/games"
 
       - name: Collect
         run: |

@@ -7,7 +7,7 @@ use std::sync::atomic::AtomicBool;
 
 use log::{error, info};
 
-use crate::core::app::{app_name, exe_dir, find_app_dir};
+use crate::core::app::{exe_dir, find_app_dir};
 use crate::core::config::Config;
 use crate::core::package::{self, Progress};
 use crate::core::pipeline::{Group, Pipeline};
@@ -101,17 +101,18 @@ pub fn preview(cli_dir: Option<&Path>) -> ExitCode {
         info!("");
     }
 
+    let owner = steam::Owner::of(&config);
     for config_dir in steam::userdata_config_dirs() {
         let uid = steam::user_id(&config_dir);
-        match steam::owned_shortcut_names(&config_dir) {
+        match steam::owned_shortcut_names(&config_dir, &owner.tag) {
             Ok(names) if names.is_empty() => {
-                info!("  Steam user {uid}: no {} shortcuts yet", app_name())
+                info!("  Steam user {uid}: no {} shortcuts yet", owner.label)
             }
             Ok(names) => {
                 info!(
                     "  Steam user {uid}: {} existing {} shortcuts",
                     names.len(),
-                    app_name()
+                    owner.label
                 );
                 names.iter().for_each(|n| info!("     - {n}"));
             }
@@ -159,7 +160,7 @@ fn report<T>(result: Result<T, String>, done: impl FnOnce(T)) -> ExitCode {
     }
 }
 
-/// `--pack GAME`: `GAME/` -> `GAME.cartouche.tar`, next to it.
+/// `--pack GAME`: `GAME/` -> `GAME.cartridge.tar`, next to it.
 pub fn pack(cli_dir: Option<&Path>, name: &str) -> ExitCode {
     let config = match load(cli_dir) {
         Ok(config) => config,
@@ -183,7 +184,7 @@ pub fn pack(cli_dir: Option<&Path>, name: &str) -> ExitCode {
     })
 }
 
-/// `--unpack GAME`: `GAME.cartouche.tar` -> `GAME/`, keeping the package.
+/// `--unpack GAME`: `GAME.cartridge.tar` -> `GAME/`, keeping the package.
 pub fn unpack(cli_dir: Option<&Path>, name: &str) -> ExitCode {
     let config = match load(cli_dir) {
         Ok(config) => config,
@@ -227,7 +228,7 @@ pub fn serve(cli_dir: Option<&Path>) -> ExitCode {
     }
 }
 
-/// `--peers`: Cartouche servers answering on the LAN, with their games.
+/// `--peers`: •cartridge servers answering on the LAN, with their games.
 pub fn peers(cli_dir: Option<&Path>) -> ExitCode {
     let config = match load(cli_dir) {
         Ok(config) => config,
@@ -235,7 +236,7 @@ pub fn peers(cli_dir: Option<&Path>) -> ExitCode {
     };
     let peers = client::find_peers(&config);
     if peers.is_empty() {
-        info!("No Cartouche server found on the LAN.");
+        info!("No •cartridge server found on the LAN.");
     }
     for peer in &peers {
         info!(
@@ -277,7 +278,7 @@ pub fn copy(cli_dir: Option<&Path>, peer: &str, game: &str, how: Copy) -> ExitCo
     };
     let games_dir = config.games_dir().unwrap_or_default();
     let Some(peer) = resolve_peer(&config, peer) else {
-        error!("No Cartouche server named or reachable at {peer}");
+        error!("No •cartridge server named or reachable at {peer}");
         return ExitCode::FAILURE;
     };
     info!("Copying {game} from {} ({})", peer.info.name, peer.addr);

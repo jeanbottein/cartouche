@@ -1,4 +1,4 @@
-//! Cartouche: manage DRM-free games on Linux / Steam Deck. Opens the retro UI by
+//! •cartridge: manage DRM-free games on Linux / Steam Deck. Opens the retro UI by
 //! default; `-t` runs the pipeline in the terminal instead.
 
 mod cli;
@@ -30,7 +30,7 @@ fn main() -> ExitCode {
     let dir = dir.as_deref();
     match args.mode {
         Mode::Help => println!("{}", cli::USAGE),
-        Mode::Version => println!("{} {}", core::app::app_name(), env!("CARGO_PKG_VERSION")),
+        Mode::Version => println!("{} {}", core::app::APP_NAME, env!("CARGO_PKG_VERSION")),
         Mode::Terminal(group) => return terminal::run(dir, group),
         Mode::DryRun => return terminal::preview(dir),
         Mode::Pack(name) => return terminal::pack(dir, &name),

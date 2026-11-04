@@ -41,7 +41,7 @@ const fn s(key: &'static str, label: &'static str, kind: Kind, help: &'static st
 const SCHEMA: [(&str, &[Setting]); 5] = [
     ("GENERAL", &[
         s("MACHINE_NAME", "Machine name", Kind::Text, "Prefixes the config backup in the save copies folder."),
-        s("PERSIST_DATA", "Persist game data", Kind::Flag(true), "Write .cartouche/ folders (game.json, artwork) in game folders."),
+        s("PERSIST_DATA", "Persist game data", Kind::Flag(true), "Write .cartridge/ folders (game.json, artwork) in game folders."),
         s("MUSIC_ENABLED", "Background music", Kind::Flag(true), "Shuffle the audio files in the workspace's system/ folder (mp3, flac, ogg, wav, m4a). Fades out while a game runs."),
     ]),
     ("PATHS", &[
@@ -55,7 +55,7 @@ const SCHEMA: [(&str, &[Setting]); 5] = [
     ]),
     ("STEAM & ARTWORK", &[
         s("STEAM_EXPOSE", "Add games to Steam", Kind::Flag(false), "Add games as non-Steam shortcuts, with artwork."),
-        s("STEAM_ADD_SELF", "Add Cartouche to Steam", Kind::Flag(false), "Add this app to Steam as '.cartouche', with retro artwork."),
+        s("STEAM_ADD_SELF", "Add •cartridge to Steam", Kind::Flag(false), "Add this app to Steam as '.cartridge', with retro artwork."),
         s("STEAM_USERID", "Steam user ID", Kind::Text, "Only update this Steam user (empty: all users)."),
         s("PROTON_VERSION", "Proton version", Kind::Text, "Compatibility tool for Windows games, e.g. proton_experimental."),
         s("STEAMGRIDDB_API_KEY", "SteamGridDB API key", Kind::Secret, "For automatic artwork: steamgriddb.com/profile/preferences/api"),
@@ -66,7 +66,7 @@ const SCHEMA: [(&str, &[Setting]); 5] = [
         s("MANIFEST_PATH", "Manifest file", Kind::Path, "Custom manifests.json path (default: in the games folder)."),
     ]),
     ("SHARING", &[
-        s("SHARE_ENABLED", "Share games on the LAN", Kind::Flag(false), "Let other Cartouche machines on the network see and copy your games."),
+        s("SHARE_ENABLED", "Share games on the LAN", Kind::Flag(false), "Let other •cartridge machines on the network see and copy your games."),
         s("SHARE_PORT", "Sharing port", Kind::Text, "TCP + UDP port (default 47800). Open it in the firewall if peers can't see this machine."),
         s("SHARE_PEERS", "Extra peers", Kind::Text, "host[:port], comma-separated: machines to list even when broadcast can't reach them."),
     ]),

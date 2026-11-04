@@ -1,6 +1,6 @@
-# Cartouche Retro UI — Backlog
+# •cartridge Retro UI — Backlog
 
-A new **game-like, retro (SNES / ZSNES-era) frontend** for Cartouche.
+A new **game-like, retro (SNES / ZSNES-era) frontend** for •cartridge.
 
 ---
 
@@ -12,7 +12,7 @@ A new **game-like, retro (SNES / ZSNES-era) frontend** for Cartouche.
 > GUI, plus first-run setup. Remaining items below are polish beyond parity (search,
 > SFX, tweens, display settings, packaging).
 
-Cartouche used to ship a Dear PyGui desktop GUI plus an 11-phase Python pipeline.
+•cartridge used to ship a Dear PyGui desktop GUI plus an 11-phase Python pipeline.
 The GUI worked but felt like a tool, not a console.
 We want a frontend that **feels like a 90s game**: pixel font, snappy menus, full
 controller play including on-screen text entry — equally at home on a Steam Deck
@@ -22,13 +22,13 @@ handheld or a desktop with mouse + keyboard.
 
 | Decision | Choice |
 |---|---|
-| Backend | **Ported to Rust, in-process** (`src/core/`). Same files and formats (`game.json`, `config.txt`, shortcuts.vdf), verified byte-identical against the Python version. `cartouche -t` runs it in the terminal. |
+| Backend | **Ported to Rust, in-process** (`src/core/`). Same files and formats (`game.json`, `config.txt`, shortcuts.vdf), verified byte-identical against the Python version. `cartridge -t` runs it in the terminal. |
 | Tech stack | **Rust + [macroquad](https://github.com/not-fl3/macroquad)** — tiny, fast 2D, trivial cross-compile, built-in gamepad/keyboard/mouse. |
 | Rollout | **Done:** the Dear PyGui GUI and the Python code are gone. |
 | Location | The repo root is the Rust crate (`src/`, `assets/`). |
 
 **Outcome we want:** boots to a controller-navigable game library, runs the whole
-Cartouche pipeline with live progress, and lets you edit every game/setting the old
+•cartridge pipeline with live progress, and lets you edit every game/setting the old
 GUI did — at a steady 60fps, 480p-native look that scales crisply to any display.
 
 ---
@@ -57,7 +57,7 @@ GUI did — at a steady 60fps, 480p-native look that scales crisply to any displ
 ## Architecture Overview
 
 ```
-cartouche-ui/  (Rust crate, macroquad)
+cartridge-ui/  (Rust crate, macroquad)
 ├── engine/      virtual canvas, scaling, input layer, widget toolkit, theme, tweens
 ├── bridge/      data <-> backend: game.json + config.txt I/O, subprocess runner
 ├── screens/     status / library / editor / settings
@@ -65,7 +65,7 @@ cartouche-ui/  (Rust crate, macroquad)
 
          reads/writes directly            shells out
    ┌──────────────────────────┐   ┌────────────────────────────┐
-   │ .cartouche/game.json     │   │ python cartouche.py -- batch │
+   │ .cartridge/game.json     │   │ python cartridge.py -- batch │
    │ config.txt               │   │ ... (pipeline phases)        │
    │ artwork .png             │   │ structured progress on stdout│
    └──────────────────────────┘   └────────────────────────────┘
@@ -74,13 +74,13 @@ cartouche-ui/  (Rust crate, macroquad)
 Two backend touch-points, by design:
 
 1. **Direct file I/O (fast path):** discovering games (subdirs of `FREEGAMES_PATH`
-   with `.cartouche/game.json`), reading/writing game metadata, reading/writing
+   with `.cartridge/game.json`), reading/writing game metadata, reading/writing
    `config.txt`, loading artwork PNGs. No Python process needed — keeps editing
    instant. Mirrors `schema_version: 2` exactly (see `lib/models.py`,
    `lib/persister.py`).
 2. **Subprocess (heavy path):** running pipeline phases (scan/detect/enrich/persist/
    steam/manifest/patch/save/post). Invokes the existing CLI
-   (`cartouche.py -- batch`, `-- test steam`) and streams progress.
+   (`cartridge.py -- batch`, `-- test steam`) and streams progress.
 
 > ⚠️ The current CLI only emits human log lines. **A small backend change is
 > required** to give the frontend machine-readable progress and to expose
@@ -110,7 +110,7 @@ Two backend touch-points, by design:
 Sizing: **S** ≈ <½ day · **M** ≈ 1–2 days · **L** ≈ 3–5 days. IDs are stable refs.
 
 ### SETUP — Project & build
-- **SETUP-1 (S):** Create `cartouche-ui/` Cargo crate, add `macroquad`, render a
+- **SETUP-1 (S):** Create `cartridge-ui/` Cargo crate, add `macroquad`, render a
   blank window at 60fps. Add to repo `.gitignore` (`target/`).
 - **SETUP-2 (M):** Cross-compile matrix in `.github/workflows` for
   win/mac/linux × x64/arm64. Produce artifacts per target.
@@ -145,22 +145,22 @@ Sizing: **S** ≈ <½ day · **M** ≈ 1–2 days · **L** ≈ 3–5 days. IDs a
 - **BRIDGE-1 (M):** `serde` models mirroring `schema_version: 2`: `Game`,
   `GameTarget` (os/arch/target/startIn/launchOptions), `GameImages` (cover/icon/
   hero/logo/header), `savePaths` (`{os, path}`), `steamgriddb_id`, `notes`.
-  Round-trip read/write `.cartouche/game.json` byte-compatibly with `persister.py`.
+  Round-trip read/write `.cartridge/game.json` byte-compatibly with `persister.py`.
 - **BRIDGE-2 (S):** Game discovery — enumerate `FREEGAMES_PATH` subdirs that have
-  `.cartouche/game.json`; build the in-memory library list. Load artwork PNGs as
+  `.cartridge/game.json`; build the in-memory library list. Load artwork PNGs as
   textures (lazy/threaded).
-- **BRIDGE-3 (M):** **Subprocess runner.** Spawn `python3 cartouche.py … -- batch`
+- **BRIDGE-3 (M):** **Subprocess runner.** Spawn `python3 cartridge.py … -- batch`
   (and `-- test steam`), stream stdout, parse structured progress (BACKEND-1),
   support **cancel** (kill the process tree). Surface phase status + log lines.
 - **BRIDGE-4 (M):** `config.txt` parser/writer preserving comments, key order, and
-  inline comments (match `load_config_map` semantics in `cartouche.py`). Handle
+  inline comments (match `load_config_map` semantics in `cartridge.py`). Handle
   `BACKUP_*`, `RUN_AFTER_*`, `${VAR}` round-trips losslessly.
 - **BRIDGE-5 (S):** Locate the Python interpreter / entry point robustly
   (bundled venv vs system `python3`), with a clear error screen if missing.
 
 ### BACKEND — Required Python changes (in this repo)
 - **BACKEND-1 (M):** Add a **machine-readable progress mode** to the pipeline CLI,
-  e.g. `cartouche.py -- batch --progress=json` emitting one JSON event per line
+  e.g. `cartridge.py -- batch --progress=json` emitting one JSON event per line
   (`{"phase","status","progress","message"}`) by hooking the existing
   `PipelineRunner` phase callbacks. Keep human logging as default. Also expose
   phase **groups** (`all` / `parse` / `backup` / `steam`) as CLI args.
@@ -255,8 +255,8 @@ Per milestone, validate end-to-end against a real `config.txt` + `FREEGAMES_PATH
 
 - **M0:** `cargo run` opens a window; toggle wide/square; controller moves the
   cursor; pixel font is crisp at multiple window sizes; steady 60fps.
-- **M1:** Library shows real covers from `.cartouche/`; "Run All" streams the same
-  phases/logs as `python3 cartouche.py -- batch`; Cancel stops the run; library
+- **M1:** Library shows real covers from `.cartridge/`; "Run All" streams the same
+  phases/logs as `python3 cartridge.py -- batch`; Cancel stops the run; library
   refreshes after.
 - **M2:** Edit a game → reopen confirms persisted `game.json`; diff vs the Python
   `persister.py` output is byte-identical for the same data; on-screen keyboard

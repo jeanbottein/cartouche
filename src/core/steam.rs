@@ -2,16 +2,16 @@
 //! (pipeline steps 5 and 6), their artwork in the `grid/` folder, and Proton
 //! compatibility mappings in `config/config.vdf`.
 //!
-//! Shortcuts we own carry the ownership tag (the app name; the legacy
-//! "gamer-sidekick" is still recognised), so other non-Steam games are never
-//! touched.
+//! Shortcuts we own carry this cartridge's ownership tag (`cartridge:<id>`),
+//! so other non-Steam games, and other cartridges' games, are never touched.
+//! The cartridge's label (its folder name) is a second, visible tag.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use log::{error, info, warn};
 
-use super::app::app_name;
+use super::app::APP_NAME;
 use super::config::Config;
 use super::models::{Game, ImageSlot};
 use super::paths;
@@ -149,9 +149,24 @@ pub fn tag_values(shortcut: &Map) -> Vec<&str> {
         .unwrap_or_default()
 }
 
-pub fn has_ownership_tag(shortcut: &Map) -> bool {
-    let owners = [app_name(), "cartouche", "gamer-sidekick"];
-    tag_values(shortcut).iter().any(|t| owners.contains(t))
+/// Which shortcuts are this cartridge's: its id tag, plus its label shown in
+/// Steam as a tag (a collection). The id never changes with renames or moves.
+pub struct Owner {
+    pub tag: String,
+    pub label: String,
+}
+
+impl Owner {
+    pub fn of(cfg: &Config) -> Owner {
+        Owner {
+            tag: format!("{APP_NAME}:{}", cfg.cartridge_id()),
+            label: cfg.label(),
+        }
+    }
+}
+
+pub fn has_ownership_tag(shortcut: &Map, owner_tag: &str) -> bool {
+    tag_values(shortcut).contains(&owner_tag)
 }
 
 pub fn appname(shortcut: &Map) -> &str {
@@ -201,7 +216,7 @@ pub fn make_shortcut(
     start_dir: &str,
     launch_options: &str,
     icon: &str,
-    tag: &str,
+    tags: &[&str],
 ) -> Map {
     let int = Value::Int32;
     let text = |s: &str| Value::Str(s.to_string());
@@ -221,7 +236,14 @@ pub fn make_shortcut(
         ("DevkitGameID", text("")),
         ("DevkitOverrideAppID", int(0)),
         ("LastPlayTime", int(0)),
-        ("tags", Value::Map(Map(vec![("0".to_string(), text(tag))]))),
+        (
+            "tags",
+            Value::Map(Map(tags
+                .iter()
+                .enumerate()
+                .map(|(i, tag)| (i.to_string(), text(tag)))
+                .collect())),
+        ),
     ];
     Map(entries
         .into_iter()
@@ -229,13 +251,13 @@ pub fn make_shortcut(
         .collect())
 }
 
-/// Names of the shortcuts we own for one Steam user.
-pub fn owned_shortcut_names(config_dir: &Path) -> Result<Vec<String>, String> {
+/// Names of the shortcuts this cartridge owns for one Steam user.
+pub fn owned_shortcut_names(config_dir: &Path, owner_tag: &str) -> Result<Vec<String>, String> {
     let shortcuts = load_shortcuts(&shortcuts_path(config_dir))?;
     Ok(shortcuts
         .values()
         .filter_map(as_shortcut)
-        .filter(|s| has_ownership_tag(s))
+        .filter(|s| has_ownership_tag(s, owner_tag))
         .map(|s| appname(s).to_string())
         .collect())
 }
@@ -246,11 +268,16 @@ fn resolved_target(game: &Game) -> Option<String> {
 
 // ── Step 5: remove stale shortcuts ───────────────────────────────────────
 
-fn remove_stale(config_dir: &Path, valid_targets: &HashSet<String>) -> Result<(), String> {
+fn remove_stale(
+    config_dir: &Path,
+    valid_targets: &HashSet<String>,
+    owner_tag: &str,
+) -> Result<(), String> {
     let path = shortcuts_path(config_dir);
     let shortcuts = load_shortcuts(&path)?;
     let (stale, kept): (Vec<_>, Vec<_>) = shortcuts.0.into_iter().partition(|(_, v)| {
-        as_shortcut(v).is_some_and(|s| has_ownership_tag(s) && !valid_targets.contains(exe_of(s)))
+        as_shortcut(v)
+            .is_some_and(|s| has_ownership_tag(s, owner_tag) && !valid_targets.contains(exe_of(s)))
     });
     if stale.is_empty() {
         return Ok(());
@@ -273,8 +300,9 @@ fn remove_stale(config_dir: &Path, valid_targets: &HashSet<String>) -> Result<()
 /// Remove our shortcuts whose executable is no longer in the library.
 pub fn clean(games: &[Game], cfg: &Config) {
     let valid_targets: HashSet<String> = games.iter().filter_map(resolved_target).collect();
+    let owner = Owner::of(cfg);
     for config_dir in exposed_config_dirs(cfg) {
-        if let Err(e) = remove_stale(&config_dir, &valid_targets) {
+        if let Err(e) = remove_stale(&config_dir, &valid_targets, &owner.tag) {
             error!("  Skipping Steam user {}: {e}", user_id(&config_dir));
         }
     }
@@ -302,7 +330,7 @@ fn copy_if_missing(src: &Path, dest: &Path) {
     }
 }
 
-/// Copy `.cartouche/` artwork into Steam's grid folder under the AppID names.
+/// Copy `.cartridge/` artwork into Steam's grid folder under the AppID names.
 fn copy_artwork(game: &Game, grid: &Path, appid: u32) {
     if let Err(e) = std::fs::create_dir_all(grid) {
         warn!("    Cannot create {}: {e}", grid.display());
@@ -336,7 +364,11 @@ fn icon_path(game: &Game, grid: &Path, appid: u32) -> String {
 }
 
 /// Add or refresh shortcuts for one Steam user. Returns (added, updated).
-fn export_to_user(config_dir: &Path, games: &[(&Game, u32)]) -> Result<(usize, usize), String> {
+fn export_to_user(
+    config_dir: &Path,
+    games: &[(&Game, u32)],
+    owner: &Owner,
+) -> Result<(usize, usize), String> {
     let path = shortcuts_path(config_dir);
     let grid = grid_dir(config_dir);
     let mut shortcuts = load_shortcuts(&path)?;
@@ -356,14 +388,17 @@ fn export_to_user(config_dir: &Path, games: &[(&Game, u32)]) -> Result<(usize, u
                 &start_in,
                 &resolved.launch_options,
                 &icon,
-                app_name(),
+                &[&owner.tag, &owner.label],
             )
         };
 
         // (key, changed?) of the shortcut we already own for this exe.
         let owned = shortcuts.0.iter().find_map(|(k, v)| {
-            let s = as_shortcut(v).filter(|s| has_ownership_tag(s) && exe_of(s) == target)?;
-            let changed = appname(s) != game.title || s.get_str("icon").unwrap_or("") != icon;
+            let s = as_shortcut(v)
+                .filter(|s| has_ownership_tag(s, &owner.tag) && exe_of(s) == target)?;
+            let changed = appname(s) != game.title
+                || s.get_str("icon").unwrap_or("") != icon
+                || s.get("tags") != entry().get("tags");
             Some((k.clone(), changed))
         });
         match owned {
@@ -403,10 +438,11 @@ pub fn export(games: &[Game], cfg: &Config) {
         return;
     }
 
+    let owner = Owner::of(cfg);
     let (added, updated) = config_dirs
         .iter()
         .filter_map(|dir| {
-            export_to_user(dir, &with_targets)
+            export_to_user(dir, &with_targets, &owner)
                 .map_err(|e| error!("  Skipping Steam user {}: {e}", user_id(dir)))
                 .ok()
         })
@@ -513,7 +549,7 @@ mod tests {
     use crate::core::testutil::TempDir;
 
     fn shortcut(name: &str, exe: &str, tag: &str) -> Value {
-        Value::Map(make_shortcut(name, exe, "/", "", "", tag))
+        Value::Map(make_shortcut(name, exe, "/", "", "", &[tag]))
     }
 
     #[test]
@@ -539,21 +575,21 @@ mod tests {
             "/g/HK",
             "-v",
             "/grid/1_icon.png",
-            "golden",
+            &["golden"],
         );
         assert_eq!(&built, expected);
     }
 
     #[test]
     fn ownership_is_by_tag() {
-        let Value::Map(ours) = shortcut("A", "/a", "gamer-sidekick") else {
+        let Value::Map(ours) = shortcut("A", "/a", "cartridge:1") else {
             unreachable!()
         };
-        let Value::Map(theirs) = shortcut("B", "/b", "favorite") else {
+        let Value::Map(other_cartridge) = shortcut("B", "/b", "cartridge:2") else {
             unreachable!()
         };
-        assert!(has_ownership_tag(&ours));
-        assert!(!has_ownership_tag(&theirs));
+        assert!(has_ownership_tag(&ours, "cartridge:1"));
+        assert!(!has_ownership_tag(&other_cartridge, "cartridge:1"));
         assert_eq!(exe_of(&ours), "/a");
     }
 
@@ -562,20 +598,26 @@ mod tests {
         let dir = TempDir::new();
         let config_dir = dir.mkdir("userdata/1/config");
         let shortcuts = Map(vec![
-            ("0".into(), shortcut("Gone", "/g/gone", "cartouche")),
+            ("0".into(), shortcut("Gone", "/g/gone", "cartridge:1")),
             ("1".into(), shortcut("Mine", "/g/kept", "favorite")),
-            ("2".into(), shortcut("Kept", "/g/kept2", "cartouche")),
+            ("2".into(), shortcut("Kept", "/g/kept2", "cartridge:1")),
+            ("3".into(), shortcut("Other", "/g/other", "cartridge:2")),
         ]);
         save_shortcuts(&shortcuts_path(&config_dir), shortcuts).unwrap();
 
-        remove_stale(&config_dir, &HashSet::from(["/g/kept2".to_string()])).unwrap();
+        remove_stale(
+            &config_dir,
+            &HashSet::from(["/g/kept2".to_string()]),
+            "cartridge:1",
+        )
+        .unwrap();
         let after = load_shortcuts(&shortcuts_path(&config_dir)).unwrap();
         let names: Vec<(&str, &str)> = after
             .0
             .iter()
             .map(|(k, v)| (k.as_str(), appname(as_shortcut(v).unwrap())))
             .collect();
-        assert_eq!(names, vec![("0", "Mine"), ("1", "Kept")]);
+        assert_eq!(names, vec![("0", "Mine"), ("1", "Kept"), ("2", "Other")]);
     }
 
     #[test]
@@ -590,20 +632,24 @@ mod tests {
             ..Default::default()
         });
         let appid = generate_appid("Celeste", "/g/celeste");
+        let mut owner = Owner {
+            tag: "cartridge:1".into(),
+            label: "Potato-games".into(),
+        };
+        let export = |owner: &Owner, game: &Game| {
+            export_to_user(&config_dir, &[(game, appid)], owner).unwrap()
+        };
 
-        assert_eq!(
-            export_to_user(&config_dir, &[(&game, appid)]).unwrap(),
-            (1, 0)
-        );
-        assert_eq!(
-            export_to_user(&config_dir, &[(&game, appid)]).unwrap(),
-            (0, 0)
-        );
+        assert_eq!(export(&owner, &game), (1, 0));
+        assert_eq!(export(&owner, &game), (0, 0));
         game.title = "Celeste DX".into();
-        assert_eq!(
-            export_to_user(&config_dir, &[(&game, appid)]).unwrap(),
-            (0, 1)
-        );
+        assert_eq!(export(&owner, &game), (0, 1));
+        // Renaming the cartridge folder updates the visible tag, same shortcut.
+        owner.label = "Potatoes".into();
+        assert_eq!(export(&owner, &game), (0, 1));
+        let saved = load_shortcuts(&shortcuts_path(&config_dir)).unwrap();
+        let entry = as_shortcut(saved.values().next().unwrap()).unwrap();
+        assert_eq!(tag_values(entry), vec!["cartridge:1", "Potatoes"]);
         assert_eq!(
             load_shortcuts(&shortcuts_path(&config_dir))
                 .unwrap()

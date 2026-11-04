@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use crate::core::pipeline::Group;
 
 pub const USAGE: &str = "\
-Usage: cartouche [OPTIONS] [DIR]
+Usage: cartridge [OPTIONS] [DIR]
 
 Manage DRM-free games: detect executables, fetch artwork, sync to Steam,
 apply patches and back up saves. Opens the UI unless told otherwise.
@@ -19,12 +19,12 @@ Options:
   -g, --group <NAME>   Phases to run in the terminal (implies -t):
                        all (default), parse, steam, backup, patch
   -n, --dry-run        Preview the Steam sync without changing Steam
-      --pack <GAME>    Pack the game folder GAME into GAME.cartouche.tar
-      --unpack <GAME>  Unpack GAME.cartouche.tar into the folder GAME
+      --pack <GAME>    Pack the game folder GAME into GAME.cartridge.tar
+      --unpack <GAME>  Unpack GAME.cartridge.tar into the folder GAME
       --serve          Share the games folder on the LAN, without the UI
-      --peers          List Cartouche servers found on the LAN, with their games
+      --peers          List •cartridge servers found on the LAN, with their games
       --download <PEER> <GAME>
-                       Copy GAME from PEER as a package (GAME.cartouche.tar)
+                       Copy GAME from PEER as a package (GAME.cartridge.tar)
       --install <PEER> <GAME>
                        Copy GAME from PEER into the folder GAME
                        PEER: a name shown by --peers, or host[:port]
@@ -36,10 +36,10 @@ Files:
                                  terminal wizard) with every key documented in
                                  comments; also editable in the UI's SETTINGS tab.
   GAMES/<Game>/                  One folder per game (GAMES = FREEGAMES_PATH)
-  GAMES/<Game>/.cartouche/game.json
+  GAMES/<Game>/.cartridge/game.json
                                  Title, targets (os/arch/exe), savePaths, year,
                                  players, description, size. Filled by `-g parse`.
-  GAMES/<Game>.cartouche.tar     A packaged game: shared/copied, not playable
+  GAMES/<Game>.cartridge.tar     A packaged game: shared/copied, not playable
                                  until unpacked (--unpack or the UI).
 
 Main settings:
@@ -56,14 +56,14 @@ Share games between machines:
      (headless library). Open the port in the firewall, e.g. on Bazzite/Fedora:
        sudo firewall-cmd --permanent --add-port=47800/tcp --add-port=47800/udp
        sudo firewall-cmd --reload
-  2. Other machine: `cartouche --peers` lists servers and their games, then
-     `cartouche --install <PEER> <GAME>` (or --download to keep a package).
+  2. Other machine: `cartridge --peers` lists servers and their games, then
+     `cartridge --install <PEER> <GAME>` (or --download to keep a package).
 
 Examples:
-  cartouche                      Open the UI (first run: setup)
-  cartouche -t                   Run every phase in the terminal
-  cartouche -g parse ~/games-ws  Detect, measure and enrich games only
-  cartouche -n                   Show what a Steam sync would change
+  cartridge                      Open the UI (first run: setup)
+  cartridge -t                   Run every phase in the terminal
+  cartridge -g parse ~/games-ws  Detect, measure and enrich games only
+  cartridge -n                   Show what a Steam sync would change
 
 Exit codes: 0 success, 1 failure (see the log on stderr), 2 bad arguments.";
 

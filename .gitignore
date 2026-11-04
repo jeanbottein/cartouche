@@ -5,9 +5,9 @@
 /saves-links
 /target
 /dist
-.cartouche
+.cartridge
 /system
 test
 .DS_Store
-# Local shim: old Steam shortcut path -> target/release/cartouche
-/cartouche-ui
+# Local shim: old Steam shortcut path -> target/release/cartridge
+/cartridge-ui

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Wrap a Linux release binary into an AppImage: one file with an icon and a
-# desktop entry. Portable mode still works: the app keeps its .cartouche/
+# desktop entry. Portable mode still works: the app keeps its .cartridge/
 # workspace next to the .AppImage file (it reads $APPIMAGE, see core/app.rs).
 #
 # Usage:
-#   ./appimage.sh dist/cartouche-linux-x86_64     # -> dist/cartouche-linux-x86_64.AppImage
+#   ./appimage.sh dist/cartridge-linux-x86_64     # -> dist/cartridge-linux-x86_64.AppImage
 #
 # Needs curl. Nothing is bundled besides the binary: GL, X11, ALSA and udev
 # come from the system, like for the plain binary.
@@ -20,22 +20,22 @@ RUNTIME_URL="https://github.com/AppImage/type2-runtime/releases/download/2025110
 REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
-APPDIR="$WORK/Cartouche.AppDir"
+APPDIR="$WORK/Cartridge.AppDir"
 
 mkdir -p "$APPDIR/usr/bin"
 # In an AppImage the app name comes from the .AppImage file name (lowercased),
 # so renaming that file rebrands the app; the inner name doesn't matter.
-cp "$BIN" "$APPDIR/usr/bin/cartouche"
-chmod +x "$APPDIR/usr/bin/cartouche"
-ln -s usr/bin/cartouche "$APPDIR/AppRun"
-cp "$REPO_ROOT/assets/app-icon.png" "$APPDIR/cartouche.png"
-cat > "$APPDIR/cartouche.desktop" <<'EOF'
+cp "$BIN" "$APPDIR/usr/bin/cartridge"
+chmod +x "$APPDIR/usr/bin/cartridge"
+ln -s usr/bin/cartridge "$APPDIR/AppRun"
+cp "$REPO_ROOT/assets/app-icon.png" "$APPDIR/cartridge.png"
+cat > "$APPDIR/cartridge.desktop" <<'EOF'
 [Desktop Entry]
 Type=Application
-Name=Cartouche
+Name=•cartridge
 Comment=DRM-free game library for Linux and the Steam Deck
-Exec=cartouche
-Icon=cartouche
+Exec=cartridge
+Icon=cartridge
 Categories=Game;
 Terminal=false
 EOF

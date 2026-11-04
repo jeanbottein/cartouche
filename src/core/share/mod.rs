@@ -11,7 +11,8 @@ use super::config::Config;
 use super::models::{Game, ImageSlot, Target};
 
 /// Bumped on incompatible API changes; peers with another version are ignored.
-pub const PROTOCOL: u32 = 1;
+/// 2: renamed to •cartridge (the discovery query changed too).
+pub const PROTOCOL: u32 = 2;
 pub const DEFAULT_PORT: u16 = 47800;
 
 /// `SHARE_PORT`, else the default.
@@ -39,7 +40,7 @@ fn host_name() -> String {
         })
         .map(|n| n.trim().to_string())
         .filter(|n| !n.is_empty())
-        .unwrap_or_else(|| "cartouche".into())
+        .unwrap_or_else(|| "cartridge".into())
 }
 
 /// One game as listed by a server (`GET /api/v1/games`).
@@ -141,7 +142,7 @@ mod tests {
 
     #[test]
     fn port_falls_back_to_default() {
-        let cfg = Config::from_raw("/ws/.cartouche/config.txt".into(), Default::default());
+        let cfg = Config::from_raw("/ws/.cartridge/config.txt".into(), Default::default());
         assert_eq!(port(&cfg), DEFAULT_PORT);
     }
 }

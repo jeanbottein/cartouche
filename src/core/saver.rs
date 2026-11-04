@@ -415,7 +415,7 @@ mod tests {
         ));
         dir.mkdir("links");
         std::os::unix::fs::symlink(&saves, dir.path().join("links/Stale")).unwrap();
-        let cfg = Config::from_raw(dir.path().join(".cartouche/config.txt"), raw);
+        let cfg = Config::from_raw(dir.path().join(".cartridge/config.txt"), raw);
 
         run(&[game], &cfg);
         assert_eq!(

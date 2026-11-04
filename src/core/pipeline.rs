@@ -204,7 +204,7 @@ mod tests {
 
     #[test]
     fn cancel_stops_before_the_next_phase() {
-        let cfg = Config::from_raw("/nowhere/.cartouche/config.txt".into(), Default::default());
+        let cfg = Config::from_raw("/nowhere/.cartridge/config.txt".into(), Default::default());
         let cancel = AtomicBool::new(true);
         let mut started = 0;
         assert!(!Pipeline::new(&cfg).run_group(Group::Patch, &cancel, |_| started += 1));

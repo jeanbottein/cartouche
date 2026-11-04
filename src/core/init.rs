@@ -1,4 +1,4 @@
-//! First run: create the `.cartouche/` workspace dir, the feature folders and a
+//! First run: create the `.cartridge/` workspace dir, the feature folders and a
 //! seeded `config.txt`. The UI has its own setup screen; this module holds the
 //! shared logic and the terminal wizard.
 
@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use log::{error, info};
 
 use super::app::{
-    app_name, is_translocated, is_workspace, launched_file, WORKSPACE_DIR, WORKSPACE_README,
+    is_translocated, is_workspace, launched_file, DISPLAY_NAME, WORKSPACE_DIR, WORKSPACE_README,
 };
 use super::config::DEFAULT_CONFIG;
 
@@ -63,12 +63,12 @@ const WORKSPACE_README_TEXT: &str = include_str!("../../packaging/cartridge/syst
 
 /// Create `parent/system/`, the chosen folders (relative to `parent` or
 /// absolute) and `config.txt` (kept if it exists). Returns the config path.
-/// Refuses a `system/` folder that isn't a Cartouche workspace.
+/// Refuses a `system/` folder that isn't a •cartridge workspace.
 pub fn initialize(parent: &Path, feature_paths: &[(String, String)]) -> std::io::Result<PathBuf> {
     let app_dir = parent.join(WORKSPACE_DIR);
     if app_dir.exists() && !is_workspace(&app_dir) {
         return Err(std::io::Error::other(format!(
-            "{} already exists and isn't a Cartouche workspace; pick a dedicated folder",
+            "{} already exists and isn't a •cartridge workspace; pick a dedicated folder",
             app_dir.display()
         )));
     }
@@ -140,20 +140,10 @@ fn is_appimage_manager_dir(dir: &Path) -> bool {
 }
 
 fn is_writable(dir: &Path) -> bool {
-    let probe = dir.join(".cartouche-write-test");
+    let probe = dir.join(".cartridge-write-test");
     let ok = std::fs::write(&probe, b"").is_ok();
     let _ = std::fs::remove_file(&probe);
     ok
-}
-
-/// The app name for sentences: `cartouche` -> `Cartouche`.
-fn display_name() -> String {
-    let name = app_name();
-    let mut chars = name.chars();
-    chars
-        .next()
-        .map(|c| c.to_uppercase().chain(chars).collect())
-        .unwrap_or_default()
 }
 
 /// What to tell the user before creating a workspace in `dir`: the portable
@@ -162,7 +152,7 @@ pub fn folder_advice(dir: &Path) -> Vec<String> {
     let mut advice = vec![format!(
         "{} is portable: {WORKSPACE_DIR}/, games and saves live next to the app, \
          so the whole folder moves and backs up as one piece.",
-        display_name()
+        DISPLAY_NAME
     )];
     let launched = launched_file();
     let app_here = launched
@@ -173,10 +163,9 @@ pub fn folder_advice(dir: &Path) -> Vec<String> {
     let is_appimage = std::env::var_os("APPIMAGE").is_some_and(|a| !a.is_empty());
     if launched.as_deref().is_some_and(is_translocated) {
         advice.push(format!(
-            "macOS runs {name} from a temporary read-only copy, away from its folder. \
-             Quit, move {name}.app into its folder with Finder (or run \
-             `xattr -dr com.apple.quarantine` on that folder), then open it again.",
-            name = display_name()
+            "macOS runs {DISPLAY_NAME} from a temporary read-only copy, away from its \
+             folder. Quit, move the app into its folder with Finder (or run \
+             `xattr -dr com.apple.quarantine` on that folder), then open it again."
         ));
     } else if dir.exists() && !is_writable(dir) {
         advice.push("This folder can't be written: move the app to a folder of its own.".into());
@@ -184,16 +173,15 @@ pub fn folder_advice(dir: &Path) -> Vec<String> {
     if is_appimage && app_here.is_some() && is_appimage_manager_dir(dir) {
         advice.push(
             "This AppImage looks moved by an AppImage manager, away from its folder: \
-             launch the copy inside your Cartouche folder instead."
+             launch the copy inside your •cartridge folder instead."
                 .into(),
         );
     }
     let names = super::paths::sorted_entries(dir);
     if unrelated_entries(&names, app_here.as_deref()) > 2 {
         advice.push(format!(
-            "This folder already holds other files: better give {name} a folder of its \
-             own, e.g. a new {name}/ folder here, and move the app into it.",
-            name = display_name()
+            "This folder already holds other files: better give {DISPLAY_NAME} a folder \
+             of its own, e.g. a new Cartridge/ folder here, and move the app into it."
         ));
     }
     advice
@@ -224,7 +212,7 @@ pub fn run_terminal_wizard(exe_dir: &Path, cwd: &Path) -> Option<PathBuf> {
     let locations = locations(exe_dir, cwd);
     let mut input = std::io::stdin().lock();
 
-    eprintln!("\nInitialize {}\n{}", app_name(), "=".repeat(40));
+    eprintln!("\nInitialize {DISPLAY_NAME}\n{}", "=".repeat(40));
     for line in folder_advice(exe_dir) {
         eprintln!("\n{line}");
     }
@@ -308,7 +296,7 @@ mod tests {
     #[test]
     fn a_missing_config_gets_the_standard_folders() {
         let dir = TempDir::new();
-        dir.write("system/README.txt", b"Cartouche workspace");
+        dir.write("system/README.txt", "•cartridge workspace".as_bytes());
         let config = config_in(&dir.path().join("system"));
         let text = std::fs::read_to_string(config).unwrap();
         assert!(text.contains("FREEGAMES_PATH=games\n"));
@@ -318,11 +306,11 @@ mod tests {
 
     #[test]
     fn only_unrelated_entries_count_as_clutter() {
-        let names: Vec<String> = ["cartouche", "system", "games", "README.txt", "notes.pdf"]
+        let names: Vec<String> = ["cartridge", "system", "games", "README.txt", "notes.pdf"]
             .iter()
             .map(|s| s.to_string())
             .collect();
-        assert_eq!(unrelated_entries(&names, Some("cartouche")), 1);
+        assert_eq!(unrelated_entries(&names, Some("cartridge")), 1);
         assert_eq!(unrelated_entries(&names, None), 2);
     }
 
@@ -332,7 +320,7 @@ mod tests {
         assert!(is_appimage_manager_dir(Path::new(
             "/home/deck/Applications"
         )));
-        assert!(!is_appimage_manager_dir(Path::new("/home/deck/Cartouche")));
+        assert!(!is_appimage_manager_dir(Path::new("/home/deck/•cartridge")));
     }
 
     #[test]

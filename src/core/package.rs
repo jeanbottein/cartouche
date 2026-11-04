@@ -1,13 +1,13 @@
-//! Game packages: one `Foo.cartouche.tar` holding a game folder and its
+//! Game packages: one `Foo.cartridge.tar` holding a game folder and its
 //! metadata, to copy a game between machines and unpack it later.
 //!
 //! Layout, every path under `Foo/`:
-//!   .cartouche/package.json    first: what the package is and its total size
-//!   .cartouche/...             game.json and artwork, readable without the rest
+//!   .cartridge/package.json    first: what the package is and its total size
+//!   .cartridge/...             game.json and artwork, readable without the rest
 //!   <game files>               sorted; Unix modes and symlinks kept
-//!   .cartouche/checksums.json  last: crc32 per file, so packing reads files once
+//!   .cartridge/checksums.json  last: crc32 per file, so packing reads files once
 //!
-//! It is a plain tar: `tar xf` works without Cartouche. Packing and unpacking
+//! It is a plain tar: `tar xf` works without •cartridge. Packing and unpacking
 //! write to hidden `.…part` names and rename at the end, so a half-written
 //! package or folder never shows up as a game.
 
@@ -24,7 +24,7 @@ use super::app::data_dir_name;
 use super::models::{to_pretty_json, Game, GAME_JSON};
 use super::paths;
 
-pub const EXTENSION: &str = ".cartouche.tar";
+pub const EXTENSION: &str = ".cartridge.tar";
 const FORMAT: u32 = 1;
 const PACKAGE_JSON: &str = "package.json";
 const CHECKSUMS_JSON: &str = "checksums.json";
@@ -229,7 +229,7 @@ pub fn package_path(games_dir: &Path, folder_name: &str) -> PathBuf {
     games_dir.join(format!("{folder_name}{EXTENSION}"))
 }
 
-/// Visible `*.cartouche.tar` files in `games_dir`, sorted.
+/// Visible `*.cartridge.tar` files in `games_dir`, sorted.
 pub fn list(games_dir: &Path) -> Vec<PathBuf> {
     paths::sorted_entries(games_dir)
         .into_iter()
@@ -420,7 +420,7 @@ type Entries<'a, R> = tar::Entries<'a, R>;
 
 /// The manifest, which must be the first entry.
 fn read_manifest<R: Read>(entries: &mut Entries<'_, R>) -> Result<Manifest, String> {
-    let not_a_package = || "Not a Cartouche package (no package.json first)".to_string();
+    let not_a_package = || "Not a •cartridge package (no package.json first)".to_string();
     let mut entry = entries
         .next()
         .ok_or_else(not_a_package)?
@@ -468,7 +468,7 @@ pub fn read_meta(package: &Path) -> Result<(Manifest, Option<String>), String> {
     Ok((manifest, None))
 }
 
-/// A file of the package's `.cartouche/` (artwork), reading only the first entries.
+/// A file of the package's `.cartridge/` (artwork), reading only the first entries.
 pub fn read_data_file(package: &Path, file_name: &str) -> Option<Vec<u8>> {
     let file = File::open(package).ok()?;
     let mut archive = tar::Archive::new(BufReader::new(file));

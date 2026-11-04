@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
 # Assemble a ready-to-use cartridge and archive it:
 #
-#   Cartouche/
-#     <app>           Cartouche.AppImage, Cartouche.app or cartouche.exe
+#   Cartridge/
+#     <app>           Cartridge.AppImage, Cartridge.app or cartridge.exe
 #     README.txt      what this folder is, first launch per system, updating
 #     system/         workspace; config.txt is created on first launch, so
 #                     extracting a newer release over it keeps the settings
 #     games/ mods/ saves-copies/ saves-links/   (each with a README.txt)
 #
 # Usage: ./package.sh <app file or .app> <app name in the archive> <archive base name>
-#   ./package.sh dist/cartouche-linux-x86_64.AppImage Cartouche.AppImage cartouche-linux-x86_64
-#     -> dist/cartouche-linux-x86_64.tar.gz   (Linux: tar.gz keeps permissions)
-#   ./package.sh dist/Cartouche.app Cartouche.app cartouche-macos
-#     -> dist/cartouche-macos.zip             (macOS: ditto keeps the bundle intact)
-#   ./package.sh dist/cartouche-windows-x86_64.exe cartouche.exe cartouche-windows-x86_64
-#     -> dist/cartouche-windows-x86_64.zip
+#   ./package.sh dist/cartridge-linux-x86_64.AppImage Cartridge.AppImage cartridge-linux-x86_64
+#     -> dist/cartridge-linux-x86_64.tar.gz   (Linux: tar.gz keeps permissions)
+#   ./package.sh dist/Cartridge.app Cartridge.app cartridge-macos
+#     -> dist/cartridge-macos.zip             (macOS: ditto keeps the bundle intact)
+#   ./package.sh dist/cartridge-windows-x86_64.exe cartridge.exe cartridge-windows-x86_64
+#     -> dist/cartridge-windows-x86_64.zip
 set -euo pipefail
 
 APP="$1"
@@ -24,7 +24,7 @@ ARCHIVE="$3"
 REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
-STAGE="$WORK/Cartouche"
+STAGE="$WORK/Cartridge"
 
 cp -R "$REPO_ROOT/packaging/cartridge" "$STAGE"
 cp -R "$APP" "$STAGE/$APP_NAME"
@@ -33,7 +33,7 @@ mkdir -p dist
 OUT_DIR="$(cd dist && pwd)"
 case "$ARCHIVE" in
     *linux*)
-        tar -C "$WORK" -czf "$OUT_DIR/$ARCHIVE.tar.gz" Cartouche
+        tar -C "$WORK" -czf "$OUT_DIR/$ARCHIVE.tar.gz" Cartridge
         echo "Done: dist/$ARCHIVE.tar.gz"
         ;;
     *macos*)

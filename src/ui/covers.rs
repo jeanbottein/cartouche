@@ -21,7 +21,7 @@ const THUMB_CAP: u32 = 512;
 /// Where an image's bytes live.
 pub enum Source {
     File(PathBuf),
-    /// Artwork inside a package's `.cartouche/` (game not unpacked yet).
+    /// Artwork inside a package's `.cartridge/` (game not unpacked yet).
     Package {
         package: PathBuf,
         name: String,

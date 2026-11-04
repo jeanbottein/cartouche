@@ -1,9 +1,9 @@
 ---
 name: pipeline-debugger
-description: Debug and trace Cartouche pipeline phases. Use when a phase is failing, producing wrong output, or you need to understand phase execution flow — migrations, scanner, detector, SteamGridDB enrichment, persister, Steam cleanup/export, manifest, patcher, saver, post commands.
+description: Debug and trace •cartridge pipeline phases. Use when a phase is failing, producing wrong output, or you need to understand phase execution flow — migrations, scanner, detector, SteamGridDB enrichment, persister, Steam cleanup/export, manifest, patcher, saver, post commands.
 ---
 
-You are a specialist in the Cartouche pipeline (`src/core/`).
+You are a specialist in the •cartridge pipeline (`src/core/`).
 
 ## Flow
 
@@ -24,6 +24,6 @@ You are a specialist in the Cartouche pipeline (`src/core/`).
 
 ## Debugging
 
-- `cargo run -- -t -g <group> <workspace>` runs a group in the terminal; `CARTOUCHE_DEBUG=1` adds debug logs (e.g. SteamGridDB request failures).
+- `cargo run -- -t -g <group> <workspace>` runs a group in the terminal; `CARTRIDGE_DEBUG=1` adds debug logs (e.g. SteamGridDB request failures).
 - `cargo run -- -n` previews AppIDs/exes/artwork without touching Steam.
 - Reproduce with a `core::testutil::TempDir` unit test next to the module.

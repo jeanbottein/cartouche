@@ -15,7 +15,7 @@ if [[ -z "$ENGINE" ]]; then
     echo "error: podman or docker is required" >&2
     exit 1
 fi
-IMAGE=cartouche-build
+IMAGE=cartridge-build
 
 # Built from stdin: no build context, so the games folder is never copied.
 # Cached after the first run; edit Containerfile to change the toolchain.

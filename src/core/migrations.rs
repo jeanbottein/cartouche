@@ -1,6 +1,6 @@
 //! Pipeline step 0: idempotent data migrations, safe to run every time.
 //!
-//! * `launch_manifest`  — legacy `launch_manifest.json` → `.cartouche/game.json`
+//! * `launch_manifest`  — legacy `launch_manifest.json` → `.cartridge/game.json`
 //! * `save_paths_format` — nested `savePaths` blocks → flat `{os, path}` list
 //! * `arch_x64`          — target arch `x86_64` → `x64`
 
@@ -272,7 +272,7 @@ mod tests {
             br#"{"title": "Old", "target": "run.sh", "os": "linux", "savePath": "~/saves", "steamgriddb_id": 5}"#,
         );
         assert_eq!(migrate_launch_manifests(dir.path()), 1);
-        let game = read(dir.path().join("Game/.cartouche/game.json"));
+        let game = read(dir.path().join("Game/.cartridge/game.json"));
         assert_eq!(game["targets"][0]["target"], "run.sh");
         assert_eq!(game["savePaths"], json!([{"os": "", "path": "~/saves"}]));
         assert_eq!(game["steamgriddb_id"], 5);
@@ -287,12 +287,12 @@ mod tests {
     fn nested_save_paths_are_flattened_once() {
         let dir = TempDir::new();
         dir.write(
-            "Game/.cartouche/game.json",
+            "Game/.cartridge/game.json",
             br#"{"title": "G", "savePaths": [{"name": "saves", "paths": [{"os": "linux", "path": "/a"}, {"os": "windows", "path": "C:/b"}]}]}"#,
         );
         assert_eq!(migrate_each_game(dir.path(), flatten_save_paths), 1);
         assert_eq!(
-            read(dir.path().join("Game/.cartouche/game.json"))["savePaths"],
+            read(dir.path().join("Game/.cartridge/game.json"))["savePaths"],
             json!([{"os": "linux", "path": "/a"}, {"os": "windows", "path": "C:/b"}])
         );
         assert_eq!(migrate_each_game(dir.path(), flatten_save_paths), 0);
@@ -302,11 +302,11 @@ mod tests {
     fn x86_64_arch_becomes_x64_keeping_key_order() {
         let dir = TempDir::new();
         dir.write(
-            "Game/.cartouche/game.json",
+            "Game/.cartridge/game.json",
             br#"{"title": "G", "targets": [{"os": "linux", "arch": "x86_64", "target": "a"}]}"#,
         );
         assert_eq!(migrate_each_game(dir.path(), rename_x86_64), 1);
-        let text = std::fs::read_to_string(dir.path().join("Game/.cartouche/game.json")).unwrap();
+        let text = std::fs::read_to_string(dir.path().join("Game/.cartridge/game.json")).unwrap();
         assert!(text.find("\"title\"").unwrap() < text.find("\"targets\"").unwrap());
         assert!(text.contains("\"arch\": \"x64\""));
     }

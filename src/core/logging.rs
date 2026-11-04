@@ -40,7 +40,7 @@ impl Log for Logger {
 }
 
 pub fn init() {
-    let level = if std::env::var_os("CARTOUCHE_DEBUG").is_some() {
+    let level = if std::env::var_os("CARTRIDGE_DEBUG").is_some() {
         LevelFilter::Debug
     } else {
         LevelFilter::Info
