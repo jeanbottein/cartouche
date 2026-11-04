@@ -10,7 +10,7 @@
 #PERSIST_DATA=True
 
 # Background music (optional)
-# Plays the audio files found under this .cartouche/ folder (mp3, flac, ogg,
+# Plays the audio files found under this system/ folder (mp3, flac, ogg,
 # wav, m4a/aac), shuffled and looping; fades out while a game runs.
 # Set to False to keep the UI silent.
 #MUSIC_ENABLED=True

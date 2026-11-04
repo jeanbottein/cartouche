@@ -1,11 +1,13 @@
-//! Application identity and the `.cartouche/` workspace directory.
+//! Application identity and the `system/` workspace directory.
 //!
 //! The app name comes from the binary filename — everything before the first
 //! `-` or `.` — so `cartouche-linux-x86_64` is still "cartouche", and renaming
-//! the binary rebrands the app (its `.<name>/` dir, Steam tags, ...).
+//! the binary rebrands the app (Steam tags, window title). Folder names don't
+//! follow the name: every game keeps its metadata in `.cartouche/` (a format,
+//! shared between machines and packages) and the workspace is `system/`.
 //! In an AppImage the name comes from the `.AppImage` file instead (the inner
-//! binary is always `cartouche`), lowercased so `Cartouche.AppImage` keeps
-//! using `.cartouche/`.
+//! binary is always `cartouche`), lowercased so `Cartouche.AppImage` stays
+//! "cartouche".
 
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -36,9 +38,20 @@ fn name_from(appimage: Option<PathBuf>, exe: Option<PathBuf>) -> String {
         .unwrap_or_else(|| "cartouche".into())
 }
 
-/// Name of the per-game and per-workspace data directory: `.cartouche`.
+/// Per-game metadata folder (`<game>/.cartouche/game.json`). Fixed: it is
+/// part of the game format, whatever the app is called.
+pub const GAME_DATA_DIR: &str = ".cartouche";
+
+/// The workspace folder next to the app: `system/config.txt`, caches, thumbnails.
+pub const WORKSPACE_DIR: &str = "system";
+
+/// Marks a `system/` folder as ours even before `config.txt` exists (e.g.
+/// freshly unpacked from a release archive).
+pub const WORKSPACE_README: &str = "README.txt";
+const README_SIGNATURE: &str = "Cartouche";
+
 pub fn data_dir_name() -> String {
-    format!(".{}", app_name())
+    GAME_DATA_DIR.to_string()
 }
 
 /// The file the user launched: the `.AppImage` when running from one (its
@@ -74,29 +87,121 @@ pub fn has_display() -> bool {
         .any(|var| std::env::var_os(var).is_some_and(|v| !v.is_empty()))
 }
 
-/// A workspace dir, not a per-game data dir (those hold a `game.json`).
-fn is_app_dir(p: &Path) -> bool {
-    p.is_dir() && !p.join("game.json").exists()
+/// `system/` is ours: it has a `config.txt`, or our README. A `system/` folder
+/// that merely exists (a common name) is never taken over.
+pub fn is_workspace(dir: &Path) -> bool {
+    let readme = std::fs::read_to_string(dir.join(WORKSPACE_README)).unwrap_or_default();
+    dir.join("config.txt").is_file() || readme.starts_with(README_SIGNATURE)
 }
 
-/// Locate the `.cartouche/` config dir. First match wins:
-/// 1. `cli_dir/.cartouche/` (explicit argument)
-/// 2. next to the binary (portable mode)
+/// A pre-`system/` workspace: `.cartouche/` (or `.<app name>/` from a renamed
+/// binary) with a `config.txt` and no `game.json` (so not a game's own folder).
+fn legacy_workspace(parent: &Path) -> Option<PathBuf> {
+    [GAME_DATA_DIR.to_string(), format!(".{}", app_name())]
+        .into_iter()
+        .map(|name| parent.join(name))
+        .find(|p| p.join("config.txt").is_file() && !p.join("game.json").exists())
+}
+
+/// The workspace in `parent`, moving a legacy `.cartouche/` to `system/` once.
+/// The legacy folder is kept as is when an unrelated `system/` exists.
+fn workspace_in(parent: &Path) -> Option<PathBuf> {
+    let system = parent.join(WORKSPACE_DIR);
+    if is_workspace(&system) {
+        return Some(system);
+    }
+    let legacy = legacy_workspace(parent)?;
+    if system.exists() {
+        log::warn!(
+            "Keeping {}: {} exists and isn't a Cartouche workspace",
+            legacy.display(),
+            system.display()
+        );
+        return Some(legacy);
+    }
+    match std::fs::rename(&legacy, &system) {
+        Ok(()) => {
+            log::info!(
+                "Moved workspace {} -> {}",
+                legacy.display(),
+                system.display()
+            );
+            Some(system)
+        }
+        Err(e) => {
+            log::warn!(
+                "Cannot move {} to {}: {e}",
+                legacy.display(),
+                system.display()
+            );
+            Some(legacy)
+        }
+    }
+}
+
+/// Locate the workspace dir (`system/`). First match wins:
+/// 1. `cli_dir/system/` (explicit argument)
+/// 2. next to the binary / AppImage (portable mode)
 /// 3. the current directory
 pub fn find_app_dir(cli_dir: Option<&Path>) -> Option<PathBuf> {
-    let name = data_dir_name();
     let cwd = std::env::current_dir().unwrap_or_default();
     cli_dir
         .map(Path::to_path_buf)
         .into_iter()
         .chain([exe_dir(), cwd])
-        .map(|dir| dir.join(&name))
-        .find(|p| is_app_dir(p))
+        .find_map(|dir| workspace_in(&dir))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::testutil::TempDir;
+
+    #[test]
+    fn system_counts_only_with_config_or_our_readme() {
+        let dir = TempDir::new();
+        let system = dir.mkdir("system");
+        assert!(!is_workspace(&system));
+        dir.write("system/README.txt", b"Some other project");
+        assert!(!is_workspace(&system));
+        dir.write("system/README.txt", b"Cartouche workspace: settings...");
+        assert!(is_workspace(&system));
+        let other = dir.mkdir("other/system");
+        dir.write("other/system/config.txt", b"");
+        assert!(is_workspace(&other));
+    }
+
+    #[test]
+    fn a_legacy_workspace_moves_to_system_once() {
+        let dir = TempDir::new();
+        dir.write(".cartouche/config.txt", b"FREEGAMES_PATH=games\n");
+        let found = workspace_in(dir.path()).unwrap();
+        assert_eq!(found, dir.path().join("system"));
+        assert!(found.join("config.txt").is_file());
+        assert!(!dir.path().join(".cartouche").exists());
+        assert_eq!(workspace_in(dir.path()), Some(found));
+    }
+
+    #[test]
+    fn an_unrelated_system_folder_is_never_merged() {
+        let dir = TempDir::new();
+        dir.write(".cartouche/config.txt", b"");
+        dir.write("system/notes.txt", b"not ours");
+        assert_eq!(
+            workspace_in(dir.path()),
+            Some(dir.path().join(".cartouche"))
+        );
+        assert!(dir.path().join("system/notes.txt").is_file());
+    }
+
+    #[test]
+    fn a_game_data_folder_is_not_a_workspace() {
+        let dir = TempDir::new();
+        dir.write(".cartouche/config.txt", b"");
+        dir.write(".cartouche/game.json", b"{}");
+        assert_eq!(workspace_in(dir.path()), None);
+        assert!(!dir.path().join("system").exists());
+    }
 
     #[test]
     fn an_appimage_stands_in_for_the_mounted_binary() {

@@ -56,11 +56,14 @@ testdata/                # Golden fixtures produced by the former Python impleme
 
 ```
 WORKSPACE/
-  .cartouche/config.txt, steamgriddb_cache.json, ui-thumbs/
+  system/config.txt, README.txt, steamgriddb_cache.json, ui-thumbs/   # workspace
+  cartouche (binary / .AppImage / .app)                               # portable: next to system/
   games/MyGame/.cartouche/game.json, cover.png, icon.png, hero.png, logo.png
   games/MyGame/.cartouche/unpacked_from.json   # id of the package it came from
   games/Other.cartouche.tar                    # packaged game (not unpacked yet)
 ```
+
+Folder names are fixed, whatever the binary is called: per-game metadata is always `.cartouche/` (part of the game and package format), the workspace is always `system/`. `system/` only counts with a `config.txt` or our README (the name is common). A legacy `.cartouche/` workspace is moved to `system/` once, unless an unrelated `system/` exists (`core::app::workspace_in`).
 
 Packages: a plain tar of `Foo/` with `.cartouche/package.json` first and `.cartouche/checksums.json` last. The scanner merges `Foo.cartouche.tar` and `Foo/` into one game (`models::Install`). Packaged-only games are read-only: phases that write (detector, sgdb, persister, editor) skip them. Staging uses hidden `.Foo…part` names, which the scanner ignores.
 
@@ -100,7 +103,7 @@ cargo test && cargo clippy --all-targets
 cargo build --no-default-features      # without libudev/ALSA (no gamepad, no music)
 ```
 
-Edit `.cartouche/config.txt` (seeded from `assets/config-default.txt`).
+Edit `system/config.txt` (seeded from `assets/config-default.txt`).
 
 ## Testing
 

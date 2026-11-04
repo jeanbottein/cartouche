@@ -42,7 +42,7 @@ const SCHEMA: [(&str, &[Setting]); 5] = [
     ("GENERAL", &[
         s("MACHINE_NAME", "Machine name", Kind::Text, "Prefixes the config backup in the save copies folder."),
         s("PERSIST_DATA", "Persist game data", Kind::Flag(true), "Write .cartouche/ folders (game.json, artwork) in game folders."),
-        s("MUSIC_ENABLED", "Background music", Kind::Flag(true), "Shuffle the audio files in the workspace's .cartouche/ folder (mp3, flac, ogg, wav, m4a). Fades out while a game runs."),
+        s("MUSIC_ENABLED", "Background music", Kind::Flag(true), "Shuffle the audio files in the workspace's system/ folder (mp3, flac, ogg, wav, m4a). Fades out while a game runs."),
     ]),
     ("PATHS", &[
         s("FREEGAMES_PATH", "Games folder", Kind::Path, "Where your DRM-free games are stored. Relative paths are relative to the workspace."),

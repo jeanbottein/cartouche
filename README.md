@@ -44,13 +44,13 @@ If you do need to write an explicit `linux` path overriding Proton, you can use 
 ## Getting started
 
 1. Download the binary for your platform from the releases (or build it, see below).
-2. Run it. On first launch it asks where to put the workspace (a `.cartouche/` folder with `config.txt`) and which folders to create.
-3. Fill in the settings (in the UI, or by editing `.cartouche/config.txt`), then run the pipeline from the **Status** tab.
+2. Run it. On first launch it asks where to put the workspace (a `system/` folder with `config.txt`) and which folders to create. Cartouche is portable: keep it in its own folder, next to `system/` and your games.
+3. Fill in the settings (in the UI, or by editing `system/config.txt`), then run the pipeline from the **Status** tab.
 
 ```text
 Usage: cartouche [OPTIONS] [DIR]
 
-  [DIR]                Folder holding the .cartouche/ workspace
+  [DIR]                Folder holding the system/ workspace
                        (default: next to the binary, then the current folder)
   -t, --terminal       Run the pipeline in the terminal, without the UI
   -g, --group <NAME>   Phases to run in the terminal (implies -t):

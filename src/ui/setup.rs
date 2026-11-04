@@ -1,5 +1,5 @@
 //! First run in the UI: choose where the workspace goes and which folders to
-//! create, then write `.cartouche/config.txt`.
+//! create, then write `system/config.txt`.
 
 use std::path::{Path, PathBuf};
 
@@ -8,7 +8,7 @@ use macroquad::prelude::*;
 use super::engine::theme;
 use super::form::{Event as FormEvent, Field, Form};
 use super::{Hint, Ui};
-use crate::core::app::{data_dir_name, exe_dir};
+use crate::core::app::{app_name, exe_dir, WORKSPACE_DIR};
 use crate::core::{init, paths};
 
 pub enum Outcome {
@@ -26,15 +26,11 @@ fn fields(workspace: &str, previous: Option<&Form>) -> Vec<Field> {
     let keep =
         |id: &str, default: &str| previous.map_or(default.to_string(), |f| f.value(id).to_string());
     let help = format!(
-        "A {}/ folder is created here. Portable setup: {}",
-        data_dir_name(),
+        "A {WORKSPACE_DIR}/ folder is created here. Portable setup: {}",
         exe_dir().display()
     );
     let mut out = vec![
-        Field::section(&format!(
-            "WELCOME TO {}",
-            data_dir_name()[1..].to_uppercase()
-        )),
+        Field::section(&format!("WELCOME TO {}", app_name().to_uppercase())),
         Field::path(
             "workspace",
             "Workspace folder",

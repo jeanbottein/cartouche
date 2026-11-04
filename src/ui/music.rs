@@ -1,4 +1,4 @@
-//! Background music: every audio file under the workspace's `.cartouche/`
+//! Background music: every audio file under the workspace's `system/`
 //! folder, shuffled, looping. Fades out and pauses while a game runs, fades
 //! back in when it exits. Off with `MUSIC_ENABLED=False`, or when built
 //! without the `music` feature.

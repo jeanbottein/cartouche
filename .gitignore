@@ -6,6 +6,7 @@
 /target
 /dist
 .cartouche
+/system
 test
 .DS_Store
 # Local shim: old Steam shortcut path -> target/release/cartouche

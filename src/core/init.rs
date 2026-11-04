@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use log::{error, info};
 
-use super::app::data_dir_name;
+use super::app::{app_name, is_workspace, WORKSPACE_DIR, WORKSPACE_README};
 use super::config::DEFAULT_CONFIG;
 
 pub struct Feature {
@@ -55,11 +55,31 @@ fn config_text(feature_paths: &[(String, String)]) -> String {
     format!("# Paths configured by the setup wizard\n{lines}\n{DEFAULT_CONFIG}")
 }
 
-/// Create `parent/.cartouche/`, the chosen folders (relative to `parent` or
+/// Written to `system/README.txt`; its first word marks the folder as ours.
+const WORKSPACE_README_TEXT: &str = "\
+Cartouche workspace: settings (config.txt), caches and thumbnails.
+
+Cartouche is portable: this folder, the app next to it and your games folder
+travel together. Move, copy or back up the whole parent folder as one piece.
+Edit config.txt by hand or in the app's SETTINGS tab.
+";
+
+/// Create `parent/system/`, the chosen folders (relative to `parent` or
 /// absolute) and `config.txt` (kept if it exists). Returns the config path.
+/// Refuses a `system/` folder that isn't a Cartouche workspace.
 pub fn initialize(parent: &Path, feature_paths: &[(String, String)]) -> std::io::Result<PathBuf> {
-    let app_dir = parent.join(data_dir_name());
+    let app_dir = parent.join(WORKSPACE_DIR);
+    if app_dir.exists() && !is_workspace(&app_dir) {
+        return Err(std::io::Error::other(format!(
+            "{} already exists and isn't a Cartouche workspace; pick a dedicated folder",
+            app_dir.display()
+        )));
+    }
     std::fs::create_dir_all(&app_dir)?;
+    let readme = app_dir.join(WORKSPACE_README);
+    if !readme.exists() {
+        std::fs::write(&readme, WORKSPACE_README_TEXT)?;
+    }
     for (_, value) in feature_paths {
         std::fs::create_dir_all(parent.join(value))?;
     }
@@ -109,12 +129,11 @@ fn prompt(input: &mut impl BufRead, question: &str) -> Option<String> {
 
 /// Terminal wizard. Returns the new config path, or `None` if the user quit.
 pub fn run_terminal_wizard(exe_dir: &Path, cwd: &Path) -> Option<PathBuf> {
-    let name = data_dir_name();
     let locations = locations(exe_dir, cwd);
     let mut input = std::io::stdin().lock();
 
-    eprintln!("\nInitialize {}\n{}", &name[1..], "=".repeat(40));
-    eprintln!("\nWorkspace location (a {name}/ directory will be created here for settings and app files):\n");
+    eprintln!("\nInitialize {}\n{}", app_name(), "=".repeat(40));
+    eprintln!("\nWorkspace location (a {WORKSPACE_DIR}/ folder will be created here for settings and app files):\n");
     for (i, (label, path)) in locations.iter().enumerate() {
         eprintln!("  {}. {label}  ({})", i + 1, path.display());
     }
@@ -173,5 +192,21 @@ mod tests {
         std::fs::write(&config, "MINE=1\n").unwrap();
         initialize(dir.path(), &paths).unwrap();
         assert_eq!(std::fs::read_to_string(config).unwrap(), "MINE=1\n");
+    }
+
+    #[test]
+    fn initialize_writes_system_with_our_readme() {
+        let dir = TempDir::new();
+        let config = initialize(dir.path(), &[]).unwrap();
+        assert_eq!(config, dir.path().join("system/config.txt"));
+        assert!(is_workspace(&dir.path().join("system")));
+    }
+
+    #[test]
+    fn initialize_refuses_an_unrelated_system_folder() {
+        let dir = TempDir::new();
+        dir.write("system/notes.txt", b"not ours");
+        assert!(initialize(dir.path(), &[]).is_err());
+        assert!(!dir.path().join("system/config.txt").exists());
     }
 }

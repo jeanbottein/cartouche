@@ -11,7 +11,7 @@ Manage DRM-free games: detect executables, fetch artwork, sync to Steam,
 apply patches and back up saves. Opens the UI unless told otherwise.
 
 Arguments:
-  [DIR]                Folder holding the .cartouche/ workspace
+  [DIR]                Folder holding the system/ workspace
                        (default: next to the binary, then the current folder)
 
 Options:
@@ -32,7 +32,7 @@ Options:
   -V, --version        Print the version
 
 Files:
-  DIR/.cartouche/config.txt      Settings, KEY=value. Created on first run (UI or
+  DIR/system/config.txt          Settings, KEY=value. Created on first run (UI or
                                  terminal wizard) with every key documented in
                                  comments; also editable in the UI's SETTINGS tab.
   GAMES/<Game>/                  One folder per game (GAMES = FREEGAMES_PATH)

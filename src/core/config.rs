@@ -1,6 +1,6 @@
-//! `.cartouche/config.txt`: `KEY=value` lines, `#` comments (whole-line and
+//! `system/config.txt`: `KEY=value` lines, `#` comments (whole-line and
 //! inline). Path-like values may be relative to the workspace root (the
-//! `.cartouche/` parent) and are resolved on load; the raw text values are kept
+//! `system/` parent) and are resolved on load; the raw text values are kept
 //! for the Settings editor, which rewrites the file preserving comments.
 
 use std::collections::BTreeMap;
@@ -86,7 +86,7 @@ impl Config {
             .is_some_and(|v| v.eq_ignore_ascii_case("false"))
     }
 
-    /// The `.cartouche/` directory.
+    /// The workspace directory (`system/`).
     pub fn app_dir(&self) -> PathBuf {
         self.path
             .parent()
@@ -94,7 +94,7 @@ impl Config {
             .unwrap_or_default()
     }
 
-    /// The workspace root: the `.cartouche/` parent.
+    /// The workspace root: the `system/` parent.
     pub fn workspace(&self) -> PathBuf {
         workspace_of(&self.path)
     }
