@@ -11,6 +11,7 @@ pub mod logging;
 pub mod manifest;
 pub mod migrations;
 pub mod models;
+pub mod mods;
 pub mod package;
 pub mod patcher;
 pub mod paths;

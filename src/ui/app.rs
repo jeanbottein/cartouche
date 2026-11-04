@@ -13,6 +13,7 @@ use super::engine::{text, theme};
 use super::jobs::{Jobs, Kind};
 use super::launcher::Session;
 use super::library::{self, Library};
+use super::mods::ModsScreen;
 use super::music::Music;
 use super::network::{self, Network};
 use super::settings::Settings;
@@ -41,13 +42,15 @@ const RESUME_GRACE_SECS: f64 = 0.6;
 enum Tab {
     Library,
     Network,
+    Mods,
     Status,
     Settings,
 }
 
-const TABS: [(Tab, &str); 4] = [
+const TABS: [(Tab, &str); 5] = [
     (Tab::Library, "LIBRARY"),
     (Tab::Network, "NETWORK"),
+    (Tab::Mods, "MODS"),
     (Tab::Status, "STATUS"),
     (Tab::Settings, "SETTINGS"),
 ];
@@ -71,6 +74,7 @@ pub struct App {
     fullscreen: bool,
     library: Library,
     network: Network,
+    mods: ModsScreen,
     /// File transfers running in the background (unpack, pack, copies).
     jobs: Jobs,
     editor: Option<Editor>,
@@ -105,6 +109,7 @@ impl App {
             fullscreen: true, // see window_conf
             library: Library::default(),
             network: Network::default(),
+            mods: ModsScreen::default(),
             jobs: Jobs::default(),
             editor: None,
             status: Status::new(),
@@ -221,6 +226,7 @@ impl App {
         }
         self.library.poll();
         self.network.poll(self.config.as_ref());
+        self.mods.poll(self.config.as_ref());
         if let Some(music) = &mut self.music {
             music.update(get_frame_time(), self.session.is_some());
         }
@@ -286,9 +292,15 @@ impl App {
         if self.modal_open() {
             return;
         }
-        for (key, (tab, _)) in [KeyCode::Key1, KeyCode::Key2, KeyCode::Key3, KeyCode::Key4]
-            .iter()
-            .zip(TABS)
+        for (key, (tab, _)) in [
+            KeyCode::Key1,
+            KeyCode::Key2,
+            KeyCode::Key3,
+            KeyCode::Key4,
+            KeyCode::Key5,
+        ]
+        .iter()
+        .zip(TABS)
         {
             if is_key_pressed(*key) {
                 self.tab = tab;
@@ -318,6 +330,11 @@ impl App {
         match self.tab {
             Tab::Library => self.update_library(area),
             Tab::Network => self.update_network(area),
+            Tab::Mods => {
+                if let Some(cfg) = &self.config {
+                    self.mods.update(&self.ui, area, cfg);
+                }
+            }
             Tab::Status => self.status.update(&self.ui, area, self.config.as_ref()),
             Tab::Settings => {
                 let (Some(settings), Some(cfg)) = (&mut self.settings, &self.config) else {
@@ -439,6 +456,7 @@ impl App {
                 self.network
                     .draw(&self.ui, area, self.config.as_ref(), &self.jobs)
             }
+            (None, Tab::Mods, _) => self.mods.draw(&self.ui, area, self.config.as_ref()),
             (None, Tab::Status, _) => self.status.draw(&self.ui, area, self.library.games.len()),
             (None, Tab::Settings, _) => {
                 if let Some(settings) = &self.settings {
@@ -561,6 +579,7 @@ impl App {
                 });
                 hints
             }
+            (Tab::Mods, _) => self.mods.hints(ui),
             (Tab::Status, _) => self.status.hints(ui),
             (Tab::Settings, _) => match &self.settings {
                 Some(settings) if settings.has_modal() => return settings.hints(ui),

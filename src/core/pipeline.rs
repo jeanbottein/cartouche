@@ -11,8 +11,8 @@ use log::info;
 use super::config::Config;
 use super::models::Game;
 use super::{
-    commands, detector, manifest, migrations, patcher, persister, saver, scanner, sgdb, sizer,
-    steam, steam_self,
+    commands, detector, manifest, migrations, mods, persister, saver, scanner, sgdb, sizer, steam,
+    steam_self,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -162,7 +162,7 @@ impl<'a> Pipeline<'a> {
             (Phase::Manifest, Some(games)) if cfg.is_not_false("MANIFEST_EXPORT") => {
                 manifest::write(games, &self.games_dir.join("manifests.json"));
             }
-            (Phase::Patch, _) => patcher::run(cfg),
+            (Phase::Patch, _) => mods::run(cfg),
             (Phase::Save, Some(games)) => saver::run(games, cfg),
             (Phase::PostCommands, _) => commands::run(cfg),
             _ => {}

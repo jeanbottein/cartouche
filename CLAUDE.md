@@ -18,7 +18,7 @@ core::pipeline::Pipeline (groups: all / parse / steam / backup / patch)
  6. steam::export            # Insert/update shortcuts + Proton compat
     steam_self::register     #   + •cartridge itself (STEAM_ADD_SELF)
  7. manifest::write          # manifests.json (MANIFEST_EXPORT)
- 8. patcher::run             # BPS patches / file replacements
+ 8. mods::run                # Keep the mods the user turned on applied (system/mods.json)
  9. saver::run               # Backup/restore saves, symlink tree
 10. commands::run            # RUN_AFTER_* shell commands
 ```
@@ -40,13 +40,15 @@ src/
     package.rs           # Foo.cartridge.tar: pack/unpack with progress + crc verification
     share/               # LAN sharing: server.rs (HTTP, GET only), discovery.rs (UDP broadcast), client.rs
     vdf.rs               # Binary (shortcuts.vdf) + text (config.vdf) KeyValues
-    steam.rs steam_self.rs manifest.rs bps.rs patcher.rs saver.rs commands.rs
+    steam.rs steam_self.rs manifest.rs bps.rs saver.rs commands.rs
+    patcher.rs mods.rs   # mod file engine (state/apply/restore) + mod model (list, on/off)
     pipeline.rs init.rs logging.rs
   ui/                    # macroquad UI
     app.rs               # Shell: tabs, footer hints, game session lock, log sink
     library.rs editor.rs status.rs settings.rs setup.rs
     form.rs list.rs keyboard.rs browser.rs dialog.rs   # widgets
     network.rs jobs.rs info.rs   # Network tab, background transfers, shared info panel
+    mods.rs              # MODS tab: mods with status, A turns one on/off
     covers.rs launcher.rs music.rs engine/ (canvas, input, text, theme)
 assets/                  # Embedded: font, icon, steam-art, config-default.txt, games_locations.json
 testdata/                # Golden fixtures produced by the former Python implementation
