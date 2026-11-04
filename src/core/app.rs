@@ -3,6 +3,9 @@
 //! The app name comes from the binary filename — everything before the first
 //! `-` or `.` — so `cartouche-linux-x86_64` is still "cartouche", and renaming
 //! the binary rebrands the app (its `.<name>/` dir, Steam tags, ...).
+//! In an AppImage the name comes from the `.AppImage` file instead (the inner
+//! binary is always `cartouche`), lowercased so `Cartouche.AppImage` keeps
+//! using `.cartouche/`.
 
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -10,13 +13,27 @@ use std::sync::OnceLock;
 pub fn app_name() -> &'static str {
     static NAME: OnceLock<String> = OnceLock::new();
     NAME.get_or_init(|| {
-        let file = std::env::current_exe()
-            .ok()
-            .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
-            .unwrap_or_default();
-        let stem = file.split(['-', '.']).next().unwrap_or("");
-        if stem.is_empty() { "cartouche" } else { stem }.to_string()
+        name_from(
+            std::env::var_os("APPIMAGE").map(PathBuf::from),
+            std::env::current_exe().ok(),
+        )
     })
+}
+
+/// Everything before the first `-` or `.` of the launched file's name.
+fn name_from(appimage: Option<PathBuf>, exe: Option<PathBuf>) -> String {
+    let stem_of = |path: &Path| {
+        let file = path.file_name()?.to_string_lossy().into_owned();
+        let stem = file.split(['-', '.']).next()?.to_string();
+        (!stem.is_empty()).then_some(stem)
+    };
+    let from_appimage = appimage
+        .as_deref()
+        .and_then(stem_of)
+        .map(|s| s.to_lowercase());
+    from_appimage
+        .or_else(|| exe.as_deref().and_then(stem_of))
+        .unwrap_or_else(|| "cartouche".into())
 }
 
 /// Name of the per-game and per-workspace data directory: `.cartouche`.
@@ -90,5 +107,26 @@ mod tests {
         );
         assert_eq!(launched_from(None, exe.clone()), exe);
         assert_eq!(launched_from(Some("".into()), exe.clone()), exe);
+    }
+
+    #[test]
+    fn the_name_follows_the_launched_file() {
+        let name = |appimage: Option<&str>, exe: &str| {
+            name_from(appimage.map(PathBuf::from), Some(PathBuf::from(exe)))
+        };
+        // Plain binary: exact case, as before.
+        assert_eq!(name(None, "/g/cartouche-linux-x86_64"), "cartouche");
+        assert_eq!(name(None, "/g/MyGames"), "MyGames");
+        // AppImage: its file name, lowercased; the inner binary is ignored.
+        let inner = "/tmp/.mount_x/usr/bin/cartouche";
+        assert_eq!(name(Some("/g/Cartouche.AppImage"), inner), "cartouche");
+        assert_eq!(
+            name(Some("/g/cartouche-linux-x86_64.AppImage"), inner),
+            "cartouche"
+        );
+        assert_eq!(name(Some("/g/MyGames.AppImage"), inner), "mygames");
+        // Nothing usable: the default.
+        assert_eq!(name_from(None, None), "cartouche");
+        assert_eq!(name(Some("/g/.AppImage"), inner), "cartouche");
     }
 }

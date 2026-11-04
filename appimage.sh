@@ -23,8 +23,8 @@ trap 'rm -rf "$WORK"' EXIT
 APPDIR="$WORK/Cartouche.AppDir"
 
 mkdir -p "$APPDIR/usr/bin"
-# The inner name must stay "cartouche": the app name (and its .cartouche/
-# folder, Steam tags) comes from the binary's filename.
+# In an AppImage the app name comes from the .AppImage file name (lowercased),
+# so renaming that file rebrands the app; the inner name doesn't matter.
 cp "$BIN" "$APPDIR/usr/bin/cartouche"
 chmod +x "$APPDIR/usr/bin/cartouche"
 ln -s usr/bin/cartouche "$APPDIR/AppRun"
