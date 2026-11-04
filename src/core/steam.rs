@@ -1,0 +1,887 @@
+//! Steam integration: non-Steam shortcuts in `userdata/<id>/config/shortcuts.vdf`
+//! (pipeline steps 5 and 6), their artwork in the `grid/` folder, and Proton
+//! compatibility mappings in `config/config.vdf`.
+//!
+//! Shortcuts we own carry this cartridge's ownership tag (`cartridge:<id>`),
+//! so other non-Steam games, and other cartridges' games, are never touched.
+//! The cartridge's label (its folder name) is a second, visible tag.
+//!
+//! The user picks which games are in Steam, per game (Library, Y);
+//! `system/steam.json` remembers the choice, and the pipeline keeps exactly
+//! those shortcuts up to date. Steam reads shortcuts at startup: a change
+//! shows after Steam restarts (see `is_running`).
+
+use std::collections::{BTreeSet, HashSet};
+use std::path::{Path, PathBuf};
+
+use log::{debug, error, info, warn};
+
+use super::app::APP_NAME;
+use super::config::Config;
+use super::models::{to_pretty_json, Game, ImageSlot};
+use super::paths;
+use super::vdf::{self, Map, Value};
+
+pub const PROTON_PREFIX: &str = "~/.local/share/Steam/steamapps/compatdata/{appid}/pfx/drive_c";
+const DEFAULT_COMPAT_PRIORITY: &str = "250";
+
+pub fn proton_prefix(appid: u32) -> String {
+    PROTON_PREFIX.replace("{appid}", &appid.to_string())
+}
+
+/// Stable non-Steam shortcut AppID (what Steam itself computes).
+pub fn generate_appid(name: &str, exe: &str) -> u32 {
+    crc32fast::hash(format!("{exe}{name}").as_bytes()) | 0x8000_0000
+}
+
+/// `shortcuts.vdf` stores AppIDs as signed 32-bit ints.
+pub fn signed32(appid: u32) -> i32 {
+    appid as i32
+}
+
+// ── Steam user directories ───────────────────────────────────────────────
+
+/// Every `userdata/<id>/config` directory (deduplicated across symlinked roots).
+pub fn userdata_config_dirs() -> Vec<PathBuf> {
+    let home = paths::home_dir();
+    let bases = [
+        home.join(".steam/steam/userdata"),
+        home.join(".local/share/Steam/userdata"),
+    ];
+    let mut seen = HashSet::new();
+    bases
+        .iter()
+        .flat_map(|base| {
+            paths::sorted_entries(base)
+                .into_iter()
+                .map(move |uid| base.join(uid).join("config"))
+        })
+        .filter(|dir| dir.is_dir() && seen.insert(paths::resolve(dir)))
+        .collect()
+}
+
+/// User config dirs, narrowed to `STEAM_USERID` when set.
+pub fn select_config_dirs(cfg: &Config) -> Vec<PathBuf> {
+    let dirs = userdata_config_dirs();
+    if dirs.is_empty() {
+        debug!("No Steam userdata directories found");
+        return dirs;
+    }
+    let Some(uid) = cfg
+        .get("STEAM_USERID")
+        .map(str::trim)
+        .filter(|u| !u.is_empty())
+    else {
+        return dirs;
+    };
+    let needle = format!("/{uid}/");
+    let filtered: Vec<PathBuf> = dirs
+        .into_iter()
+        .filter(|d| paths::lossy(d).contains(&needle))
+        .collect();
+    if filtered.is_empty() {
+        warn!("STEAM_USERID={uid} not found");
+    }
+    filtered
+}
+
+const SELECTION_FILE: &str = "steam.json";
+
+#[derive(Default, serde::Serialize, serde::Deserialize)]
+struct Selection {
+    /// Game folder names.
+    games: BTreeSet<String>,
+}
+
+fn selection_path(cfg: &Config) -> PathBuf {
+    cfg.app_dir().join(SELECTION_FILE)
+}
+
+fn load_selection(cfg: &Config) -> Option<BTreeSet<String>> {
+    let text = std::fs::read_to_string(selection_path(cfg)).ok()?;
+    serde_json::from_str::<Selection>(&text)
+        .ok()
+        .map(|s| s.games)
+}
+
+fn save_selection(cfg: &Config, games: BTreeSet<String>) -> Result<(), String> {
+    let path = selection_path(cfg);
+    std::fs::write(&path, to_pretty_json(&Selection { games }))
+        .map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// The games that already have one of our shortcuts (first run, before
+/// `steam.json` exists).
+fn games_with_shortcuts(cfg: &Config, games: &[Game]) -> BTreeSet<String> {
+    let owner = Owner::of(cfg);
+    let exes: HashSet<String> = userdata_config_dirs()
+        .iter()
+        .filter_map(|dir| load_shortcuts(&shortcuts_path(dir)).ok())
+        .flat_map(|shortcuts| {
+            shortcuts
+                .values()
+                .filter_map(as_shortcut)
+                .filter(|s| has_ownership_tag(s, &owner.tag))
+                .map(|s| exe_of(s).to_string())
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    games
+        .iter()
+        .filter(|g| resolved_target(g).is_some_and(|t| exes.contains(&t)))
+        .map(|g| g.folder_name.clone())
+        .collect()
+}
+
+/// This cartridge's games the user put in Steam.
+pub fn games_in_steam(cfg: &Config, games: &[Game]) -> BTreeSet<String> {
+    load_selection(cfg).unwrap_or_else(|| games_with_shortcuts(cfg, games))
+}
+
+/// Whether `restart` knows how to restart Steam on this OS.
+pub fn can_restart() -> bool {
+    matches!(std::env::consts::OS, "linux" | "macos")
+}
+
+/// Shut Steam down and start it again, so it reads the new shortcuts. Runs
+/// detached, outside this app's process tree: when Steam shuts down it ends
+/// the processes of the games it launched, this app included. In Game Mode
+/// the session relaunches Steam by itself; elsewhere the script does.
+pub fn restart() -> Result<(), String> {
+    use std::process::{Command, Stdio};
+    let script = match std::env::consts::OS {
+        "linux" => {
+            "steam -shutdown; i=0; while pgrep -x steam >/dev/null && [ $i -lt 60 ]; \
+             do sleep 1; i=$((i+1)); done; sleep 3; \
+             pgrep -x steam >/dev/null || steam >/dev/null 2>&1"
+        }
+        "macos" => {
+            "osascript -e 'quit app \"Steam\"'; i=0; \
+             while pgrep -x steam_osx >/dev/null && [ $i -lt 60 ]; do sleep 1; i=$((i+1)); done; \
+             open -a Steam"
+        }
+        _ => return Err("Restarting Steam isn't supported here".into()),
+    };
+    let detached = |program: &str, args: &[&str]| {
+        Command::new(program)
+            .args(args)
+            .args(["sh", "-c", script])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map(|_| ())
+    };
+    detached("systemd-run", &["--user", "--quiet", "--collect"])
+        .or_else(|_| detached("setsid", &[]))
+        .or_else(|_| detached("nohup", &[]))
+        .map_err(|e| format!("Cannot restart Steam: {e}"))
+}
+
+/// Steam reads its shortcuts at startup and rewrites them from memory:
+/// changes made while it runs show (and stick) only after a restart.
+pub fn is_running() -> bool {
+    let name = match std::env::consts::OS {
+        "linux" => "steam",
+        "macos" => "steam_osx",
+        _ => return false,
+    };
+    std::process::Command::new("pgrep")
+        .args(["-x", name])
+        .output()
+        .is_ok_and(|out| out.status.success())
+}
+
+pub fn user_id(config_dir: &Path) -> String {
+    config_dir
+        .parent()
+        .and_then(Path::file_name)
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default()
+}
+
+pub fn shortcuts_path(config_dir: &Path) -> PathBuf {
+    config_dir.join("shortcuts.vdf")
+}
+
+pub fn grid_dir(config_dir: &Path) -> PathBuf {
+    config_dir.join("grid")
+}
+
+// ── shortcuts.vdf ────────────────────────────────────────────────────────
+
+/// The shortcut entries of a `shortcuts.vdf` (empty when the file is missing).
+pub fn load_shortcuts(path: &Path) -> Result<Map, String> {
+    if !path.exists() {
+        return Ok(Map::default());
+    }
+    let data = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let root = vdf::parse_binary(&data).map_err(|e| format!("{}: {e}", path.display()))?;
+    Ok(root.get_map("shortcuts").cloned().unwrap_or_default())
+}
+
+pub fn save_shortcuts(path: &Path, shortcuts: Map) -> std::io::Result<()> {
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let root = Map(vec![("shortcuts".to_string(), Value::Map(shortcuts))]);
+    std::fs::write(path, vdf::to_binary(&root))
+}
+
+pub fn as_shortcut(value: &Value) -> Option<&Map> {
+    match value {
+        Value::Map(m) => Some(m),
+        _ => None,
+    }
+}
+
+pub fn tag_values(shortcut: &Map) -> Vec<&str> {
+    shortcut
+        .get_map("tags")
+        .map(|tags| {
+            tags.values()
+                .filter_map(|v| {
+                    if let Value::Str(s) = v {
+                        Some(s.as_str())
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Which shortcuts are this cartridge's: its id tag, plus its label shown in
+/// Steam as a tag (a collection). The id never changes with renames or moves.
+pub struct Owner {
+    pub tag: String,
+    pub label: String,
+}
+
+impl Owner {
+    pub fn of(cfg: &Config) -> Owner {
+        Owner {
+            tag: format!("{APP_NAME}:{}", cfg.cartridge_id()),
+            label: cfg.label(),
+        }
+    }
+}
+
+pub fn has_ownership_tag(shortcut: &Map, owner_tag: &str) -> bool {
+    tag_values(shortcut).contains(&owner_tag)
+}
+
+pub fn appname(shortcut: &Map) -> &str {
+    [shortcut.get_str("AppName"), shortcut.get_str("appname")]
+        .into_iter()
+        .flatten()
+        .find(|s| !s.is_empty())
+        .unwrap_or("")
+}
+
+/// The raw `Exe` value (quoted, as Steam stores it).
+pub fn raw_exe(shortcut: &Map) -> &str {
+    shortcut
+        .get_str("Exe")
+        .or_else(|| shortcut.get_str("exe"))
+        .unwrap_or("")
+}
+
+pub fn exe_of(shortcut: &Map) -> &str {
+    raw_exe(shortcut).trim_matches('"')
+}
+
+pub fn next_index(shortcuts: &Map) -> String {
+    shortcuts
+        .keys()
+        .filter_map(|k| k.parse::<u64>().ok())
+        .max()
+        .map_or(0, |m| m + 1)
+        .to_string()
+}
+
+/// Renumber entries "0", "1", ... keeping their order.
+pub fn reindex(shortcuts: Map) -> Map {
+    let mut entries = shortcuts.0;
+    entries.sort_by_key(|(k, _)| k.parse::<u64>().unwrap_or(0));
+    Map(entries
+        .into_iter()
+        .enumerate()
+        .map(|(i, (_, v))| (i.to_string(), v))
+        .collect())
+}
+
+/// A shortcut entry in the layout Steam writes.
+pub fn make_shortcut(
+    name: &str,
+    exe: &str,
+    start_dir: &str,
+    launch_options: &str,
+    icon: &str,
+    tags: &[&str],
+) -> Map {
+    let int = Value::Int32;
+    let text = |s: &str| Value::Str(s.to_string());
+    let entries = vec![
+        ("appid", int(signed32(generate_appid(name, exe)))),
+        ("AppName", text(name)),
+        ("Exe", text(&format!("\"{exe}\""))),
+        ("StartDir", text(&format!("\"{start_dir}\""))),
+        ("icon", text(icon)),
+        ("ShortcutPath", text("")),
+        ("LaunchOptions", text(launch_options)),
+        ("IsHidden", int(0)),
+        ("AllowDesktopConfig", int(1)),
+        ("AllowOverlay", int(1)),
+        ("OpenVR", int(0)),
+        ("Devkit", int(0)),
+        ("DevkitGameID", text("")),
+        ("DevkitOverrideAppID", int(0)),
+        ("LastPlayTime", int(0)),
+        (
+            "tags",
+            Value::Map(Map(tags
+                .iter()
+                .enumerate()
+                .map(|(i, tag)| (i.to_string(), text(tag)))
+                .collect())),
+        ),
+    ];
+    Map(entries
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v))
+        .collect())
+}
+
+/// Names of the shortcuts this cartridge owns for one Steam user.
+pub fn owned_shortcut_names(config_dir: &Path, owner_tag: &str) -> Result<Vec<String>, String> {
+    let shortcuts = load_shortcuts(&shortcuts_path(config_dir))?;
+    Ok(shortcuts
+        .values()
+        .filter_map(as_shortcut)
+        .filter(|s| has_ownership_tag(s, owner_tag))
+        .map(|s| appname(s).to_string())
+        .collect())
+}
+
+fn resolved_target(game: &Game) -> Option<String> {
+    game.resolved.as_ref().map(|r| paths::lossy(&r.target))
+}
+
+// ── Step 5: remove stale shortcuts ───────────────────────────────────────
+
+/// Remove our shortcuts whose executable matches `doomed`. Returns how many.
+fn remove_owned(
+    config_dir: &Path,
+    owner_tag: &str,
+    doomed: impl Fn(&str) -> bool,
+) -> Result<usize, String> {
+    let path = shortcuts_path(config_dir);
+    let shortcuts = load_shortcuts(&path)?;
+    let (removed, kept): (Vec<_>, Vec<_>) = shortcuts.0.into_iter().partition(|(_, v)| {
+        as_shortcut(v).is_some_and(|s| has_ownership_tag(s, owner_tag) && doomed(exe_of(s)))
+    });
+    if removed.is_empty() {
+        return Ok(0);
+    }
+    for (_, shortcut) in &removed {
+        info!(
+            "  Removing shortcut: {}",
+            as_shortcut(shortcut).map(appname).unwrap_or("")
+        );
+    }
+    save_shortcuts(&path, reindex(Map(kept))).map_err(|e| format!("{}: {e}", path.display()))?;
+    Ok(removed.len())
+}
+
+fn remove_stale(
+    config_dir: &Path,
+    valid_targets: &HashSet<String>,
+    owner_tag: &str,
+) -> Result<(), String> {
+    let removed = remove_owned(config_dir, owner_tag, |exe| !valid_targets.contains(exe))?;
+    if removed > 0 {
+        info!(
+            "  Steam user {}: removed {removed} stale shortcut(s)",
+            user_id(config_dir)
+        );
+    }
+    Ok(())
+}
+
+/// Remove our shortcuts whose executable is no longer in the library.
+pub fn clean(games: &[Game], cfg: &Config) {
+    let selected = games_in_steam(cfg, games);
+    let valid_targets: HashSet<String> = games
+        .iter()
+        .filter(|g| selected.contains(&g.folder_name))
+        .filter_map(resolved_target)
+        .collect();
+    let owner = Owner::of(cfg);
+    for config_dir in select_config_dirs(cfg) {
+        if let Err(e) = remove_stale(&config_dir, &valid_targets, &owner.tag) {
+            error!("  Skipping Steam user {}: {e}", user_id(&config_dir));
+        }
+    }
+}
+
+// ── Step 6: create / update shortcuts ────────────────────────────────────
+
+fn extension(name: &str) -> String {
+    Path::new(name)
+        .extension()
+        .map(|e| format!(".{}", e.to_string_lossy()))
+        .unwrap_or_default()
+}
+
+fn copy_if_missing(src: &Path, dest: &Path) {
+    if dest.is_file() || !src.is_file() {
+        return;
+    }
+    if let Err(e) = paths::copy_with_mtime(src, dest) {
+        warn!(
+            "    Failed to copy artwork {} -> {}: {e}",
+            src.display(),
+            dest.display()
+        );
+    }
+}
+
+/// Copy `.cartridge/` artwork into Steam's grid folder under the AppID names.
+fn copy_artwork(game: &Game, grid: &Path, appid: u32) {
+    if let Err(e) = std::fs::create_dir_all(grid) {
+        warn!("    Cannot create {}: {e}", grid.display());
+        return;
+    }
+    let slots = [
+        (ImageSlot::Cover, format!("{appid}p")),
+        (ImageSlot::Hero, format!("{appid}_hero")),
+        (ImageSlot::Logo, format!("{appid}_logo")),
+        (ImageSlot::Icon, format!("{appid}_icon")),
+        // The cover doubles as the horizontal grid image.
+        (ImageSlot::Cover, appid.to_string()),
+    ];
+    for (slot, prefix) in slots {
+        let Some(name) = game.images.get(slot) else {
+            continue;
+        };
+        copy_if_missing(
+            &game.data_dir().join(name),
+            &grid.join(format!("{prefix}{}", extension(name))),
+        );
+    }
+}
+
+fn icon_path(game: &Game, grid: &Path, appid: u32) -> String {
+    game.images
+        .icon
+        .as_deref()
+        .map(|icon| paths::lossy(&grid.join(format!("{appid}_icon{}", extension(icon)))))
+        .unwrap_or_default()
+}
+
+/// Add or refresh shortcuts for one Steam user. Returns (added, updated).
+fn export_to_user(
+    config_dir: &Path,
+    games: &[(&Game, u32)],
+    owner: &Owner,
+) -> Result<(usize, usize), String> {
+    let path = shortcuts_path(config_dir);
+    let grid = grid_dir(config_dir);
+    let mut shortcuts = load_shortcuts(&path)?;
+    let (mut added, mut updated) = (0, 0);
+
+    for &(game, appid) in games {
+        let Some(resolved) = &game.resolved else {
+            continue;
+        };
+        let target = paths::lossy(&resolved.target);
+        let start_in = paths::lossy(&resolved.start_in);
+        let icon = icon_path(game, &grid, appid);
+        let entry = || {
+            make_shortcut(
+                &game.title,
+                &target,
+                &start_in,
+                &resolved.launch_options,
+                &icon,
+                &[&owner.tag, &owner.label],
+            )
+        };
+
+        // (key, changed?) of the shortcut we already own for this exe.
+        let owned = shortcuts.0.iter().find_map(|(k, v)| {
+            let s = as_shortcut(v)
+                .filter(|s| has_ownership_tag(s, &owner.tag) && exe_of(s) == target)?;
+            let changed = appname(s) != game.title
+                || s.get_str("icon").unwrap_or("") != icon
+                || s.get("tags") != entry().get("tags");
+            Some((k.clone(), changed))
+        });
+        match owned {
+            Some((_, false)) => {}
+            Some((key, true)) => {
+                shortcuts.insert(&key, Value::Map(entry()));
+                updated += 1;
+            }
+            None => {
+                let key = next_index(&shortcuts);
+                shortcuts.insert(&key, Value::Map(entry()));
+                added += 1;
+            }
+        }
+        copy_artwork(game, &grid, appid);
+    }
+
+    if added + updated > 0 {
+        save_shortcuts(&path, shortcuts).map_err(|e| format!("{}: {e}", path.display()))?;
+        info!(
+            "  Steam user {}: +{added} added, ~{updated} updated",
+            user_id(config_dir)
+        );
+    }
+    Ok((added, updated))
+}
+
+/// Create/update shortcuts for every game with a target, then set Proton for
+/// Windows games.
+/// Write shortcuts (and Proton for Windows games) for `with_targets` into
+/// each Steam user's config. Returns (added, updated).
+fn export_games(
+    cfg: &Config,
+    config_dirs: &[PathBuf],
+    with_targets: &[(&Game, u32)],
+) -> (usize, usize) {
+    let owner = Owner::of(cfg);
+    let counts = config_dirs
+        .iter()
+        .filter_map(|dir| {
+            export_to_user(dir, with_targets, &owner)
+                .map_err(|e| error!("  Skipping Steam user {}: {e}", user_id(dir)))
+                .ok()
+        })
+        .fold((0, 0), |(a, u), (da, du)| (a + da, u + du));
+    let tool = cfg
+        .get("PROTON_VERSION")
+        .unwrap_or("proton_experimental")
+        .trim()
+        .to_string();
+    let windows_appids: Vec<u32> = with_targets
+        .iter()
+        .filter(|(g, _)| g.resolved.as_ref().is_some_and(|r| r.os == "windows"))
+        .map(|&(_, appid)| appid)
+        .collect();
+    if !windows_appids.is_empty() {
+        config_dirs.iter().for_each(|dir| {
+            set_compat_tools(&windows_appids, &tool, dir);
+        });
+    }
+    counts
+}
+
+fn with_appid(game: &Game) -> Option<(&Game, u32)> {
+    resolved_target(game).map(|t| (game, generate_appid(&game.title, &t)))
+}
+
+/// Pipeline step 6: create/update the shortcuts of the games the user put in
+/// Steam, then set Proton for the Windows ones.
+pub fn export(games: &[Game], cfg: &Config) {
+    let selected = games_in_steam(cfg, games);
+    let with_targets: Vec<(&Game, u32)> = games
+        .iter()
+        .filter(|g| selected.contains(&g.folder_name))
+        .filter_map(with_appid)
+        .collect();
+    if with_targets.is_empty() {
+        info!("No games to keep in Steam");
+        return;
+    }
+    let (added, updated) = export_games(cfg, &select_config_dirs(cfg), &with_targets);
+    if added + updated > 0 {
+        info!("Steam export complete: {added} added, {updated} updated");
+    } else {
+        info!("Steam shortcuts already up to date");
+    }
+}
+
+/// Put one game in Steam now, and remember it.
+pub fn add_game(cfg: &Config, library: &[Game], game: &Game) -> Result<(), String> {
+    let entry =
+        with_appid(game).ok_or("No executable found yet: run the pipeline from STATUS first")?;
+    let config_dirs = select_config_dirs(cfg);
+    if config_dirs.is_empty() {
+        return Err("Steam not found on this machine".into());
+    }
+    let mut selected = games_in_steam(cfg, library);
+    export_games(cfg, &config_dirs, &[entry]);
+    selected.insert(game.folder_name.clone());
+    save_selection(cfg, selected)
+}
+
+/// Take one game out of Steam now (only this cartridge's shortcut), and remember it.
+pub fn remove_game(cfg: &Config, library: &[Game], game: &Game) -> Result<(), String> {
+    let mut selected = games_in_steam(cfg, library);
+    if let Some(target) = resolved_target(game) {
+        let owner = Owner::of(cfg);
+        for dir in select_config_dirs(cfg) {
+            remove_owned(&dir, &owner.tag, |exe| exe == target)?;
+        }
+    }
+    selected.remove(&game.folder_name);
+    save_selection(cfg, selected)
+}
+
+// ── Step 6b: Proton for Windows games ────────────────────────────────────
+
+/// Steam root from a `userdata/<id>/config` path.
+fn steam_root(config_dir: &Path) -> Option<PathBuf> {
+    let root = config_dir.parent()?.parent()?.parent()?;
+    root.join("config").is_dir().then(|| root.to_path_buf())
+}
+
+/// Map each AppID without a compat tool to `tool` in `config.vdf`. Returns how many were added.
+pub fn set_compat_tools(appids: &[u32], tool: &str, config_dir: &Path) -> usize {
+    let Some(root) = steam_root(config_dir) else {
+        warn!(
+            "Could not determine Steam root from {}",
+            config_dir.display()
+        );
+        return 0;
+    };
+    let path = root.join("config").join("config.vdf");
+    if !path.is_file() {
+        warn!("config.vdf not found at {}/config/", root.display());
+        return 0;
+    }
+    let mut data = match std::fs::read_to_string(&path)
+        .map_err(|e| e.to_string())
+        .and_then(|t| vdf::parse_text(&t))
+    {
+        Ok(data) => data,
+        Err(e) => {
+            error!("Failed to read {}: {e}", path.display());
+            return 0;
+        }
+    };
+
+    let mapping = [
+        "InstallConfigStore",
+        "Software",
+        "Valve",
+        "Steam",
+        "CompatToolMapping",
+    ]
+    .iter()
+    .fold(&mut data, |map, key| map.map_entry_ignore_case(key));
+    let missing: Vec<String> = appids
+        .iter()
+        .map(u32::to_string)
+        .filter(|id| !mapping.contains(id))
+        .collect();
+    for appid in &missing {
+        let entry = [
+            ("name", tool),
+            ("config", ""),
+            ("priority", DEFAULT_COMPAT_PRIORITY),
+        ]
+        .iter()
+        .map(|(k, v)| (k.to_string(), Value::Str(v.to_string())))
+        .collect();
+        mapping.insert(appid, Value::Map(Map(entry)));
+    }
+    if missing.is_empty() {
+        return 0;
+    }
+    if let Err(e) = std::fs::write(&path, vdf::to_text(&data)) {
+        error!("Failed to write {}: {e}", path.display());
+        return 0;
+    }
+    info!(
+        "Set {tool} for {} Windows game(s) in config.vdf",
+        missing.len()
+    );
+    missing.len()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::models::Resolved;
+    use crate::core::testutil::TempDir;
+
+    fn shortcut(name: &str, exe: &str, tag: &str) -> Value {
+        Value::Map(make_shortcut(name, exe, "/", "", "", &[tag]))
+    }
+
+    #[test]
+    fn appid_matches_python_generate_appid() {
+        assert_eq!(
+            generate_appid("Hollow Knight", "/g/Hollow Knight/hollow_knight.exe"),
+            3770780903
+        );
+        assert_eq!(
+            generate_appid("Hollow Knight", "/g/HK/hk.x86_64"),
+            2664893048
+        );
+        assert_eq!(signed32(2664893048), -1630074248);
+    }
+
+    #[test]
+    fn new_shortcut_matches_python_layout() {
+        let golden = vdf::parse_binary(include_bytes!("../../testdata/shortcuts.vdf")).unwrap();
+        let expected = golden.get_map("shortcuts").unwrap().get_map("0").unwrap();
+        let built = make_shortcut(
+            "Hollow Knight",
+            "/g/HK/hk.x86_64",
+            "/g/HK",
+            "-v",
+            "/grid/1_icon.png",
+            &["golden"],
+        );
+        assert_eq!(&built, expected);
+    }
+
+    #[test]
+    fn ownership_is_by_tag() {
+        let Value::Map(ours) = shortcut("A", "/a", "cartridge:1") else {
+            unreachable!()
+        };
+        let Value::Map(other_cartridge) = shortcut("B", "/b", "cartridge:2") else {
+            unreachable!()
+        };
+        assert!(has_ownership_tag(&ours, "cartridge:1"));
+        assert!(!has_ownership_tag(&other_cartridge, "cartridge:1"));
+        assert_eq!(exe_of(&ours), "/a");
+    }
+
+    #[test]
+    fn stale_owned_shortcuts_are_removed_and_reindexed() {
+        let dir = TempDir::new();
+        let config_dir = dir.mkdir("userdata/1/config");
+        let shortcuts = Map(vec![
+            ("0".into(), shortcut("Gone", "/g/gone", "cartridge:1")),
+            ("1".into(), shortcut("Mine", "/g/kept", "favorite")),
+            ("2".into(), shortcut("Kept", "/g/kept2", "cartridge:1")),
+            ("3".into(), shortcut("Other", "/g/other", "cartridge:2")),
+        ]);
+        save_shortcuts(&shortcuts_path(&config_dir), shortcuts).unwrap();
+
+        remove_stale(
+            &config_dir,
+            &HashSet::from(["/g/kept2".to_string()]),
+            "cartridge:1",
+        )
+        .unwrap();
+        let after = load_shortcuts(&shortcuts_path(&config_dir)).unwrap();
+        let names: Vec<(&str, &str)> = after
+            .0
+            .iter()
+            .map(|(k, v)| (k.as_str(), appname(as_shortcut(v).unwrap())))
+            .collect();
+        assert_eq!(names, vec![("0", "Mine"), ("1", "Kept"), ("2", "Other")]);
+    }
+
+    #[test]
+    fn export_adds_once_then_updates_renamed_games() {
+        let dir = TempDir::new();
+        let config_dir = dir.mkdir("userdata/1/config");
+        let mut game = Game::skeleton(&dir.mkdir("games/Celeste"));
+        game.title = "Celeste".into();
+        game.resolved = Some(Resolved {
+            target: "/g/celeste".into(),
+            start_in: "/g".into(),
+            ..Default::default()
+        });
+        let appid = generate_appid("Celeste", "/g/celeste");
+        let mut owner = Owner {
+            tag: "cartridge:1".into(),
+            label: "Potato-games".into(),
+        };
+        let export = |owner: &Owner, game: &Game| {
+            export_to_user(&config_dir, &[(game, appid)], owner).unwrap()
+        };
+
+        assert_eq!(export(&owner, &game), (1, 0));
+        assert_eq!(export(&owner, &game), (0, 0));
+        game.title = "Celeste DX".into();
+        assert_eq!(export(&owner, &game), (0, 1));
+        // Renaming the cartridge folder updates the visible tag, same shortcut.
+        owner.label = "Potatoes".into();
+        assert_eq!(export(&owner, &game), (0, 1));
+        let saved = load_shortcuts(&shortcuts_path(&config_dir)).unwrap();
+        let entry = as_shortcut(saved.values().next().unwrap()).unwrap();
+        assert_eq!(tag_values(entry), vec!["cartridge:1", "Potatoes"]);
+        assert_eq!(
+            load_shortcuts(&shortcuts_path(&config_dir))
+                .unwrap()
+                .0
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn compat_tools_are_added_once_case_insensitively() {
+        let dir = TempDir::new();
+        let config_dir = dir.mkdir("Steam/userdata/1/config");
+        let vdf_path = dir.write(
+            "Steam/config/config.vdf",
+            b"\"InstallConfigStore\"\n{\n\t\"Software\"\n\t{\n\t\t\"valve\"\n\t\t{\n\t\t\t\"Steam\"\n\t\t\t{\n\t\t\t\t\"Other\"\t\t\"1\"\n\t\t\t}\n\t\t}\n\t}\n}\n",
+        );
+        assert_eq!(set_compat_tools(&[123, 456], "proton_9", &config_dir), 2);
+        assert_eq!(set_compat_tools(&[123], "proton_9", &config_dir), 0);
+        let data = vdf::parse_text(&std::fs::read_to_string(vdf_path).unwrap()).unwrap();
+        let steam = data
+            .get_map("InstallConfigStore")
+            .unwrap()
+            .get_map("Software")
+            .unwrap()
+            .get_map("valve")
+            .unwrap()
+            .get_map("Steam")
+            .unwrap();
+        assert_eq!(steam.get_str("Other"), Some("1"));
+        let mapping = steam.get_map("CompatToolMapping").unwrap();
+        assert_eq!(
+            mapping.get_map("456").unwrap().get_str("name"),
+            Some("proton_9")
+        );
+    }
+
+    #[test]
+    fn the_selection_is_remembered_in_system() {
+        let dir = TempDir::new();
+        dir.write("system/config.txt", b"");
+        let cfg = Config::load(&dir.path().join("system/config.txt"));
+        assert!(load_selection(&cfg).is_none());
+        save_selection(&cfg, BTreeSet::from(["Celeste".to_string()])).unwrap();
+        assert_eq!(
+            games_in_steam(&cfg, &[]),
+            BTreeSet::from(["Celeste".to_string()])
+        );
+    }
+
+    #[test]
+    fn removing_one_game_keeps_the_others() {
+        let dir = TempDir::new();
+        let config_dir = dir.mkdir("userdata/1/config");
+        let shortcuts = Map(vec![
+            ("0".into(), shortcut("A", "/g/a", "cartridge:1")),
+            ("1".into(), shortcut("B", "/g/b", "cartridge:1")),
+            ("2".into(), shortcut("Mine", "/g/a", "favorite")),
+        ]);
+        save_shortcuts(&shortcuts_path(&config_dir), shortcuts).unwrap();
+        assert_eq!(
+            remove_owned(&config_dir, "cartridge:1", |exe| exe == "/g/a").unwrap(),
+            1
+        );
+        let after = load_shortcuts(&shortcuts_path(&config_dir)).unwrap();
+        let names: Vec<&str> = after
+            .values()
+            .filter_map(as_shortcut)
+            .map(appname)
+            .collect();
+        assert_eq!(names, ["B", "Mine"]);
+    }
+}

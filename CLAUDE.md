@@ -1,101 +1,119 @@
-# AGENTS.md – AI Agent Guide for Cartouche
+# AGENTS.md – AI Agent Guide for •cartridge
 
 ## Project Overview
 
-Cartouche (French for "cartridge") is a Python CLI tool for managing DRM-free games on Linux (primarily Steam Deck). It uses a pipeline architecture with an in-memory GameDatabase as the central data carrier.
+•cartridge (French for "cartridge") is a Rust app for managing DRM-free games on Linux (primarily Steam Deck). One binary: a retro macroquad UI by default, terminal mode with `-t`. The backend is a pipeline of phases over an in-memory game list.
 
 ## Pipeline
 
 ```
-cartouche.py main():
- 0. migrations.run_all_migrations()     # Data migrations (coordinator)
- 1. db = scanner.scan()                 # Parse .cartouche/game.json into GameDatabase
- 2. detector.detect(db)                 # Fill missing targets (exe detection)
- 3. enricher.enrich(db, cfg)            # Fetch SteamGridDB data (if API key)
- 4. persister.persist(db)               # Write .cartouche/game.json + download images
- 5. steam_cleaner.clean()               # Remove stale Steam shortcuts
- 6. steam_exporter.export()             # Insert/update Steam shortcuts
- 7. manifest_writer.write()             # Create manifests.json (ROM manager compat)
- 8. patcher.run(cfg)                    # Apply patches
- 9. saver.run(db, cfg)                  # Backup/restore saves
-10. configurer.run(cfg)                 # Emulator config mutations
-11. run_post_commands(cfg)              # RUN_AFTER_* commands
+core::pipeline::Pipeline (groups: all / parse / steam / backup / patch)
+ 0. migrations::run_all      # Idempotent data migrations
+ 1. scanner::scan            # Parse .cartridge/game.json into Vec<Game>
+ 2. detector::detect         # Fill missing targets (exe detection)
+    sizer::measure           #   + size on disk into game.json
+ 3. sgdb::enrich             # SteamGridDB names/IDs/artwork (if API key)
+ 4. persister::persist       # Write game.json + download images (PERSIST_DATA)
+ 5. steam::clean             # Remove this cartridge's shortcuts for games no longer in Steam
+ 6. steam::export            # Insert/update shortcuts + Proton compat
+    steam_self::register     #   + •cartridge itself (STEAM_ADD_SELF)
+ 7. manifest::write          # manifests.json (MANIFEST_EXPORT)
+ 8. mods::run                # Keep the mods the user turned on applied (system/mods.json)
+ 9. saver::run               # Backup/restore saves, symlink tree
+10. commands::run            # RUN_AFTER_* shell commands
 ```
 
-**Migrations** (step 0) runs before scanning and is idempotent — safe to run every time. Includes:
-- `migrator.migrate()` — One-time: `launch_manifest.json` → `.cartouche/game.json`
-- `save_paths_migrator.migrate_all_games()` — Flatten nested save paths format
+Migrations: `launch_manifest.json` → `.cartridge/game.json`, nested → flat `savePaths`, arch `x86_64` → `x64`. Add new ones to `migrations::run_all`; keep them idempotent.
 
 ## Architecture
 
 ```
-cartouche.py               # Entry point: loads config, runs pipeline
-lib/
-  models.py                # Game, GameTarget, GameImages, GameDatabase
-  migrations.py            # Step 0: coordinator for all data migrations
-  migrator.py              # (Step 0 sub-task) Legacy launch_manifest.json migration
-  save_paths_migrator.py   # (Step 0 sub-task) Save paths format migration
-  scanner.py               # Step 1: parse .cartouche/ folders
-  detector.py              # Step 2: exe detection
-  enricher.py              # Step 3: SteamGridDB API
-  persister.py             # Step 4: write .cartouche/ + download images
-  steam_cleaner.py         # Step 5: remove stale shortcuts (uses vdf.binary_load/dump)
-  steam_exporter.py        # Step 6: create/update shortcuts
-  steam_compat.py          # Step 6b: set Proton compat for Windows games
-  manifest_writer.py       # Step 7: write manifests.json
-  patcher.py               # Step 8: BPS patching + file replacement
-  saver.py                 # Step 9: save backup/restore/symlink
-  configurer.py            # Step 10: emulator config mutations
-  configurer.json          # Declarative emulator config rules
-  games_locations.json     # Known game directory search paths
-scripts/
-  backup.sh
-config.txt                 # User configuration (gitignored)
-config-default.txt         # Template copied to config.txt if missing
+src/
+  main.rs, cli.rs        # Args: UI (default), -t/--terminal, -g/--group, -n/--dry-run, --pack/--unpack, --serve, --peers, --download/--install
+  terminal.rs            # Terminal mode + Steam dry-run preview
+  core/                  # Backend, no UI code
+    app.rs               # App name (from binary filename), workspace dir lookup
+    config.rs            # config.txt parse / relative path resolution / in-place updates
+    models.rs            # Game, Target, SavePath, Images; game.json (de)serialization
+    paths.rs, platform.rs# normpath/expandvars/relpath; OS/arch tags, ELF/PE/Mach-O headers
+    migrations.rs scanner.rs detector.rs sgdb.rs persister.rs sizer.rs
+    package.rs           # Foo.cartridge.tar: pack/unpack with progress + crc verification
+    share/               # LAN sharing: server.rs (HTTP, GET only), discovery.rs (UDP broadcast), client.rs
+    vdf.rs               # Binary (shortcuts.vdf) + text (config.vdf) KeyValues
+    steam.rs steam_self.rs manifest.rs bps.rs saver.rs commands.rs
+    patcher.rs mods.rs   # mod file engine (state/apply/restore) + mod model (list, on/off)
+    pipeline.rs init.rs logging.rs
+  ui/                    # macroquad UI
+    app.rs               # Shell: tabs, footer hints, game session lock, log sink
+    library.rs editor.rs status.rs settings.rs setup.rs
+    form.rs list.rs keyboard.rs browser.rs dialog.rs   # widgets
+    network.rs jobs.rs info.rs   # Network tab, background transfers, shared info panel
+    mods.rs              # MODS tab: mods with status, A turns one on/off
+    covers.rs launcher.rs music.rs engine/ (canvas, input, text, theme)
+assets/                  # Embedded: font, icon, steam-art, config-default.txt, games_locations.json
+testdata/                # Golden fixtures produced by the former Python implementation
 ```
 
 ## Data Structure
 
-Each game folder gets a `.cartouche/` subfolder:
 ```
-FREEGAMES_PATH/
-  MyGame/
-    .cartouche/
-      game.json    # Game metadata
-      cover.png    # Artwork images
-      icon.png
-      hero.png
-      logo.png
-    game-executable
+WORKSPACE/
+  system/config.txt, README.txt, steamgriddb_cache.json, ui-thumbs/   # workspace
+  cartridge (binary / .AppImage / .app)                               # portable: next to system/
+  games/MyGame/.cartridge/game.json, cover.png, icon.png, hero.png, logo.png
+  games/MyGame/.cartridge/unpacked_from.json   # id of the package it came from
+  games/Other.cartridge.tar                    # packaged game (not unpacked yet)
 ```
+
+Folder names are fixed, whatever the binary is called: per-game metadata is always `.cartridge/` (part of the game and package format), the workspace is always `system/`. `system/` only counts with a `config.txt` or our README (the name is common). A legacy `.cartridge/` workspace is moved to `system/` once, unless an unrelated `system/` exists (`core::app::workspace_in`).
+
+Packages: a plain tar of `Foo/` with `.cartridge/package.json` first and `.cartridge/checksums.json` last. The scanner merges `Foo.cartridge.tar` and `Foo/` into one game (`models::Install`). Packaged-only games are read-only: phases that write (detector, sgdb, persister, editor) skip them. Staging uses hidden `.Foo…part` names, which the scanner ignores.
 
 ## Key Conventions
 
-- **Minimal dependencies:** `vdf` (Steam VDF files), `requests` (HTTP client). See `requirements.txt`.
-- **`cfg` dict** parsed from `config.txt` is the runtime config for all modules.
-- **GameDatabase** is the central in-memory data carrier (steps 1-7, 9).
-- **`.cartouche/game.json`** replaces the old `launch_manifest.json`.
-- **Multiple save paths per game** supported (named: "saves", "config", etc.).
-- **Declarative emulator rules** in `configurer.json`, not in Python code.
-- **Variable substitution** uses `${VARIABLE_NAME}` syntax.
-- **`BACKUP_<name>`** config keys define custom directory backups.
-- **`RUN_AFTER_<label>`** config keys define post-run shell commands.
-- **Ownership tag** in Steam shortcuts is `"cartouche"` (also recognizes legacy `"gamer-sidekick"`).
+- **Compatibility is the contract:** game.json (4-space JSON), shortcuts.vdf, AppIDs (`crc32(exe+title) | 0x80000000`), path normalization and save layout must stay byte-compatible with existing workspaces. Golden tests in `testdata/` guard this.
+- **Fixed layout, no path settings:** `games/`, `mods/`, `saves-copies/`, `saves-links/` sit next to `system/` (`core::app::FOLDERS`, `Config::games_dir()`/`mods_dir()`/...). Users who want a folder elsewhere replace it with a symlink. `RUN_AFTER_*` commands still get `${FREEGAMES_PATH}`, `${PATCHES_PATH}`, `${SAVESCOPY_PATH}`, `${SAVESLINK_PATH}` as read-only folder variables.
+- **`Config`** keeps raw values (Settings editor) and resolved values (only `BACKUP_*` sources are paths, resolved against the cartridge folder).
+- Flags: `is_true` for opt-in keys (STEAM_ADD_SELF, SHARE_ENABLED, ...), `is_not_false` for opt-out keys (PERSIST_DATA, MANIFEST_EXPORT).
+- **Steam, per game:** the user adds/removes each game (Library, Y), remembered in `system/steam.json`; the pipeline keeps exactly those shortcuts current. Ownership tag `cartridge:<id>` (`system/cartridge-id`) plus the folder-name label as a visible tag; the self-shortcut (`STEAM_ADD_SELF`, first SETTINGS option) uses `<owner tag>-self` and is applied as soon as it's toggled. Steam reads shortcuts at startup: the UI says "restart Steam" when it runs.
+- **Logging:** `log` macros; `core::logging` prints to stderr and mirrors to the UI Status log.
+- **Minimal dependencies:** macroquad, gilrs (feature `gamepad`), rodio (feature `music`, ALSA at build time), serde/serde_json, image, ureq, crc32fast, tar, log.
 
 ## Dev Workflow
 
+The host (Bazzite) has no Rust toolchain on purpose: build in the container.
+
 ```bash
-python3 cartouche.py            # Run full pipeline
-python3 cartouche.py test steam # Dry-run Steam sync
-./cartouche.sh                  # Shell wrapper
+./container.sh                         # cargo build --release (any cargo args work)
+./container.sh test
+./container.sh clippy --all-targets
+./target/release/cartridge             # run on the host (UI)
 ```
 
-Edit `config.txt` (not `config-default.txt`) for local overrides. `config.txt` is gitignored.
+Releases (`v*` tags, or run the Release workflow by hand) ship ready-to-use
+cartridge archives (`package.sh`, template in `packaging/cartridge/`): a
+`Cartridge/` folder with the app (`Cartridge.AppImage` via `appimage.sh`,
+Apple Silicon `Cartridge.app` via `macapp.sh`, `cartridge.exe`), READMEs and an
+empty `system/`. No `config.txt` is shipped: the app creates it on first
+launch, so extracting a newer release over a cartridge keeps its settings.
+CI extracts each archive and runs the app inside it. Bare binaries are only
+published with `PUBLISH_BARE_BINARIES: true` in `release.yml`. In an AppImage
+or `.app` the binary sits in a mount/bundle: `core::app::launched_file()`
+returns the `.AppImage` / `.app` instead, for portable mode, the Steam
+self-shortcut and the app name (lowercased: `Cartridge.app` -> `cartridge`).
+
+With a native toolchain instead:
+
+```bash
+cargo run                              # UI
+cargo run -- -t                        # full pipeline in the terminal
+cargo run -- -n                        # Steam dry-run preview
+cargo test && cargo clippy --all-targets
+cargo build --no-default-features      # without libudev/ALSA (no gamepad, no music)
+```
+
+Edit `system/config.txt` (seeded from `assets/config-default.txt`).
 
 ## Testing
 
-No automated test suite. Verification is done manually:
-1. Set up `config.txt` with known paths.
-2. Run `python3 cartouche.py` and inspect log output.
-3. Verify `.cartouche/game.json` created in game folders.
-4. Verify backups, manifests, Steam shortcuts as expected.
+Unit tests live next to the code (`cargo test`); filesystem tests use `core::testutil::TempDir`. For UI changes, run under Xvfb (`Xvfb :99 &`, `DISPLAY=:99 cargo run`) and drive with `xdotool` / screenshot with `import -window root`.

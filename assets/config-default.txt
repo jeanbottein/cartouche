@@ -1,0 +1,114 @@
+# •cartridge settings. The cartridge's folders are fixed, next to system/:
+#   games/          one folder per game
+#   mods/           patches and file replacements
+#   saves-copies/   backups of your save files
+#   saves-links/    links to the live save folders (for Syncthing & co)
+# Need one elsewhere (another drive...)? Replace it with a symbolic link.
+
+# ==========================================
+# 1. GENERAL SETTINGS
+# ==========================================
+
+# Machine name (used to prefix the config backup in saves-copies/)
+#MACHINE_NAME=my-device
+
+# Persist game data (optional)
+# Set to False to skip writing .cartridge/ folders in game directories
+#PERSIST_DATA=True
+
+# Background music (optional)
+# Plays the audio files found under this system/ folder (mp3, flac, ogg,
+# wav, m4a/aac), shuffled and looping; fades out while a game runs.
+# Set to False to keep the UI silent.
+#MUSIC_ENABLED=True
+
+
+# ==========================================
+# 2. SAVE BACKUP & SYNC
+# ==========================================
+
+# Saves are copied into saves-copies/ and linked from saves-links/ (point
+# Syncthing or similar at saves-links/ for automatic sync).
+# SAVESCOPY_STRATEGY
+# backup: Create a backup of save files in saves-copies/
+# sync: Synchronize save files between the original and backup locations
+# restore: Restore save files from saves-copies/ to the original location
+# (Dangerous, use with caution, will replace save files with backup files, each time the script is run)
+# (Removing a game from games/ will not remove its backup or link)
+# Default: backup
+#SAVESCOPY_STRATEGY=backup
+
+# Custom directory backups (optional): folders outside the cartridge to back up too
+# Format: BACKUP_<name>=<path>  (relative paths start at the cartridge folder)
+# The <name> becomes the backup folder name under saves-copies/
+# Example: BACKUP_gamescope-shaders=/home/deck/.local/share/gamescope/reshade/Shaders
+#BACKUP_gamescope-shaders=/home/deck/.local/share/gamescope/reshade/Shaders
+
+
+# ==========================================
+# 3. GAME LAUNCHERS & INTEGRATION
+# ==========================================
+
+# Games in Steam: choose per game in the Library (Y), remembered in
+# system/steam.json. Shortcuts are tagged with this cartridge's id
+# (system/cartridge-id), so your other non-Steam games, and other cartridges'
+# games, are never touched. Steam shows changes after it restarts.
+
+# Optionally target a specific Steam user ID (leave commented to update all users)
+#STEAM_USERID=
+
+# Proton compatibility tool for Windows games added as non-Steam shortcuts
+# Common values: proton_experimental, proton_9-0-4, proton_8-0
+#PROTON_VERSION=proton_experimental
+
+# Add this cartridge itself to Steam under its folder name (optional), with retro
+# artwork, or your own: cover.png, wide.png, hero.png, logo.png, icon.png in system/
+# The shortcut launches this app.
+#STEAM_ADD_SELF=False
+
+# If you want to automatically download artwork (grids, heroes, logos) from SteamGridDB,
+# you must provide a free API key from https://www.steamgriddb.com/profile/preferences/api
+#STEAMGRIDDB_API_KEY=
+
+# SteamGridDB content filters (set to True to include)
+#STEAMGRIDDB_NSFW=False
+#STEAMGRIDDB_HUMOR=False
+#STEAMGRIDDB_EPILEPSY=False
+
+# Manifest export (optional): games/manifests.json for Steam ROM Manager
+# Set to False to skip writing manifests.json
+#MANIFEST_EXPORT=True
+
+
+# ==========================================
+# 4. CUSTOM TASKS
+# ==========================================
+
+# Post-run commands (optional)
+# Format: RUN_AFTER_<number>=<command>
+# Commands are executed in alphabetical order by name after all modules finish.
+# Variables from this config can be used with ${VARIABLE_NAME}, plus the folders:
+# ${FREEGAMES_PATH} (games/), ${PATCHES_PATH} (mods/), ${SAVESCOPY_PATH}
+# (saves-copies/), ${SAVESLINK_PATH} (saves-links/), ${_CONFIG_PATH}, ${_SCRIPT_DIR}
+# Example: RUN_AFTER_01=echo "Syncing ${SAVESLINK_PATH}"
+#
+# Example: Sync the symlink folder to a Google Drive remote named "gdrive"
+# Note: The -L flag is required for rclone to follow the symlinks and copy the actual save files.
+#RUN_AFTER_02=rclone sync -L "${SAVESLINK_PATH}" gdrive:cartridge-saves
+
+
+# ==========================================
+# 5. SHARING ON THE LAN
+# ==========================================
+
+# Let other •cartridge machines on the network see and copy your games (optional).
+# No password: only enable on a network you trust.
+#SHARE_ENABLED=False
+
+# TCP (HTTP) + UDP (discovery) port. If other machines can't see this one, open it:
+#   sudo firewall-cmd --permanent --add-port=47800/tcp --add-port=47800/udp && sudo firewall-cmd --reload
+#SHARE_PORT=47800
+
+# Machines to list even when the LAN broadcast can't reach them (VPN, other subnet)
+# Format: host[:port], comma-separated
+#SHARE_PEERS=192.168.1.20,library.local:47800

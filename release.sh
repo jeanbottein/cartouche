@@ -1,84 +1,30 @@
 #!/usr/bin/env bash
-# Build a self-contained binary for the current platform.
+# Build a self-contained release binary for the current platform.
 #
-# The binary name is derived from the main Python entry-point script.
-# Rename cartouche.py → potato.py and the output binary will be "potato".
+# The app name comes from the binary filename, so the output is named after
+# the Cargo package: dist/cartridge-<os>-<arch>. Rename it to rebrand.
 #
 # Usage:
-#   ./release.sh                  # build for current arch
-#   ./release.sh --no-venv        # skip venv creation, use active env
+#   ./release.sh                        # build for this machine
+#   STEAMGRIDDB_API_KEY=xxx ./release.sh # embed a default SteamGridDB key
+#   CARGO=./container.sh ./release.sh   # Linux: build in the Debian 12 container
+#                                       # (old glibc: runs on SteamOS & older distros)
 #
-# Output: dist/<os>-<arch>/<appname>
-#
-# Cross-arch builds: run this script natively on each target machine
-# (e.g. x86_64 and aarch64), or inside QEMU / a Docker cross-build container.
+# Linux build deps: libudev-dev libx11-dev libxi-dev libgl1-mesa-dev libasound2-dev pkg-config
+# Linux AppImage: ./appimage.sh dist/cartridge-linux-<arch> (done in CI on release)
+# (or build keyboard/mouse-only with: CARGO_FLAGS=--no-default-features).
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
-DIST_DIR="$REPO_ROOT/dist"
-BUILD_DIR="$REPO_ROOT/.build"
-
 OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
 ARCH="$(uname -m)"
+EXE=""
+case "$OS" in mingw*|msys*|cygwin*) OS="windows"; EXE=".exe" ;; esac
 
-# Derive app name from the entry-point script (rename the .py file to rebrand)
-ENTRY_SCRIPT="$(ls "$REPO_ROOT"/*.py 2>/dev/null | head -1)"
-APP_NAME="$(basename "$ENTRY_SCRIPT" .py)"
+cd "$REPO_ROOT"
+${CARGO:-cargo} build --release ${CARGO_FLAGS:-}
 
-OUTPUT_DIR="$DIST_DIR"
-
-USE_VENV=true
-for arg in "$@"; do
-  [[ "$arg" == "--no-venv" ]] && USE_VENV=false
-done
-
-mkdir -p "$OUTPUT_DIR" "$BUILD_DIR"
-
-# ── Virtualenv ────────────────────────────────────────────────────────────────
-VENV_DIR="$BUILD_DIR/venv"
-if $USE_VENV; then
-  if [[ ! -d "$VENV_DIR" ]]; then
-    echo "Creating build virtualenv..."
-    python3 -m venv "$VENV_DIR"
-  fi
-  # shellcheck disable=SC1091
-  source "$VENV_DIR/bin/activate"
-fi
-
-# ── Dependencies ──────────────────────────────────────────────────────────────
-echo "Installing build dependencies..."
-pip install --quiet --upgrade pip
-pip install --quiet pyinstaller
-if [[ -f "$REPO_ROOT/requirements.txt" ]]; then
-  pip install --quiet -r "$REPO_ROOT/requirements.txt"
-fi
-
-# ── API key injection (if available) ──────────────────────────────────────────
-if [[ -n "${STEAMGRIDDB_API_KEY:-}" ]]; then
-  echo "Injecting SteamGridDB API key..."
-  python3 "$REPO_ROOT/scripts/inject_api_key.py"
-fi
-
-# ── PyInstaller ───────────────────────────────────────────────────────────────
-echo "Building ${APP_NAME}-${OS}-${ARCH}..."
-
-pyinstaller \
-  --onefile \
-  --name "$APP_NAME-${OS}-${ARCH}" \
-  --distpath "$OUTPUT_DIR" \
-  --workpath "$BUILD_DIR/pyinstaller-work" \
-  --specpath "$BUILD_DIR" \
-  --add-data "$REPO_ROOT/lib/config-default.txt:lib" \
-  --add-data "$REPO_ROOT/lib/configurer.json:lib" \
-  --add-data "$REPO_ROOT/lib/games_locations.json:lib" \
-  --add-data "$REPO_ROOT/lib/app-icon.png:lib" \
-  --icon "$REPO_ROOT/lib/app-icon.png" \
-  --collect-all vdf \
-  --clean \
-  --noconfirm \
-  "$ENTRY_SCRIPT"
-
-# ── Done ──────────────────────────────────────────────────────────────────────
-SIZE=$(du -sh "$OUTPUT_DIR/$APP_NAME-${OS}-${ARCH}" | cut -f1)
-echo ""
-echo "Done: dist/${APP_NAME}-${OS}-${ARCH}  ($SIZE)"
+mkdir -p dist
+OUT="dist/cartridge-${OS}-${ARCH}${EXE}"
+cp "target/release/cartridge${EXE}" "$OUT"
+echo "Done: $OUT ($(du -sh "$OUT" | cut -f1))"
