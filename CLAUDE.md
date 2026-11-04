@@ -93,7 +93,7 @@ The host (Bazzite) has no Rust toolchain on purpose: build in the container.
 Releases (`v*` tags, or run the Release workflow by hand) ship ready-to-use
 cartridge archives (`package.sh`, template in `packaging/cartridge/`): a
 `Cartridge/` folder with the app (`Cartridge.AppImage` via `appimage.sh`,
-universal `Cartridge.app` via `macapp.sh`, `cartridge.exe`), READMEs and an
+Apple Silicon `Cartridge.app` via `macapp.sh`, `cartridge.exe`), READMEs and an
 empty `system/`. No `config.txt` is shipped: the app creates it on first
 launch, so extracting a newer release over a cartridge keeps its settings.
 CI extracts each archive and runs the app inside it. Bare binaries are only

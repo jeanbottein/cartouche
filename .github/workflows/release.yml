@@ -28,13 +28,12 @@ jobs:
             app: dist/cartridge-linux-aarch64.AppImage
             app_name: Cartridge.AppImage
             run: Cartridge.AppImage
-          # One universal app (Intel + Apple Silicon), cross-built on ARM.
+          # Apple Silicon only for now; Intel Macs can come later.
           - os: macos-latest
-            archive: cartridge-macos
+            archive: cartridge-macos-arm64
             app: dist/Cartridge.app
             app_name: Cartridge.app
             run: Cartridge.app/Contents/MacOS/cartridge
-            targets: x86_64-apple-darwin,aarch64-apple-darwin
           - os: windows-latest
             archive: cartridge-windows-x86_64
             app: dist/cartridge-windows-x86_64.exe
@@ -54,8 +53,6 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.targets }}
 
       # Runtime libraries for the smoke tests (the build itself runs in the
       # Debian 12 container, which has its own -dev packages).
@@ -64,22 +61,15 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libudev-dev libx11-dev libxi-dev libgl1-mesa-dev libasound2-dev
 
       - name: Build
-        if: runner.os != 'macOS'
         env:
           # Linux builds in the Containerfile's Debian 12 (glibc 2.36): a
           # binary built on the runner's Ubuntu would need its newer glibc.
           CARGO: ${{ runner.os == 'Linux' && './container.sh' || 'cargo' }}
         run: bash release.sh
 
-      - name: Build (macOS universal)
+      - name: macOS app
         if: runner.os == 'macOS'
-        run: |
-          cargo build --release --target x86_64-apple-darwin
-          cargo build --release --target aarch64-apple-darwin
-          bins="target/x86_64-apple-darwin/release/cartridge target/aarch64-apple-darwin/release/cartridge"
-          mkdir -p dist
-          lipo -create $bins -output dist/cartridge-macos-universal
-          bash macapp.sh $bins
+        run: bash macapp.sh dist/cartridge-darwin-arm64
 
       - name: Check the glibc floor
         if: runner.os == 'Linux'
