@@ -6,6 +6,7 @@ use std::sync::mpsc::{channel, Receiver};
 
 use macroquad::prelude::*;
 
+use super::dialog::{Dialog, Outcome as DialogOutcome};
 use super::editor::{self, Editor};
 use super::engine::canvas::{AspectMode, Canvas};
 use super::engine::input::{Action, Input};
@@ -88,6 +89,10 @@ pub struct App {
     server: Option<Server>,
     /// Background music, while `MUSIC_ENABLED` is on and there are tracks.
     music: Option<Music>,
+    /// Steam shortcuts were added or removed: offer to restart Steam on quit.
+    steam_changed: bool,
+    /// "Restart Steam?" before quitting.
+    quit_dialog: Option<Dialog>,
     /// Back is still held from closing the editor: don't count it as hold-to-quit.
     back_held_over: bool,
     quit: bool,
@@ -119,6 +124,8 @@ impl App {
             input_resume_at: 0.0,
             server: None,
             music: None,
+            steam_changed: false,
+            quit_dialog: None,
             back_held_over: false,
             quit: false,
         };
@@ -221,6 +228,10 @@ impl App {
 
     pub fn frame(&mut self) {
         self.ui.canvas.fit();
+        // Closing the window goes through the same "restart Steam?" check.
+        if is_quit_requested() && self.quit_dialog.is_none() {
+            self.request_quit();
+        }
         while let Ok(line) = self.logs.try_recv() {
             self.status.push_log(line);
         }
@@ -276,7 +287,8 @@ impl App {
     }
 
     fn modal_open(&self) -> bool {
-        self.editor.is_some()
+        self.quit_dialog.is_some()
+            || self.editor.is_some()
             || self.network.has_modal()
             || self.setup.is_some()
             || self.settings.as_ref().is_some_and(Settings::has_modal)
@@ -315,8 +327,47 @@ impl App {
         }
     }
 
+    /// Quit, unless Steam shortcuts changed while Steam runs: then ask
+    /// whether to restart Steam first.
+    fn request_quit(&mut self) {
+        if !(self.steam_changed && steam::can_restart() && steam::is_running()) {
+            self.quit = true;
+            return;
+        }
+        self.quit_dialog = Some(Dialog::new(
+            "Steam shortcuts changed",
+            "Steam shows the change after it restarts.",
+            &[("Restart Steam", theme::ACCENT), ("Ignore", theme::MUTED)],
+        ));
+    }
+
+    fn update_quit_dialog(&mut self, area: Rect) {
+        let Some(dialog) = &mut self.quit_dialog else {
+            return;
+        };
+        match dialog.update(&self.ui, area) {
+            DialogOutcome::Open => {}
+            DialogOutcome::Chosen(0) => {
+                if let Err(e) = steam::restart() {
+                    log::error!("{e}");
+                }
+                self.quit = true;
+            }
+            DialogOutcome::Chosen(_) => self.quit = true,
+            DialogOutcome::Cancelled => {
+                // Stay; Back is still held from the gesture.
+                self.quit_dialog = None;
+                self.back_held_over = true;
+            }
+        }
+    }
+
     fn update_screen(&mut self) {
         let area = self.content_area();
+        if self.quit_dialog.is_some() {
+            self.update_quit_dialog(area);
+            return;
+        }
         if let Some(setup) = &mut self.setup {
             match setup.update(&mut self.ui, area) {
                 Some(setup::Outcome::Created(path)) => {
@@ -379,8 +430,8 @@ impl App {
         if self.ui.input.held_for(Action::Back).is_none() {
             self.back_held_over = false;
         }
-        if self.quit_progress() >= 1.0 {
-            self.quit = true;
+        if self.quit_progress() >= 1.0 && self.quit_dialog.is_none() {
+            self.request_quit();
         }
         let Some(event) = self.library.update(&self.ui, area, &self.jobs) else {
             return;
@@ -434,12 +485,8 @@ impl App {
             steam_self::unregister(cfg);
         }
         let done = if adding { "added to" } else { "removed from" };
-        let restart = if steam::is_running() {
-            ": restart Steam to see it"
-        } else {
-            ""
-        };
-        let message = format!("{} {done} Steam{restart}", cfg.label());
+        let message = format!("{} {done} Steam", cfg.label());
+        self.steam_changed = true;
         if let Some(settings) = &mut self.settings {
             settings.note(&message, theme::ACCENT);
         }
@@ -459,13 +506,9 @@ impl App {
         };
         let message = match &result {
             Ok(()) => {
+                self.steam_changed = true;
                 let done = if adding { "added to" } else { "removed from" };
-                let restart = if steam::is_running() {
-                    ": restart Steam to see it"
-                } else {
-                    ""
-                };
-                format!("{} {done} Steam{restart}", game.title)
+                format!("{} {done} Steam", game.title)
             }
             Err(e) => e.clone(),
         };
@@ -535,6 +578,9 @@ impl App {
                 }
             }
         }
+        if let Some(dialog) = &self.quit_dialog {
+            dialog.draw(&self.ui, area);
+        }
         self.draw_header();
         self.draw_footer();
         self.draw_session();
@@ -542,7 +588,7 @@ impl App {
         self.ui.canvas.present();
 
         // Full-resolution artwork drawn over the upscaled canvas.
-        if self.session.is_none() && self.setup.is_none() {
+        if self.session.is_none() && self.setup.is_none() && self.quit_dialog.is_none() {
             match (self.tab, &self.editor) {
                 (Tab::Library, Some(editor)) => editor.overlay(&self.ui, area),
                 (Tab::Library, None) => self.library.overlay(&self.ui, area),
@@ -635,6 +681,9 @@ impl App {
         let ui = &self.ui;
         if let Some(setup) = &self.setup {
             return setup.hints(ui);
+        }
+        if let Some(dialog) = &self.quit_dialog {
+            return dialog.hints(ui);
         }
         let mut hints = match (self.tab, &self.editor) {
             (Tab::Library, Some(editor)) => return editor.hints(ui),

@@ -138,6 +138,46 @@ pub fn games_in_steam(cfg: &Config, games: &[Game]) -> BTreeSet<String> {
     load_selection(cfg).unwrap_or_else(|| games_with_shortcuts(cfg, games))
 }
 
+/// Whether `restart` knows how to restart Steam on this OS.
+pub fn can_restart() -> bool {
+    matches!(std::env::consts::OS, "linux" | "macos")
+}
+
+/// Shut Steam down and start it again, so it reads the new shortcuts. Runs
+/// detached, outside this app's process tree: when Steam shuts down it ends
+/// the processes of the games it launched, this app included. In Game Mode
+/// the session relaunches Steam by itself; elsewhere the script does.
+pub fn restart() -> Result<(), String> {
+    use std::process::{Command, Stdio};
+    let script = match std::env::consts::OS {
+        "linux" => {
+            "steam -shutdown; i=0; while pgrep -x steam >/dev/null && [ $i -lt 60 ]; \
+             do sleep 1; i=$((i+1)); done; sleep 3; \
+             pgrep -x steam >/dev/null || steam >/dev/null 2>&1"
+        }
+        "macos" => {
+            "osascript -e 'quit app \"Steam\"'; i=0; \
+             while pgrep -x steam_osx >/dev/null && [ $i -lt 60 ]; do sleep 1; i=$((i+1)); done; \
+             open -a Steam"
+        }
+        _ => return Err("Restarting Steam isn't supported here".into()),
+    };
+    let detached = |program: &str, args: &[&str]| {
+        Command::new(program)
+            .args(args)
+            .args(["sh", "-c", script])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map(|_| ())
+    };
+    detached("systemd-run", &["--user", "--quiet", "--collect"])
+        .or_else(|_| detached("setsid", &[]))
+        .or_else(|_| detached("nohup", &[]))
+        .map_err(|e| format!("Cannot restart Steam: {e}"))
+}
+
 /// Steam reads its shortcuts at startup and rewrites them from memory:
 /// changes made while it runs show (and stick) only after a restart.
 pub fn is_running() -> bool {

@@ -49,6 +49,8 @@ fn window_conf() -> Conf {
 pub fn run(cli_dir: Option<&Path>) {
     let cli_dir: Option<PathBuf> = cli_dir.map(Path::to_path_buf);
     macroquad::Window::from_config(window_conf(), async move {
+        // Closing the window asks the app first (e.g. "restart Steam?").
+        prevent_quit();
         let mut app = app::App::new(cli_dir);
         while !app.should_quit() {
             app.frame();

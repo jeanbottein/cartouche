@@ -258,14 +258,28 @@ impl Library {
                 (theme::BORDER, 1.0)
             };
             stroke_rect(Rect::new(list.x, y, list.w, ROW_H), th, border);
+            // In Steam: a discreet blue flag inside the right edge (inside the
+            // border, so it looks the same on the focused row).
+            let flag_w = if self.is_in_steam(&self.games[i]) {
+                draw_rectangle(
+                    list.right() - th - 4.0,
+                    y + th,
+                    4.0,
+                    ROW_H - 2.0 * th,
+                    theme::BLUE,
+                );
+                6.0
+            } else {
+                0.0
+            };
             let (tag, tag_color) = self.row_tag(i, ui.canvas.mode == AspectMode::Square);
             let tag_w = if tag.is_empty() {
                 0.0
             } else {
                 ui.measure(&tag) + 12.0
             };
-            ui.text(&tag, list.right() - tag_w, y + 18.0, tag_color);
-            let title = ui.truncate(&self.games[i].title, list.w - 18.0 - tag_w);
+            ui.text(&tag, list.right() - flag_w - tag_w, y + 18.0, tag_color);
+            let title = ui.truncate(&self.games[i].title, list.w - 18.0 - flag_w - tag_w);
             ui.text(
                 &title,
                 list.x + 12.0,
@@ -288,13 +302,12 @@ impl Library {
         self.in_steam.contains(&game.folder_name)
     }
 
-    /// Short marker on a row (`PKG`, `STEAM`) and its color; with the size
-    /// when there is no side panel.
+    /// Short marker on a row (`PKG`) and its color; with the size when
+    /// there is no side panel. (Being in Steam is a flag, not a tag.)
     fn row_tag(&self, index: usize, with_size: bool) -> (String, Color) {
         let game = &self.games[index];
         let (tag, color) = match game.install {
             Install::Packaged { .. } => ("PKG", theme::AMBER),
-            _ if self.is_in_steam(game) => ("STEAM", theme::BLUE),
             // A kept package shows only in the side panel, to keep the list calm.
             _ => ("", theme::MUTED),
         };
