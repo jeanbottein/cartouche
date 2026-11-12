@@ -154,8 +154,7 @@ impl App {
         self.apply_widescreen();
     }
 
-    /// Lay the UI out as `WIDESCREEN` says. Only on open and when the setting
-    /// changes, so a quick toggle (Tab / Select) survives other reloads.
+    /// Lay the UI out as `WIDESCREEN` says (on open and when it changes).
     fn apply_widescreen(&mut self) {
         let Some(cfg) = &self.config else { return };
         self.ui
@@ -309,11 +308,12 @@ impl App {
             self.fullscreen = !self.fullscreen;
             macroquad::window::set_fullscreen(self.fullscreen);
         }
-        if self.ui.action(Action::ToggleAspect) {
-            self.ui.canvas.toggle_aspect();
-        }
         if self.modal_open() {
             return;
+        }
+        if self.tab != Tab::Library && self.ui.action(Action::Back) {
+            self.tab = Tab::Library;
+            self.back_held_over = true; // the same press must not count toward hold-to-quit
         }
         for (key, (tab, _)) in [
             KeyCode::Key1,
@@ -725,6 +725,9 @@ impl App {
                 None => Vec::new(),
             },
         };
+        if self.tab != Tab::Library {
+            hints.push(ui.hint(Action::Back, "Library", theme::AMBER));
+        }
         hints.push(ui.hint(Action::TabNext, "Tabs", theme::BORDER));
         hints
     }

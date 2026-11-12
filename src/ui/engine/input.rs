@@ -21,7 +21,6 @@ pub enum Action {
     Confirm,
     Back,
     Menu,
-    ToggleAspect,
     TabPrev,
     TabNext,
     /// Secondary action: edit / type a value (pad X, keyboard X).
@@ -30,7 +29,7 @@ pub enum Action {
     Alt,
 }
 
-const ALL_ACTIONS: [Action; 12] = [
+const ALL_ACTIONS: [Action; 11] = [
     Action::Up,
     Action::Down,
     Action::Left,
@@ -38,7 +37,6 @@ const ALL_ACTIONS: [Action; 12] = [
     Action::Confirm,
     Action::Back,
     Action::Menu,
-    Action::ToggleAspect,
     Action::TabPrev,
     Action::TabNext,
     Action::Edit,
@@ -52,7 +50,7 @@ const ARROW_KEYS: [(KeyCode, Action); 4] = [
     (KeyCode::Right, Action::Right),
 ];
 
-const KEYS: [(KeyCode, Action); 17] = [
+const KEYS: [(KeyCode, Action); 16] = [
     (KeyCode::Up, Action::Up),
     (KeyCode::Down, Action::Down),
     (KeyCode::Left, Action::Left),
@@ -65,7 +63,6 @@ const KEYS: [(KeyCode, Action); 17] = [
     (KeyCode::Space, Action::Confirm),
     (KeyCode::Escape, Action::Back),
     (KeyCode::Backspace, Action::Back),
-    (KeyCode::Tab, Action::ToggleAspect),
     (KeyCode::Q, Action::TabPrev),
     (KeyCode::E, Action::TabNext),
     (KeyCode::X, Action::Edit),
@@ -263,9 +260,6 @@ impl Input {
                 }
                 if pad.is_pressed(Button::Start) {
                     s.insert(Action::Menu);
-                }
-                if pad.is_pressed(Button::Select) {
-                    s.insert(Action::ToggleAspect);
                 }
                 if pad.is_pressed(Button::LeftTrigger) {
                     s.insert(Action::TabPrev);

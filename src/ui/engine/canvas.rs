@@ -147,14 +147,6 @@ impl Canvas {
         self.fit();
     }
 
-    /// Switch between the wide and 4:3 layouts, until the setting changes.
-    pub fn toggle_aspect(&mut self) {
-        self.set_widescreen(match self.fit.layout {
-            Layout::Wide => Widescreen::Off,
-            Layout::Narrow | Layout::Tall => Widescreen::On,
-        });
-    }
-
     /// Re-derive the canvas size and scale from the window. Cheap when nothing
     /// changed; call once per frame so window resizes / fullscreen are picked up.
     pub fn fit(&mut self) {
