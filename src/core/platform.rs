@@ -132,6 +132,33 @@ pub fn is_executable(path: &Path) -> bool {
     known(u32_le(&magic, 0)) || known(u32_be(&magic, 0))
 }
 
+/// An ELF or Mach-O program: runs natively, so needs the execute bit (unlike a
+/// Windows `.exe`, which Proton starts).
+pub fn is_native_binary(path: &Path) -> bool {
+    let mut magic = [0u8; 2];
+    let is_pe =
+        File::open(path).is_ok_and(|mut f| f.read_exact(&mut magic).is_ok() && &magic == b"MZ");
+    is_executable(path) && !is_pe
+}
+
+/// Add the execute bits its read bits allow (644 -> 755), like `chmod +x`.
+pub fn make_executable(path: &Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(path)?.permissions().mode();
+        std::fs::set_permissions(
+            path,
+            std::fs::Permissions::from_mode(mode | (mode & 0o444) >> 2),
+        )
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        Ok(())
+    }
+}
+
 /// Has an execute permission bit (always true where permissions don't exist).
 pub fn has_exec_permission(path: &Path) -> bool {
     #[cfg(unix)]
@@ -167,6 +194,33 @@ mod tests {
         pe.extend_from_slice(&0xAA64u16.to_le_bytes());
         let pe_path = dir.write("game.exe", &pe);
         assert_eq!(detect_binary_arch(&pe_path), Some("arm64"));
+    }
+
+    #[test]
+    fn only_elf_and_macho_are_native_binaries() {
+        let dir = TempDir::new();
+        let mut elf = b"\x7fELF".to_vec();
+        elf.resize(64, 0);
+        let mut pe = b"MZ".to_vec();
+        pe.resize(64, 0);
+        assert!(is_native_binary(&dir.write("game", &elf)));
+        assert!(!is_native_binary(&dir.write("game.exe", &pe)));
+        assert!(!is_native_binary(&dir.write("readme.txt", b"hello")));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn make_executable_adds_x_where_r_is_set() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = TempDir::new();
+        let mode_after = |mode: u32| {
+            let path = dir.write("file", b"");
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode)).unwrap();
+            make_executable(&path).unwrap();
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777
+        };
+        assert_eq!(mode_after(0o644), 0o755);
+        assert_eq!(mode_after(0o600), 0o700);
     }
 
     #[test]

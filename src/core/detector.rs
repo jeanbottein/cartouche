@@ -1,20 +1,28 @@
-//! Pipeline step 2: find executables for games that have no targets yet, plus
-//! Proton save-folder detection for the game editor.
+//! Pipeline step 2: find executables for games that have no targets yet,
+//! restore execute bits that copies lost, plus Proton save-folder detection
+//! for the game editor.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use log::info;
+use log::{info, warn};
 
 use super::app::data_dir_name;
 use super::models::{Game, SavePath, Target};
 use super::paths;
-use super::platform::{arch_tag, detect_binary_arch, has_exec_permission, is_executable, os_tag};
+use super::platform::{
+    arch_tag, detect_binary_arch, has_exec_permission, is_executable, is_native_binary,
+    make_executable, os_tag,
+};
 use super::scanner;
 use super::steam;
 
 const SKIP_DIRS: [&str; 4] = ["java", "jre", "lib", "__pycache__"];
 const MAX_DEPTH: usize = 3;
+/// Native programs found even without their execute bit (copies over FAT
+/// drives, zips or web downloads drop it). No extension counts too; libraries
+/// (`.so`, `.so.6`, `.dylib`) never match.
+const PROGRAM_EXTENSIONS: [&str; 6] = ["appimage", "x86_64", "x86", "x64", "bin", "run"];
 
 // ── Similarity (difflib.SequenceMatcher.ratio) ───────────────────────────
 
@@ -139,6 +147,19 @@ fn is_exe_name(path: &Path) -> bool {
     base_name(path).to_lowercase().ends_with(".exe")
 }
 
+fn has_program_name(path: &Path) -> bool {
+    path.extension().is_none_or(|ext| {
+        PROGRAM_EXTENSIONS.contains(&ext.to_string_lossy().to_lowercase().as_str())
+    })
+}
+
+/// A file worth offering as a target: a Windows `.exe`, or a native program
+/// (with its execute bit, or named like one).
+fn is_candidate(path: &Path) -> bool {
+    (is_exe_name(path) || has_exec_permission(path) || has_program_name(path))
+        && is_executable(path)
+}
+
 /// Descend through folders that only contain a single subfolder.
 fn real_game_dir(game_dir: &Path) -> PathBuf {
     let data_dir = data_dir_name();
@@ -234,7 +255,7 @@ fn collect_posix_host_targets(game_dir: &Path) -> Vec<Target> {
     let real_dir = real_game_dir(game_dir);
     let exes = walk_files(&real_dir, MAX_DEPTH)
         .into_iter()
-        .filter(|p| (is_exe_name(p) || has_exec_permission(p)) && is_executable(p));
+        .filter(|p| is_candidate(p));
 
     let mut groups: Vec<((String, String), Vec<PathBuf>)> = Vec::new();
     for exe in exes {
@@ -266,8 +287,34 @@ pub fn collect_targets(game_dir: &Path) -> Vec<Target> {
     }
 }
 
-/// Fill targets + title for every game that has no targets yet.
+/// Fill targets + title for every game that has no targets yet, and give
+/// native targets back the execute bit a copy lost.
 pub fn detect(games: &mut [Game]) {
+    detect_missing_targets(games);
+    games
+        .iter()
+        .filter(|g| g.is_installed())
+        .for_each(restore_exec_bits);
+}
+
+fn restore_exec_bits(game: &Game) {
+    game.targets
+        .iter()
+        .for_each(|t| restore_exec_bit(&scanner::resolve_target(&game.dir, t).target));
+}
+
+/// Make a native program executable again if it lost the bit (logged).
+pub fn restore_exec_bit(exe: &Path) {
+    if has_exec_permission(exe) || !is_native_binary(exe) {
+        return;
+    }
+    match make_executable(exe) {
+        Ok(()) => info!("  Made executable: {}", exe.display()),
+        Err(e) => warn!("  Cannot make {} executable: {e}", exe.display()),
+    }
+}
+
+fn detect_missing_targets(games: &mut [Game]) {
     let incomplete: Vec<&mut Game> = games
         .iter_mut()
         .filter(|g| g.is_installed() && g.targets.is_empty())
@@ -471,6 +518,71 @@ mod tests {
         assert_eq!(native.start_in, "wrapper");
         let windows = targets.iter().find(|t| t.os == "windows").unwrap();
         assert_eq!(windows.target, "wrapper/Celeste.exe");
+    }
+
+    /// Write a file without execute bits (as a copy that lost them leaves it).
+    #[cfg(unix)]
+    fn write_644(dir: &TempDir, name: &str, content: &[u8]) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let path = dir.write(name, content);
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        path
+    }
+
+    #[cfg(unix)]
+    fn mode(path: &Path) -> u32 {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::metadata(path).unwrap().permissions().mode() & 0o777
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn programs_that_lost_their_execute_bit_are_candidates_libraries_are_not() {
+        let dir = TempDir::new();
+        let candidate = |name: &str| is_candidate(&write_644(&dir, name, &elf()));
+        assert!(candidate("Strange Flesh.AppImage"));
+        assert!(candidate("BanjoRecompiled"));
+        assert!(candidate("Celeste.bin.x86_64"));
+        assert!(!candidate("libgame.so"));
+        assert!(!candidate("libgame.so.6"));
+        assert!(!is_candidate(&write_644(&dir, "notes", b"not a program")));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn detect_finds_and_repairs_a_program_without_execute_bit() {
+        let dir = TempDir::new();
+        let game_dir = dir.mkdir("Strange Flesh");
+        let exe = write_644(&dir, "Strange Flesh/Strange Flesh.AppImage", &elf());
+        let mut games = [Game {
+            dir: game_dir,
+            ..Default::default()
+        }];
+        detect(&mut games);
+        assert_eq!(games[0].targets[0].target, "Strange Flesh.AppImage");
+        assert_eq!(mode(&exe), 0o755);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn known_targets_get_their_execute_bit_back_text_files_do_not() {
+        let dir = TempDir::new();
+        let game_dir = dir.mkdir("Game");
+        let exe = write_644(&dir, "Game/game", &elf());
+        let script = write_644(&dir, "Game/start.txt", b"echo hi");
+        let target = |name: &str| Target {
+            os: os_tag().into(),
+            target: name.into(),
+            ..Default::default()
+        };
+        let mut games = [Game {
+            dir: game_dir,
+            targets: vec![target("game"), target("start.txt")],
+            ..Default::default()
+        }];
+        detect(&mut games);
+        assert_eq!(mode(&exe), 0o755);
+        assert_eq!(mode(&script), 0o644);
     }
 
     #[test]

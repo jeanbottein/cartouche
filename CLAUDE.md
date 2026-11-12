@@ -10,7 +10,7 @@
 core::pipeline::Pipeline (groups: all / parse / steam / backup / patch)
  0. migrations::run_all      # Idempotent data migrations
  1. scanner::scan            # Parse .cartridge/game.json into Vec<Game>
- 2. detector::detect         # Fill missing targets (exe detection)
+ 2. detector::detect         # Fill missing targets (exe detection), restore lost exec bits
     sizer::measure           #   + size on disk into game.json
  3. sgdb::enrich             # SteamGridDB names/IDs/artwork (if API key)
  4. persister::persist       # Write game.json + download images, always in each game's .cartridge/

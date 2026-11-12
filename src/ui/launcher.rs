@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 
 use crate::core::models::Game;
 use crate::core::platform::os_tag;
-use crate::core::{paths, steam};
+use crate::core::{detector, paths, steam};
 
 /// A launched game. `running()` flips to false once the game has exited.
 pub struct Session {
@@ -43,6 +43,7 @@ pub fn launch(game: &Game) -> Result<Session, String> {
     }
 
     let exe = &resolved.target;
+    detector::restore_exec_bit(exe);
     let mut cmd = if os_tag() == "macos" && exe.extension().is_some_and(|e| e == "app") {
         let mut c = Command::new("open");
         c.arg("-a").arg(exe);
