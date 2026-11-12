@@ -255,21 +255,6 @@ fn build_symlink_tree(entries: &[LinkEntry], root: &Path) {
 
 // ── Run ──────────────────────────────────────────────────────────────────
 
-/// Copy `config.txt` into the backup root as `<machine>_config.txt`.
-fn backup_config(cfg: &Config, saves_root: &Path) -> Option<String> {
-    let machine = cfg
-        .get("MACHINE_NAME")
-        .map(str::trim)
-        .filter(|m| !m.is_empty())?;
-    if !cfg.path.is_file() {
-        return None;
-    }
-    let name = format!("{}_config.txt", sanitize_title(machine));
-    copy_file(&cfg.path, &saves_root.join(&name));
-    info!("  Config backed up as {name}");
-    Some(name)
-}
-
 fn process_game_saves(games: &[Game], saves_root: &Path, strategy: Strategy) -> Vec<LinkEntry> {
     let mut links = Vec::new();
     let mut processed = 0;
@@ -342,7 +327,6 @@ pub fn run(games: &[Game], cfg: &Config) {
         format!("{strategy:?}").to_lowercase()
     );
 
-    let config_backup = backup_config(cfg, &saves_root);
     let mut links = process_game_saves(games, &saves_root, strategy);
     links.extend(process_custom_backups(cfg, &saves_root, strategy));
 
@@ -352,9 +336,6 @@ pub fn run(games: &[Game], cfg: &Config) {
     }
     info!("Building symlink tree at {}", link_root.display());
     build_symlink_tree(&links, &link_root);
-    if let Some(name) = config_backup {
-        create_symlink(&link_root.join(name), &cfg.path);
-    }
 }
 
 #[cfg(test)]

@@ -26,7 +26,8 @@ pub enum Kind {
     Flag {
         default: bool,
     },
-    Choice(&'static [&'static str]),
+    /// (stored value, shown label) pairs.
+    Choice(Vec<(String, String)>),
     /// Relative values are relative to `base`.
     Path {
         dirs_only: bool,
@@ -42,6 +43,7 @@ pub struct Field {
     pub value: String,
     pub kind: Kind,
     pub help: String,
+    pub disabled: bool,
 }
 
 impl Field {
@@ -52,6 +54,7 @@ impl Field {
             value: value.to_string(),
             kind,
             help: String::new(),
+            disabled: false,
         }
     }
 
@@ -71,7 +74,17 @@ impl Field {
         Field::new(id, label, value, Kind::Flag { default })
     }
 
-    pub fn choice(id: &str, label: &str, value: &str, options: &'static [&'static str]) -> Field {
+    pub fn choice(id: &str, label: &str, value: &str, options: &[&str]) -> Field {
+        let pairs = options.iter().map(|o| (o.to_string(), o.to_string())).collect();
+        Field::choice_labelled(id, label, value, pairs)
+    }
+
+    pub fn choice_labelled(
+        id: &str,
+        label: &str,
+        value: &str,
+        options: Vec<(String, String)>,
+    ) -> Field {
         Field::new(id, label, value, Kind::Choice(options))
     }
 
@@ -97,8 +110,14 @@ impl Field {
         self
     }
 
+    /// Shown dimmed and skipped by the cursor.
+    pub fn disabled_if(mut self, disabled: bool) -> Field {
+        self.disabled = disabled;
+        self
+    }
+
     fn selectable(&self) -> bool {
-        !matches!(self.kind, Kind::Section)
+        !self.disabled && !matches!(self.kind, Kind::Section)
     }
 
     pub fn is_on(&self) -> bool {
@@ -111,14 +130,13 @@ impl Field {
     fn display_value(&self) -> String {
         match &self.kind {
             Kind::Flag { .. } => if self.is_on() { "ON" } else { "OFF" }.to_string(),
-            Kind::Choice(_) => format!(
-                "< {} >",
-                if self.value.is_empty() {
-                    "-"
-                } else {
-                    &self.value
-                }
-            ),
+            Kind::Choice(options) => {
+                let label = options
+                    .iter()
+                    .find(|(value, _)| *value == self.value)
+                    .map_or(self.value.as_str(), |(_, label)| label.as_str());
+                format!("< {} >", if label.is_empty() { "-" } else { label })
+            }
             Kind::Secret if !self.value.is_empty() => {
                 "*".repeat(self.value.chars().count().min(16))
             }
@@ -225,13 +243,13 @@ impl Form {
                 Some(Event::Changed(id))
             }
             Kind::Choice(options) if activated || left || right => {
-                let current = options.iter().position(|o| *o == field.value);
+                let current = options.iter().position(|(value, _)| *value == field.value);
                 let next = match (current, left) {
                     (Some(i), true) => (i + options.len() - 1) % options.len(),
                     (Some(i), false) => (i + 1) % options.len(),
                     (None, _) => 0,
                 };
-                field.value = options[next].to_string();
+                field.value = options[next].0.clone();
                 Some(Event::Changed(id))
             }
             Kind::Path { dirs_only, base } if activated => {
@@ -284,9 +302,20 @@ impl Form {
         }
     }
 
+    /// Wide enough for the longest label, but the values keep at least 40%.
+    fn label_width(&self, ui: &Ui, total: f32) -> f32 {
+        let widest = self
+            .fields
+            .iter()
+            .filter(|f| !matches!(f.kind, Kind::Section | Kind::Button(_)))
+            .map(|f| ui.measure(&f.label) + 14.0 + 6.0)
+            .fold(0.0, f32::max);
+        widest.clamp((total * 0.42).floor(), (total * 0.6).floor())
+    }
+
     pub fn draw(&self, ui: &Ui, area: Rect) {
         let list_area = Form::list_area(area);
-        let label_w = (area.w * 0.42).floor();
+        let label_w = self.label_width(ui, area.w);
         for (i, r) in self.list.visible(self.fields.len(), list_area, ROW) {
             self.draw_row(ui, &self.fields[i], r, label_w, i == self.list.cursor);
         }
@@ -357,7 +386,11 @@ impl Form {
             );
             return;
         }
-        let label_color = if focused { theme::TEXT } else { theme::MUTED };
+        let label_color = match (field.disabled, focused) {
+            (true, _) => theme::DISABLED,
+            (false, true) => theme::TEXT,
+            (false, false) => theme::MUTED,
+        };
         ui.text(
             &ui.truncate(&field.label, label_w - 14.0),
             r.x + 8.0,
@@ -369,6 +402,7 @@ impl Form {
             Kind::Path { .. } => ui.truncate_start(&value, value_w),
             _ => ui.truncate(&value, value_w),
         };
+        let value_color = if field.disabled { theme::DISABLED } else { value_color };
         ui.text(&shown, r.x + label_w, baseline, value_color);
     }
 

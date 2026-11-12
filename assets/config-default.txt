@@ -9,13 +9,6 @@
 # 1. GENERAL SETTINGS
 # ==========================================
 
-# Machine name (used to prefix the config backup in saves-copies/)
-#MACHINE_NAME=my-device
-
-# Persist game data (optional)
-# Set to False to skip writing .cartridge/ folders in game directories
-#PERSIST_DATA=True
-
 # Background music (optional)
 # Plays the audio files found under this system/ folder (mp3, flac, ogg,
 # wav, m4a/aac), shuffled and looping; fades out while a game runs.

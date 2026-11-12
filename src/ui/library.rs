@@ -46,6 +46,8 @@ pub struct Library {
     package_sizes: Vec<Option<u64>>,
     /// Folder names of the games the user put in Steam.
     in_steam: BTreeSet<String>,
+    /// Steam is installed here: otherwise its buttons and flags stay hidden.
+    steam_detected: bool,
     covers: Vec<Option<Texture2D>>,
     loader: Option<ImageLoader>,
     cursor: usize,
@@ -68,7 +70,12 @@ impl Library {
             .iter()
             .map(|g| Some(std::fs::metadata(g.package()?).ok()?.len()))
             .collect();
-        self.in_steam = steam::games_in_steam(cfg, &self.games);
+        self.steam_detected = steam::detected(cfg);
+        self.in_steam = if self.steam_detected {
+            steam::games_in_steam(cfg, &self.games)
+        } else {
+            BTreeSet::new()
+        };
         self.covers = vec![None; self.games.len()];
         self.loader = Some(ImageLoader::spawn(covers::cover_jobs(
             &self.games,
@@ -167,7 +174,7 @@ impl Library {
                 }
             };
         }
-        if ui.action(Action::Alt) && installed && !busy {
+        if ui.action(Action::Alt) && self.steam_detected && installed && !busy {
             return Some(Event::Steam(self.cursor));
         }
         if !launch {
@@ -401,10 +408,13 @@ impl Library {
         } else {
             "Add to Steam"
         };
-        vec![
+        let mut hints = vec![
             ui.hint(Action::Confirm, "Play", theme::ACCENT),
             ui.hint(Action::Edit, "Edit", theme::BLUE),
-            ui.hint(Action::Alt, steam, theme::BLUE),
-        ]
+        ];
+        if self.steam_detected {
+            hints.push(ui.hint(Action::Alt, steam, theme::BLUE));
+        }
+        hints
     }
 }

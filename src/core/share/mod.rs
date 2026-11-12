@@ -22,16 +22,8 @@ pub fn port(cfg: &Config) -> u16 {
         .unwrap_or(DEFAULT_PORT)
 }
 
-/// Name shown to other machines: `MACHINE_NAME`, else the host name.
-pub fn machine_name(cfg: &Config) -> String {
-    cfg.get("MACHINE_NAME")
-        .map(str::trim)
-        .filter(|n| !n.is_empty())
-        .map(str::to_string)
-        .unwrap_or_else(host_name)
-}
-
-fn host_name() -> String {
+/// Name shown to other machines: the host name.
+pub fn machine_name() -> String {
     std::fs::read_to_string("/proc/sys/kernel/hostname")
         .ok()
         .or_else(|| {

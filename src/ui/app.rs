@@ -187,7 +187,7 @@ impl App {
             return;
         }
         self.server = None; // free the port before binding it again
-        self.server = Server::start(&games_dir, share::machine_name(cfg), port)
+        self.server = Server::start(&games_dir, share::machine_name(), port)
             .map_err(|e| log::error!("Cannot share on port {port}: {e}"))
             .ok();
     }
@@ -397,6 +397,9 @@ impl App {
                     if key == "STEAM_ADD_SELF" {
                         self.apply_self_shortcut();
                     }
+                    if key == "DEBUG_NO_STEAM" {
+                        self.reload_library();
+                    }
                 }
             }
         }
@@ -475,7 +478,7 @@ impl App {
         });
     }
 
-    /// "•cartridge in Steam" changed: add or remove the self-shortcut now.
+    /// "<folder name> in Steam" changed: add or remove the self-shortcut now.
     fn apply_self_shortcut(&mut self) {
         let Some(cfg) = &self.config else { return };
         let adding = cfg.is_true("STEAM_ADD_SELF");

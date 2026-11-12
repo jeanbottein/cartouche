@@ -11,7 +11,7 @@
 //! those shortcuts up to date. Steam reads shortcuts at startup: a change
 //! shows after Steam restarts (see `is_running`).
 
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 
 use log::{debug, error, info, warn};
@@ -41,6 +41,11 @@ pub fn signed32(appid: u32) -> i32 {
 
 // ── Steam user directories ───────────────────────────────────────────────
 
+/// `userdata/0` is Steam's placeholder for "nobody logged in", not an account.
+fn is_account(userdata_entry: &str) -> bool {
+    userdata_entry != "0"
+}
+
 /// Every `userdata/<id>/config` directory (deduplicated across symlinked roots).
 pub fn userdata_config_dirs() -> Vec<PathBuf> {
     let home = paths::home_dir();
@@ -54,9 +59,51 @@ pub fn userdata_config_dirs() -> Vec<PathBuf> {
         .flat_map(|base| {
             paths::sorted_entries(base)
                 .into_iter()
+                .filter(|uid| is_account(uid))
                 .map(move |uid| base.join(uid).join("config"))
         })
         .filter(|dir| dir.is_dir() && seen.insert(paths::resolve(dir)))
+        .collect()
+}
+
+/// Steam64 ids are the account id (the `userdata/<id>` folder name) plus this.
+const STEAM64_BASE: u64 = 76_561_197_960_265_728;
+
+/// Display names by account id, from the text of `config/loginusers.vdf`.
+fn persona_names(loginusers: &str) -> BTreeMap<String, String> {
+    let Ok(parsed) = vdf::parse_text(loginusers) else {
+        return BTreeMap::new();
+    };
+    let Some(users) = parsed.get_map("users") else {
+        return BTreeMap::new();
+    };
+    users
+        .0
+        .iter()
+        .filter_map(|(steam64, user)| {
+            let account = steam64.parse::<u64>().ok()?.checked_sub(STEAM64_BASE)?;
+            let Value::Map(user) = user else { return None };
+            Some((account.to_string(), user.get_str("PersonaName")?.to_string()))
+        })
+        .collect()
+}
+
+/// Steam accounts on this machine as (account id, label), the label being
+/// "Name (id)" when Steam knows the name.
+pub fn users() -> Vec<(String, String)> {
+    userdata_config_dirs()
+        .iter()
+        .map(|config_dir| {
+            let id = user_id(config_dir);
+            let names = steam_root(config_dir)
+                .and_then(|root| std::fs::read_to_string(root.join("config/loginusers.vdf")).ok())
+                .map(|text| persona_names(&text))
+                .unwrap_or_default();
+            let label = names
+                .get(&id)
+                .map_or_else(|| id.clone(), |name| format!("{name} ({id})"));
+            (id, label)
+        })
         .collect()
 }
 
@@ -235,6 +282,13 @@ fn detect_host() -> Host {
         native_steam: on_path("steam"),
         flatpak_steam: flatpak_steam_installed(),
     }
+}
+
+/// Whether a Steam install with a user profile is found: nothing to put
+/// shortcuts into otherwise. `DEBUG_NO_STEAM` pretends it isn't, to see the
+/// interface without Steam.
+pub fn detected(cfg: &Config) -> bool {
+    !cfg.is_true("DEBUG_NO_STEAM") && !userdata_config_dirs().is_empty()
 }
 
 /// Whether `restart` knows how to restart Steam on this machine.
@@ -877,6 +931,22 @@ mod tests {
             2664893048
         );
         assert_eq!(signed32(2664893048), -1630074248);
+    }
+
+    #[test]
+    fn the_placeholder_user_zero_is_not_an_account() {
+        assert!(!is_account("0"));
+        assert!(is_account("66213690"));
+        assert!(is_account("10"));
+    }
+
+    #[test]
+    fn persona_names_are_keyed_by_account_id() {
+        let names = persona_names(
+            "\"users\"\n{\n\t\"76561197960265730\"\n\t{\n\t\t\"AccountName\"\t\"x\"\n\t\t\"PersonaName\"\t\"Jean\"\n\t}\n}\n",
+        );
+        assert_eq!(names.get("2").map(String::as_str), Some("Jean"));
+        assert!(persona_names("not vdf {").is_empty());
     }
 
     #[test]

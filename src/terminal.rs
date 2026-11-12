@@ -215,7 +215,7 @@ pub fn serve(cli_dir: Option<&Path>) -> ExitCode {
     };
     let games_dir = config.games_dir().unwrap_or_default();
     let port = share::port(&config);
-    match Server::start(&games_dir, share::machine_name(&config), port) {
+    match Server::start(&games_dir, share::machine_name(), port) {
         Ok(server) => {
             info!(
                 "Other machines can't see this one? Open the port, e.g.:\n  \

@@ -115,11 +115,11 @@ mod tests {
     #[test]
     fn expands_config_keys_and_leaves_the_rest() {
         // A leftover path setting is ignored: the folder is fixed.
-        let raw = config::parse("SAVESLINK_PATH=/elsewhere\nMACHINE_NAME=deck\n");
+        let raw = config::parse("SAVESLINK_PATH=/elsewhere\nSTEAM_USERID=deck\n");
         let cfg = Config::from_raw("/ws/system/config.txt".into(), raw);
         assert_eq!(
             expand_template(
-                "rclone sync -L \"${SAVESLINK_PATH}\" r:${MACHINE_NAME} ${UNKNOWN} $1",
+                "rclone sync -L \"${SAVESLINK_PATH}\" r:${STEAM_USERID} ${UNKNOWN} $1",
                 &cfg
             ),
             format!(

@@ -211,7 +211,7 @@ mod tests {
 
     #[test]
     fn backup_sources_resolve_against_the_cartridge() {
-        let raw = parse("BACKUP_x=emu/saves\nBACKUP_y=/abs\nMACHINE_NAME=deck\n");
+        let raw = parse("BACKUP_x=emu/saves\nBACKUP_y=/abs\n");
         let cfg = Config::from_raw(PathBuf::from("/ws/system/config.txt"), raw);
         // Resolved like the code does, so `/ws` reads `D:\ws` on Windows.
         let resolved = |p: &str| paths::lossy(&paths::resolve(Path::new(p)));
@@ -220,19 +220,18 @@ mod tests {
             Some(resolved("/ws/emu/saves").as_str())
         );
         assert_eq!(cfg.get("BACKUP_y"), Some(resolved("/abs").as_str()));
-        assert_eq!(cfg.get("MACHINE_NAME"), Some("deck"));
         assert_eq!(cfg.raw()["BACKUP_x"], "emu/saves");
         assert_eq!(cfg.mods_dir(), Path::new("/ws/mods"));
     }
 
     #[test]
     fn flags_have_opt_in_and_opt_out_defaults() {
-        let raw = parse("SHARE_ENABLED=TRUE\nPERSIST_DATA=false\n");
+        let raw = parse("SHARE_ENABLED=TRUE\nMANIFEST_EXPORT=false\n");
         let cfg = Config::from_raw(PathBuf::from("/ws/.cartridge/config.txt"), raw);
         assert!(cfg.is_true("SHARE_ENABLED"));
         assert!(!cfg.is_true("STEAM_ADD_SELF"));
-        assert!(!cfg.is_not_false("PERSIST_DATA"));
-        assert!(cfg.is_not_false("MANIFEST_EXPORT"));
+        assert!(!cfg.is_not_false("MANIFEST_EXPORT"));
+        assert!(cfg.is_not_false("MUSIC_ENABLED"));
     }
 
     #[test]

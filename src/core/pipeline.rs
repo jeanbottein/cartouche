@@ -149,9 +149,7 @@ impl<'a> Pipeline<'a> {
             (Phase::Detect, Some(games)) => detector::detect(games),
             (Phase::Measure, Some(games)) => sizer::measure(games),
             (Phase::Enrich, Some(games)) => sgdb::enrich(games, cfg),
-            (Phase::Persist, Some(games)) if cfg.is_not_false("PERSIST_DATA") => {
-                persister::persist(games)
-            }
+            (Phase::Persist, Some(games)) => persister::persist(games),
             (Phase::SteamClean, Some(games)) => steam::clean(games, cfg),
             (Phase::SteamExport, games) => {
                 if let Some(games) = games {

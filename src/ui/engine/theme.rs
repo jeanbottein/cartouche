@@ -14,6 +14,9 @@ pub const TEXT: Color = Color::new(0.902, 0.922, 0.949, 1.0); // (230,235,242)
 /// Secondary/muted text.
 pub const MUTED: Color = Color::new(0.431, 0.463, 0.510, 1.0); // (110,118,130)
 
+/// Unavailable: dimmer than `MUTED`.
+pub const DISABLED: Color = Color::new(0.24, 0.26, 0.29, 1.0);
+
 /// Green accent (focus/cursor, confirm).
 pub const ACCENT: Color = Color::new(0.149, 0.659, 0.424, 1.0); // (38,168,108)
 /// Amber/gold accent (titles, selection).
