@@ -545,8 +545,6 @@ fn copy_artwork(game: &Game, grid: &Path, appid: u32) {
         (ImageSlot::Hero, format!("{appid}_hero")),
         (ImageSlot::Logo, format!("{appid}_logo")),
         (ImageSlot::Icon, format!("{appid}_icon")),
-        // The cover doubles as the horizontal grid image.
-        (ImageSlot::Cover, appid.to_string()),
     ];
     for (slot, prefix) in slots {
         let Some(name) = game.images.get(slot) else {
@@ -556,6 +554,27 @@ fn copy_artwork(game: &Game, grid: &Path, appid: u32) {
             &game.data_dir().join(name),
             &grid.join(format!("{prefix}{}", extension(name))),
         );
+    }
+    if let Some(name) = game.images.get(ImageSlot::Header) {
+        install_wide_capsule(&game.data_dir().join(name), grid, appid);
+    }
+}
+
+/// The wide capsule must be the wide header, never the vertical cover that
+/// older versions copied under the same name: replace whatever sits there
+/// unless it already is this file (same modification time).
+fn install_wide_capsule(src: &Path, grid: &Path, appid: u32) {
+    let dest = grid.join(format!("{appid}{}", extension(&src.to_string_lossy())));
+    let modified = |path: &Path| std::fs::metadata(path).and_then(|m| m.modified()).ok();
+    if !src.is_file() || (dest.is_file() && modified(&dest) == modified(src)) {
+        return;
+    }
+    for other in ["png", "jpg", "jpeg", "webp"] {
+        // Ignore failures: the file may not exist.
+        let _ = std::fs::remove_file(grid.join(format!("{appid}.{other}")));
+    }
+    if let Err(e) = paths::copy_with_mtime(src, &dest) {
+        warn!("    Failed to copy artwork {} -> {}: {e}", src.display(), dest.display());
     }
 }
 
@@ -858,6 +877,23 @@ mod tests {
             2664893048
         );
         assert_eq!(signed32(2664893048), -1630074248);
+    }
+
+    #[test]
+    fn wide_capsule_replaces_a_cover_copy_left_by_older_versions() {
+        let dir = TempDir::new();
+        let grid = dir.path().join("grid");
+        std::fs::create_dir_all(&grid).unwrap();
+        let header = dir.path().join("header.jpg");
+        std::fs::write(&header, "wide").unwrap();
+        std::fs::write(grid.join("7.png"), "vertical cover").unwrap();
+
+        install_wide_capsule(&header, &grid, 7);
+
+        assert!(!grid.join("7.png").exists());
+        assert_eq!(std::fs::read_to_string(grid.join("7.jpg")).unwrap(), "wide");
+        install_wide_capsule(&header, &grid, 7);
+        assert_eq!(std::fs::read_to_string(grid.join("7.jpg")).unwrap(), "wide");
     }
 
     #[test]
