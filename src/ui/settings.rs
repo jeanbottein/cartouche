@@ -16,11 +16,13 @@ const STEAM_KEYS: [&str; 3] = [SELF_SHORTCUT, "STEAM_USERID", "PROTON_VERSION"];
 /// Labelled with the cartridge folder's name, as it appears in Steam.
 const SELF_SHORTCUT: &str = "STEAM_ADD_SELF";
 const STRATEGIES: &[&str] = &["backup", "sync", "restore"];
+const WIDESCREEN: &[&str] = &["auto", "on", "off"];
 
 enum Kind {
     Text,
     Secret,
     Flag(bool),
+    /// One of these values; the first is the default.
     Choice(&'static [&'static str]),
     /// A Steam account on this machine; empty means all of them.
     SteamUser,
@@ -47,6 +49,7 @@ const SCHEMA: [(&str, &[Setting]); 4] = [
         s(SELF_SHORTCUT, "in Steam", Kind::Flag(false), "Add this cartridge to Steam under its folder name, with retro artwork (or your cover.png, hero.png... in system/). Applied right away."),
         s("SAVESCOPY_STRATEGY", "Save strategy", Kind::Choice(STRATEGIES), "backup: copy saves into saves-copies/. restore: copy them back over the saves, every run (careful!)."),
         s("MUSIC_ENABLED", "Background music", Kind::Flag(true), "Shuffle the audio files in the workspace's system/ folder (mp3, flac, ogg, wav, m4a). Fades out while a game runs."),
+        s("WIDESCREEN", "Widescreen", Kind::Choice(WIDESCREEN), "auto: side panels on screens 3:2 or wider, 4:3 otherwise (taller on portrait screens). on / off: always / never."),
     ]),
     ("STEAM & ARTWORK", &[
         s("STEAM_USERID", "Steam user", Kind::SteamUser, "Only update this Steam user. Default: all users."),
@@ -92,8 +95,13 @@ fn fields(cfg: &Config) -> Vec<Field> {
                     Kind::Text => Field::text(s.key, label, v),
                     Kind::Secret => Field::secret(s.key, label, v),
                     Kind::Flag(default) => Field::flag(s.key, label, v, default),
-                    Kind::Choice(options) => Field::choice(s.key, label, v, options),
-                    Kind::SteamUser => Field::choice_labelled(s.key, label, v, steam_user_options()),
+                    Kind::Choice(options) => {
+                        let v = if v.is_empty() { options[0] } else { v };
+                        Field::choice(s.key, label, v, options)
+                    }
+                    Kind::SteamUser => {
+                        Field::choice_labelled(s.key, label, v, steam_user_options())
+                    }
                 };
                 field
                     .with_help(s.help)

@@ -71,7 +71,7 @@ Without a display (e.g. over SSH) the UI isn't available, so •cartridge runs t
 | Edit (Library: edit game) | X | X | — |
 | Back (Library: **hold 1 s to quit**) | Esc / Backspace | B | — |
 | Switch tab | Q / E or 1 2 3 | LB / RB | — |
-| Toggle wide / square layout | Tab | Select | — |
+| Toggle wide / 4:3 layout (until restart; to keep one, SETTINGS > Widescreen) | Tab | Select | — |
 | Fullscreen | F | — | — |
 
 In text fields, the physical keyboard types directly; on a gamepad use the on-screen keyboard (A types, B deletes, X space, Y shift, Start accepts).

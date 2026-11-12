@@ -8,7 +8,6 @@ use macroquad::prelude::*;
 
 use super::covers::{self, ImageLoader};
 use super::dialog::{self, Dialog};
-use super::engine::canvas::AspectMode;
 use super::engine::input::Action;
 use super::engine::theme;
 use super::form::{Event as FormEvent, Field, Form};
@@ -530,20 +529,7 @@ impl Editor {
     }
 
     fn layout(ui: &Ui, area: Rect) -> (Rect, Option<Rect>) {
-        let form = Rect::new(area.x, area.y, area.w, area.h - 22.0);
-        if ui.canvas.mode == AspectMode::Square {
-            return (form, None);
-        }
-        let form_w = (area.w * 0.6).floor();
-        (
-            Rect::new(form.x, form.y, form_w, form.h),
-            Some(Rect::new(
-                area.x + form_w + 12.0,
-                area.y,
-                area.w - form_w - 12.0,
-                form.h,
-            )),
-        )
+        ui.split(Rect::new(area.x, area.y, area.w, area.h - 22.0), 0.6, 12.0)
     }
 
     pub fn update(&mut self, ui: &mut Ui, area: Rect) -> Option<Event> {

@@ -25,9 +25,12 @@ use std::path::{Path, PathBuf};
 
 use macroquad::prelude::*;
 
-use engine::canvas::Canvas;
+use engine::canvas::{Canvas, Layout};
 use engine::input::{Action, Input};
 use engine::{text, theme};
+
+/// Share of a tall screen's content height given to the panel below.
+const TALL_PANEL_SHARE: f32 = 0.55;
 
 fn window_conf() -> Conf {
     let mut conf = Conf {
@@ -211,6 +214,17 @@ impl Ui {
         }
     }
 
+    /// `area` split into the main content and its panel (cover, info, art):
+    /// beside it in the wide layout, the content taking `main_share` of the
+    /// width; below it on tall 4:3 screens; no panel on plain 4:3.
+    pub fn split(&self, area: Rect, main_share: f32, gap: f32) -> (Rect, Option<Rect>) {
+        match self.canvas.layout() {
+            Layout::Wide => split_beside(area, main_share, gap),
+            Layout::Tall => split_below(area, 1.0 - TALL_PANEL_SHARE, gap),
+            Layout::Narrow => (area, None),
+        }
+    }
+
     /// Draw a texture letterboxed into a canvas-space rect at full window
     /// resolution (call after the canvas has been presented).
     pub fn draw_image_fit(&self, tex: &Texture2D, area: Rect) {
@@ -234,6 +248,24 @@ impl Ui {
             },
         );
     }
+}
+
+fn split_beside(area: Rect, main_share: f32, gap: f32) -> (Rect, Option<Rect>) {
+    let main_w = (area.w * main_share).floor();
+    let panel_x = area.x + main_w + gap;
+    (
+        Rect::new(area.x, area.y, main_w, area.h),
+        Some(Rect::new(panel_x, area.y, area.right() - panel_x, area.h)),
+    )
+}
+
+fn split_below(area: Rect, main_share: f32, gap: f32) -> (Rect, Option<Rect>) {
+    let main_h = (area.h * main_share).floor();
+    let panel_y = area.y + main_h + gap;
+    (
+        Rect::new(area.x, area.y, area.w, main_h),
+        Some(Rect::new(area.x, panel_y, area.w, area.bottom() - panel_y)),
+    )
 }
 
 /// A crisp `th`-pixel border as four filled rects (no edge centering or

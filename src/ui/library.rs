@@ -1,5 +1,5 @@
-//! Library: a vertical list of game "boxes" with smooth scrolling. In
-//! widescreen a panel beside the list shows the cover and the game's info
+//! Library: a vertical list of game "boxes" with smooth scrolling. A panel
+//! beside the list (widescreen) or below it (portrait) shows the cover and the game's info
 //! (year, players, platforms, install state, size, description). Covers load in the
 //! background and are drawn at full window resolution over the pixel canvas,
 //! so photos stay crisp while the UI keeps its retro look.
@@ -9,7 +9,6 @@ use std::collections::BTreeSet;
 use macroquad::prelude::*;
 
 use super::covers::{self, ImageLoader};
-use super::engine::canvas::AspectMode;
 use super::engine::input::Action;
 use super::engine::theme;
 use super::info::{self, Info};
@@ -106,17 +105,9 @@ impl Library {
         }
     }
 
-    /// (list rect, cover preview rect in widescreen).
+    /// (list rect, cover and info panel rect when there is room).
     fn layout(&self, ui: &Ui, area: Rect) -> (Rect, Option<Rect>) {
-        if ui.canvas.mode == AspectMode::Square {
-            return (area, None);
-        }
-        let list_w = (area.w * 0.5).floor();
-        let px = area.x + list_w + PREVIEW_GAP;
-        (
-            Rect::new(area.x, area.y, list_w, area.h),
-            Some(Rect::new(px, area.y, area.right() - px, area.h)),
-        )
+        ui.split(area, 0.5, PREVIEW_GAP)
     }
 
     fn max_scroll(&self, list: Rect) -> f32 {
@@ -211,7 +202,7 @@ impl Library {
             return;
         }
         let (list, preview) = self.layout(ui, area);
-        self.draw_rows(ui, list, jobs);
+        self.draw_rows(ui, list, jobs, preview.is_none());
         if let Some(panel) = preview {
             let (cover, info_area) = info::split_panel(panel);
             let focused = &self.games[self.cursor];
@@ -240,7 +231,8 @@ impl Library {
         self.draw_toast(ui, list);
     }
 
-    fn draw_rows(&self, ui: &Ui, list: Rect, jobs: &Jobs) {
+    /// `with_sizes`: show each game's size on its row (no panel shows it).
+    fn draw_rows(&self, ui: &Ui, list: Rect, jobs: &Jobs, with_sizes: bool) {
         let n = self.games.len();
         let first = (self.scroll_y / ROW_STEP).floor().max(0.0) as usize;
         let last = (((self.scroll_y + list.h) / ROW_STEP).ceil() as usize).min(n);
@@ -279,7 +271,7 @@ impl Library {
             } else {
                 0.0
             };
-            let (tag, tag_color) = self.row_tag(i, ui.canvas.mode == AspectMode::Square);
+            let (tag, tag_color) = self.row_tag(i, with_sizes);
             let tag_w = if tag.is_empty() {
                 0.0
             } else {
@@ -303,7 +295,6 @@ impl Library {
         draw_rectangle(0.0, list.bottom(), w, h - list.bottom(), theme::BG);
     }
 
-    /// Short install marker on a row; with the size when there is no side panel.
     /// Whether the game is one the user put in Steam.
     pub fn is_in_steam(&self, game: &Game) -> bool {
         self.in_steam.contains(&game.folder_name)

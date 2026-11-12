@@ -8,7 +8,7 @@ use macroquad::prelude::*;
 
 use super::dialog::{Dialog, Outcome as DialogOutcome};
 use super::editor::{self, Editor};
-use super::engine::canvas::{AspectMode, Canvas};
+use super::engine::canvas::{Canvas, Widescreen};
 use super::engine::input::{Action, Input};
 use super::engine::{text, theme};
 use super::jobs::{Jobs, Kind};
@@ -104,7 +104,7 @@ impl App {
         logging::attach(tx);
         let mut app = App {
             ui: Ui {
-                canvas: Canvas::new(AspectMode::Wide),
+                canvas: Canvas::new(Widescreen::Auto),
                 input: Input::new(),
                 font: text::load_pixel_font(),
             },
@@ -151,6 +151,16 @@ impl App {
         self.config = Some(cfg);
         self.sync_server();
         self.sync_music();
+        self.apply_widescreen();
+    }
+
+    /// Lay the UI out as `WIDESCREEN` says. Only on open and when the setting
+    /// changes, so a quick toggle (Tab / Select) survives other reloads.
+    fn apply_widescreen(&mut self) {
+        let Some(cfg) = &self.config else { return };
+        self.ui
+            .canvas
+            .set_widescreen(Widescreen::parse(cfg.get("WIDESCREEN")));
     }
 
     /// Start or stop the music to match the config (and the workspace folder).
@@ -399,6 +409,9 @@ impl App {
                     }
                     if key == "DEBUG_NO_STEAM" {
                         self.reload_library();
+                    }
+                    if key == "WIDESCREEN" {
+                        self.apply_widescreen();
                     }
                 }
             }
@@ -727,7 +740,7 @@ impl App {
             let label_w = self.ui.measure(&hint.label).ceil();
             let width = key_w + 4.0 + label_w;
             if x + width > w - MARGIN {
-                break; // out of room (narrow / square layouts)
+                break; // out of room (4:3 layouts)
             }
             out.push((hint, Rect::new(x, top, width, FOOTER_H)));
             x += width + 14.0;

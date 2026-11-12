@@ -11,7 +11,6 @@ use macroquad::prelude::*;
 
 use super::covers::{ImageLoader, Job as CoverJob, Source};
 use super::dialog::{Dialog, Outcome};
-use super::engine::canvas::AspectMode;
 use super::engine::input::Action;
 use super::engine::theme;
 use super::info::{self, Info};
@@ -169,15 +168,7 @@ impl Network {
     }
 
     fn layout(ui: &Ui, area: Rect) -> (Rect, Option<Rect>) {
-        if ui.canvas.mode == AspectMode::Square {
-            return (area, None);
-        }
-        let list_w = (area.w * 0.5).floor();
-        let px = area.x + list_w + PANEL_GAP;
-        (
-            Rect::new(area.x, area.y, list_w, area.h),
-            Some(Rect::new(px, area.y, area.right() - px, area.h)),
-        )
+        ui.split(area, 0.5, PANEL_GAP)
     }
 
     pub fn update(&mut self, ui: &Ui, area: Rect, cfg: &Config, jobs: &Jobs) -> Option<Event> {

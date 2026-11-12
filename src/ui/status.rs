@@ -11,7 +11,7 @@ use std::time::Instant;
 use log::Level;
 use macroquad::prelude::*;
 
-use super::engine::canvas::AspectMode;
+use super::engine::canvas::Layout;
 use super::engine::input::Action;
 use super::engine::theme;
 use super::list::List;
@@ -158,20 +158,28 @@ impl Status {
         Some(Finished)
     }
 
-    fn layout(ui: &Ui, area: Rect) -> (Rect, Rect) {
+    /// (run actions and phases, log).
+    fn layout(&self, ui: &Ui, area: Rect) -> (Rect, Rect) {
         let actions_h = ACTIONS.len() as f32 * ROW;
-        if ui.canvas.mode == AspectMode::Square {
-            let top = Rect::new(area.x, area.y, area.w, 64.0 + actions_h);
-            return (
-                top,
-                Rect::new(
-                    area.x,
-                    top.bottom() + 6.0,
-                    area.w,
-                    area.bottom() - top.bottom() - 6.0,
-                ),
-            );
-        }
+        let stacked_h = match ui.canvas.layout() {
+            Layout::Wide => return Status::columns(area),
+            Layout::Tall => 64.0 + actions_h + self.phases_height(),
+            Layout::Narrow => 64.0 + actions_h,
+        };
+        let top = Rect::new(area.x, area.y, area.w, stacked_h);
+        (
+            top,
+            Rect::new(
+                area.x,
+                top.bottom() + 6.0,
+                area.w,
+                area.bottom() - top.bottom() - 6.0,
+            ),
+        )
+    }
+
+    /// Actions and phases on the left, the log on the right (widescreen).
+    fn columns(area: Rect) -> (Rect, Rect) {
         let left_w = (area.w * 0.4).floor();
         (
             Rect::new(area.x, area.y, left_w, area.h),
@@ -184,12 +192,17 @@ impl Status {
         )
     }
 
+    /// Room for the progress bar and every phase under the actions.
+    fn phases_height(&self) -> f32 {
+        26.0 + self.phases.len() as f32 * LOG_LINE
+    }
+
     fn actions_area(left: Rect) -> Rect {
         Rect::new(left.x, left.y + 56.0, left.w, ACTIONS.len() as f32 * ROW)
     }
 
     pub fn update(&mut self, ui: &Ui, area: Rect, cfg: Option<&Config>) {
-        let (left, log) = Status::layout(ui, area);
+        let (left, log) = self.layout(ui, area);
         if ui.action(Action::Left) {
             self.log_offset = (self.log_offset + 5).min(self.log.len().saturating_sub(1));
         }
@@ -229,7 +242,7 @@ impl Status {
     }
 
     pub fn draw(&self, ui: &Ui, area: Rect, game_count: usize) {
-        let (left, log) = Status::layout(ui, area);
+        let (left, log) = self.layout(ui, area);
         let last_run = match self.last_run {
             Some(t) => format!("last run {} min ago", t.elapsed().as_secs() / 60),
             None => "not run yet".into(),
@@ -270,7 +283,7 @@ impl Status {
         }
 
         let phases_top = Status::actions_area(left).bottom() + 10.0;
-        if ui.canvas.mode == AspectMode::Wide {
+        if ui.canvas.layout() != Layout::Narrow {
             self.draw_phases(
                 ui,
                 Rect::new(left.x, phases_top, left.w, left.bottom() - phases_top),
