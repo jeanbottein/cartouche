@@ -90,7 +90,7 @@ impl Dialog {
                 draw_rectangle(r.x, r.y, 3.0, r.h - 2.0, *color);
             }
             ui.text(
-                label,
+                &ui.truncate(label, r.w - 14.0),
                 r.x + 10.0,
                 r.y + 17.0,
                 if focused { theme::TEXT } else { *color },

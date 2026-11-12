@@ -15,10 +15,13 @@ use super::{open_external, Hint, Ui};
 use crate::core::config::Config;
 use crate::core::models::{Game, ImageSlot, Images, Install, SavePath, Target};
 use crate::core::platform::{arch_tag, os_tag};
-use crate::core::{detector, paths, persister, scanner, sgdb};
+use crate::core::sgdb::{self, SearchHit};
+use crate::core::{detector, paths, persister, scanner};
 
 const OS_OPTIONS: &[&str] = &["linux", "windows", "macos", "android", "web", "any"];
 const ARCH_OPTIONS: &[&str] = &["x64", "arm64", "any"];
+/// Matches offered when searching SteamGridDB (what fits in a dialog).
+const MAX_MATCHES: usize = 8;
 
 pub enum Event {
     Closed,
@@ -31,9 +34,25 @@ pub enum Event {
 enum Pending {
     DeleteImage(ImageSlot),
     Discard,
+    /// SteamGridDB search results to pick from.
+    PickMatch(Vec<SearchHit>),
+    /// Replace the game's metadata and artwork with this match?
+    ConfirmMatch(SearchHit),
 }
 
 type FetchResult = Result<Images, String>;
+
+/// `Celeste (2018)`, marked when it is the game's current match.
+fn match_label(hit: &SearchHit, current: Option<i64>) -> String {
+    let name = hit.name.as_deref().unwrap_or("?");
+    let year = hit.year.map(|y| format!(" ({y})")).unwrap_or_default();
+    let mark = if current == Some(hit.id) {
+        " - current"
+    } else {
+        ""
+    };
+    format!("{name}{year}{mark}")
+}
 
 pub struct Editor {
     game: Game,
@@ -42,6 +61,7 @@ pub struct Editor {
     form: Form,
     dialog: Option<(Pending, Dialog)>,
     fetch: Option<Receiver<FetchResult>>,
+    search: Option<Receiver<Vec<SearchHit>>>,
     message: Option<(String, Color)>,
     art: [Option<Texture2D>; 5],
     art_loader: Option<ImageLoader>,
@@ -82,6 +102,9 @@ fn fields(game: &Game) -> Vec<Field> {
                 ""
             },
             theme::BLUE,
+        ),
+        Field::button("find_sgdb", "Find match on SteamGridDB", "by title", theme::BLUE).with_help(
+            "Search SteamGridDB for the title above and pick the right game: its title, year, ID and artwork replace these (asks first).",
         ),
         Field::section("TARGETS"),
     ];
@@ -206,6 +229,7 @@ impl Editor {
             form: Form::new(fields(game)),
             dialog: None,
             fetch: None,
+            search: None,
             message: None,
             art: Default::default(),
             art_loader: None,
@@ -376,7 +400,9 @@ impl Editor {
         }
     }
 
-    fn start_fetch(&mut self) {
+    /// Download the match's artwork in the background, over `base` (the images
+    /// kept where the match has none).
+    fn start_fetch(&mut self, base: Images) {
         let Some(id) = self.game.steamgriddb_id else {
             return self.say("No SteamGridDB ID set.", theme::AMBER);
         };
@@ -385,6 +411,7 @@ impl Editor {
         }
         let (tx, rx) = channel();
         let (cfg, mut game) = (self.cfg.clone(), self.game.clone());
+        game.images = base;
         std::thread::spawn(move || {
             let result = sgdb::fetch_all_images(id, &cfg).map(|(found, urls)| {
                 for slot in ImageSlot::ALL {
@@ -418,6 +445,75 @@ impl Editor {
                 None
             }
         }
+    }
+
+    fn start_search(&mut self) {
+        let Some(key) = sgdb::api_key(&self.cfg) else {
+            return self.say("No API key configured (Settings).", theme::AMBER);
+        };
+        let title = self.game.title.clone();
+        self.say(
+            &format!("Searching SteamGridDB for {title}..."),
+            theme::MUTED,
+        );
+        let (tx, rx) = channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(sgdb::search_games(&title, &key));
+        });
+        self.search = Some(rx);
+    }
+
+    /// Offer the search results once they arrive (and nothing else is open).
+    fn poll_search(&mut self) {
+        if self.dialog.is_some() || self.form.has_modal() {
+            return;
+        }
+        let Some(hits) = self.search.as_ref().and_then(|rx| rx.try_recv().ok()) else {
+            return;
+        };
+        self.search = None;
+        if hits.is_empty() {
+            let message = format!("No match on SteamGridDB for {}.", self.game.title);
+            return self.say(&message, theme::AMBER);
+        }
+        self.message = None;
+        let hits: Vec<SearchHit> = hits.into_iter().take(MAX_MATCHES).collect();
+        let labels: Vec<String> = hits
+            .iter()
+            .map(|hit| match_label(hit, self.game.steamgriddb_id))
+            .collect();
+        let options: Vec<(&str, Color)> = labels
+            .iter()
+            .map(|label| (label.as_str(), theme::TEXT))
+            .chain([("Cancel", theme::MUTED)])
+            .collect();
+        let dialog = Dialog::new(
+            "SteamGridDB matches",
+            &format!("Which game is {}?", self.game.title),
+            &options,
+        );
+        self.dialog = Some((Pending::PickMatch(hits), dialog));
+    }
+
+    fn confirm_match(&mut self, hit: SearchHit) {
+        let dialog = Dialog::new(
+            &format!("Use {}?", match_label(&hit, None)),
+            "Its title, year, SteamGridDB ID and artwork replace this game's, then the game is saved.",
+            &[("Replace", theme::ACCENT), ("Cancel", theme::MUTED)],
+        );
+        self.dialog = Some((Pending::ConfirmMatch(hit), dialog));
+    }
+
+    /// Take the match's metadata now; its artwork replaces every image once
+    /// downloaded (slots it has none for end up empty), then the game is saved.
+    fn apply_match(&mut self, hit: SearchHit) {
+        self.game.steamgriddb_id = Some(hit.id);
+        if let Some(name) = hit.name.filter(|n| !n.trim().is_empty()) {
+            self.game.title = name;
+        }
+        self.game.year = hit.year;
+        self.rebuild();
+        self.start_fetch(Images::default());
     }
 
     fn delete_image_file(&mut self, slot: ImageSlot) -> Option<Event> {
@@ -469,7 +565,8 @@ impl Editor {
             "pack" => return Some(Event::Pack),
             "detect_targets" => self.detect_targets(),
             "detect_saves" => self.detect_saves(),
-            "fetch_art" if self.fetch.is_none() => self.start_fetch(),
+            "fetch_art" if self.fetch.is_none() => self.start_fetch(self.game.images.clone()),
+            "find_sgdb" if self.fetch.is_none() && self.search.is_none() => self.start_search(),
             "save" => return self.save(),
             _ => self.press_row(id),
         }
@@ -524,6 +621,16 @@ impl Editor {
             (Pending::DeleteImage(slot), Some(1)) => self.delete_image_file(slot),
             (Pending::Discard, Some(0)) => self.save().map(|_| Event::Closed),
             (Pending::Discard, Some(1)) => Some(Event::Closed),
+            (Pending::PickMatch(hits), Some(i)) => {
+                if let Some(hit) = hits.into_iter().nth(i) {
+                    self.confirm_match(hit);
+                }
+                None
+            }
+            (Pending::ConfirmMatch(hit), Some(0)) => {
+                self.apply_match(hit);
+                None
+            }
             _ => None,
         }
     }
@@ -544,6 +651,7 @@ impl Editor {
         if let Some(event) = self.poll_fetch() {
             return Some(event);
         }
+        self.poll_search();
         if self.dialog.is_some() {
             return self.update_dialog(ui, area);
         }
@@ -653,5 +761,26 @@ impl Editor {
             hints.push(ui.hint(Action::Back, "Close", theme::AMBER));
         }
         hints
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn hit(id: i64, name: Option<&str>, year: Option<u32>) -> SearchHit {
+        SearchHit {
+            id,
+            name: name.map(str::to_string),
+            year,
+        }
+    }
+
+    #[test]
+    fn match_label_shows_year_and_marks_the_current_match() {
+        let celeste = hit(7, Some("Celeste"), Some(2018));
+        assert_eq!(match_label(&celeste, None), "Celeste (2018)");
+        assert_eq!(match_label(&celeste, Some(7)), "Celeste (2018) - current");
+        assert_eq!(match_label(&hit(8, None, None), Some(7)), "?");
     }
 }

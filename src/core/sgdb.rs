@@ -107,24 +107,31 @@ fn quote(text: &str) -> String {
         .collect()
 }
 
+#[derive(Clone, Debug, PartialEq)]
 pub struct SearchHit {
     pub id: i64,
     pub name: Option<String>,
     pub year: Option<u32>,
 }
 
-/// First search hit.
-pub fn search_game(name: &str, key: &str) -> Option<SearchHit> {
-    let data = request(&format!("search/autocomplete/{}", quote(name)), key)?;
-    let first = data.first()?;
+fn search_hit(game: &Value) -> Option<SearchHit> {
     Some(SearchHit {
-        id: first.get("id")?.as_i64()?,
-        name: first
-            .get("name")
-            .and_then(Value::as_str)
-            .map(str::to_string),
-        year: release_year(first),
+        id: game.get("id")?.as_i64()?,
+        name: game.get("name").and_then(Value::as_str).map(str::to_string),
+        year: release_year(game),
     })
+}
+
+/// Games matching `name`, best first (empty when none, or offline).
+pub fn search_games(name: &str, key: &str) -> Vec<SearchHit> {
+    request(&format!("search/autocomplete/{}", quote(name)), key)
+        .map(|data| data.iter().filter_map(search_hit).collect())
+        .unwrap_or_default()
+}
+
+/// Best search hit.
+pub fn search_game(name: &str, key: &str) -> Option<SearchHit> {
+    search_games(name, key).into_iter().next()
 }
 
 /// URL of the highest-scored entry (first on ties).
@@ -304,6 +311,12 @@ fn fetch_entry(name: &str, known_id: Option<i64>, key: &str, cfg: &Config) -> Va
     }
 }
 
+/// A cache entry for another game than the one the game.json names (the user
+/// picked another match): the game's own ID wins.
+fn contradicts(entry: &Value, known_id: Option<i64>) -> bool {
+    known_id.is_some_and(|id| entry.get("game_id").and_then(Value::as_i64) != Some(id))
+}
+
 /// SteamGridDB info for `name`, served from the cache when possible.
 pub fn lookup(
     name: &str,
@@ -316,6 +329,9 @@ pub fn lookup(
     let entry = cache
         .entry(cache_key)
         .or_insert_with(|| fetch_entry(name, known_id, key, cfg));
+    if contradicts(entry, known_id) {
+        *entry = fetch_entry(name, known_id, key, cfg);
+    }
     if !is_complete(entry) && entry.get("game_id").is_some_and(|id| !id.is_null()) {
         refresh_entry(name, entry, key, cfg);
     }
@@ -479,6 +495,29 @@ mod tests {
             json!({"game_id": null, "urls": {}, "name": null}),
         );
         assert!(lookup("Unknown", None, "unused", &mut cache, &cfg).is_none());
+    }
+
+    #[test]
+    fn search_hits_keep_order_and_skip_entries_without_id() {
+        let hits: Vec<SearchHit> = [
+            json!({"id": 2, "name": "Celeste", "release_date": 1_516_838_400}),
+            json!({"name": "No id"}),
+            json!({"id": 9, "name": "Celeste Classic"}),
+        ]
+        .iter()
+        .filter_map(search_hit)
+        .collect();
+        let summary: Vec<_> = hits.iter().map(|h| (h.id, h.year)).collect();
+        assert_eq!(summary, [(2, Some(2018)), (9, None)]);
+    }
+
+    #[test]
+    fn cache_entry_for_another_game_than_the_known_id_is_stale() {
+        let entry = json!({"game_id": 7});
+        assert!(contradicts(&entry, Some(8)));
+        assert!(!contradicts(&entry, Some(7)));
+        assert!(!contradicts(&entry, None));
+        assert!(contradicts(&json!({"game_id": null}), Some(7)));
     }
 
     #[test]
