@@ -151,11 +151,11 @@ impl App {
         if let Some(dir) = cfg.games_dir() {
             migrations::run_all(&dir);
         }
-        // The theme first: screens built below keep some of its colors.
-        self.ui.set_theme(theme::find(cfg.get("THEME")));
-        self.library.load(&cfg);
-        self.settings = Some(Settings::new(&cfg));
         self.config = Some(cfg);
+        // The theme first: screens built below keep some of its colors.
+        self.apply_theme();
+        self.reload_library();
+        self.settings = self.config.as_ref().map(Settings::new);
         self.sync_server();
         self.sync_music();
         self.apply_widescreen();
@@ -286,10 +286,10 @@ impl App {
 
         if let Some(ended) = self.session.take_if(|s| !s.running()) {
             if let Some(message) = ended.error() {
-                self.library.toast(&message, theme::danger());
+                self.library.toast.show(&message, theme::danger());
             }
             if ended.cancelled() {
-                self.library.toast("Launch cancelled.", theme::muted());
+                self.library.toast.show("Launch cancelled.", theme::muted());
             }
             self.input_resume_at = get_time() + RESUME_GRACE_SECS;
         }
@@ -334,8 +334,8 @@ impl App {
             } else {
                 theme::danger()
             };
-            self.library.toast(&done.message, color);
-            self.network.toast(&done.message, color);
+            self.library.toast.show(&done.message, color);
+            self.network.toast.show(&done.message, color);
         }
     }
 
@@ -448,20 +448,17 @@ impl App {
                 let (Some(settings), Some(cfg)) = (&mut self.settings, &self.config) else {
                     return;
                 };
-                if let Some(key) = settings.update(&mut self.ui, area, cfg) {
-                    self.reload_config();
-                    if key == "STEAM_ADD_SELF" {
-                        self.apply_self_shortcut();
-                    }
-                    if key == "DEBUG_NO_STEAM" {
-                        self.reload_library();
-                    }
-                    match key.as_str() {
-                        "WIDESCREEN" => self.apply_widescreen(),
-                        "THEME" => self.apply_theme(),
-                        "WINDOW_MODE" => self.apply_window_mode(),
-                        _ => {}
-                    }
+                let Some(key) = settings.update(&mut self.ui, area, cfg) else {
+                    return;
+                };
+                self.reload_config();
+                match key.as_str() {
+                    "STEAM_ADD_SELF" => self.apply_self_shortcut(),
+                    "DEBUG_NO_STEAM" => self.reload_library(),
+                    "WIDESCREEN" => self.apply_widescreen(),
+                    "THEME" => self.apply_theme(),
+                    "WINDOW_MODE" => self.apply_window_mode(),
+                    _ => {}
                 }
             }
         }
@@ -474,11 +471,7 @@ impl App {
                     self.editor = None;
                     self.back_held_over = true;
                 }
-                Some(editor::Event::Saved) => {
-                    if let Some(cfg) = &self.config {
-                        self.library.load(cfg);
-                    }
-                }
+                Some(editor::Event::Saved) => self.reload_library(),
                 Some(editor::Event::Pack) => {
                     let id = editor.folder_name().to_string();
                     self.editor = None;
@@ -583,7 +576,7 @@ impl App {
             theme::danger()
         };
         self.reload_library();
-        self.library.toast(&message, color);
+        self.library.toast.show(&message, color);
     }
 
     fn update_network(&mut self, area: Rect) {

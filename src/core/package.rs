@@ -66,8 +66,6 @@ impl Progress {
         self.total.load(Ordering::Relaxed)
     }
 
-    // Wired to the UI's cancel action with downloads; tests use it already.
-    #[allow(dead_code)]
     pub fn cancel(&self) {
         self.cancelled.store(true, Ordering::Relaxed);
     }

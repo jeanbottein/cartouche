@@ -10,13 +10,13 @@ use macroquad::prelude::*;
 use super::engine::input::Action;
 use super::engine::theme;
 use super::list::List;
-use super::{draw_spinner, style, Hint, Ui};
+use super::style::{self, Toast};
+use super::{draw_spinner, Hint, Ui};
 use crate::core::config::Config;
 use crate::core::mods::{self, Mod, Status};
 
 const ROW_H: f32 = 26.0;
 const ROW_STEP: f32 = 30.0;
-const TOAST_SECS: f64 = 4.0;
 
 enum Done {
     Listed(Vec<Mod>),
@@ -30,7 +30,7 @@ pub struct ModsScreen {
     listed: bool,
     /// A listing or a toggle running in the background.
     task: Option<Receiver<Done>>,
-    toast: Option<(String, Color, f64)>,
+    toast: Toast,
 }
 
 fn status_label(status: &Status) -> (&'static str, Color) {
@@ -85,7 +85,7 @@ impl ModsScreen {
         };
         let turning_on = !is_on(&m);
         if let Some(why) = blocked(&m).filter(|_| turning_on) {
-            self.toast(&why, theme::secondary());
+            self.toast.show(&why, theme::secondary());
             return;
         }
         let cfg = cfg.clone();
@@ -108,10 +108,6 @@ impl ModsScreen {
         });
     }
 
-    fn toast(&mut self, message: &str, color: Color) {
-        self.toast = Some((message.to_string(), color, get_time() + TOAST_SECS));
-    }
-
     /// Collect a finished listing or toggle; a toggle is followed by a fresh listing.
     pub fn poll(&mut self, cfg: Option<&Config>) {
         let Some(done) = self.task.as_ref().and_then(|rx| rx.try_recv().ok()) else {
@@ -125,7 +121,8 @@ impl ModsScreen {
                 self.list.select(cursor, self.mods.len(), |_| true);
             }
             Done::Toggled { message, ok } => {
-                self.toast(&message, if ok { theme::accent() } else { theme::danger() });
+                self.toast
+                    .show(&message, if ok { theme::accent() } else { theme::danger() });
                 if let Some(cfg) = cfg {
                     self.refresh(cfg);
                 }
@@ -167,7 +164,7 @@ impl ModsScreen {
         }
         self.draw_details(ui, Rect::new(area.x, list.bottom() + 6.0, area.w, 50.0));
         self.draw_busy(ui, area);
-        style::toast(ui, list, &self.toast);
+        self.toast.draw(ui, list);
     }
 
     fn draw_row(&self, ui: &Ui, i: usize, frame: Rect) {

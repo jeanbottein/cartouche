@@ -340,14 +340,12 @@ impl Editor {
         let value = self.form.value(id).to_string();
         match id {
             "title" if !value.trim().is_empty() => self.game.title = value.trim().to_string(),
-            "title" => self.rebuild(),
+            // Refused: the rebuild below puts the previous title back.
+            "title" => {}
             "sgdb" if value.is_empty() => self.game.steamgriddb_id = None,
             "sgdb" => match value.parse::<i64>() {
                 Ok(n) => self.game.steamgriddb_id = Some(n),
-                Err(_) => {
-                    self.say("The SteamGridDB ID must be a number.", Tone::Danger);
-                    self.rebuild();
-                }
+                Err(_) => self.say("The SteamGridDB ID must be a number.", Tone::Danger),
             },
             "notes" => self.game.notes = value,
             "proton.version" => self.game.proton.version = value,
