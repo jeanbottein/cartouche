@@ -246,16 +246,20 @@ pub fn copy_with_mtime(src: &Path, dst: &Path) -> std::io::Result<()> {
 }
 
 /// `fs::write` that never leaves a half-written file: a crash or power loss
-/// mid-write (a Deck running out of battery) keeps the old content. Writes
-/// a hidden sibling, flushes it to disk, then renames it over `path`. A
-/// symlink is written through (its target is replaced, the link stays), and
-/// the file keeps its permissions.
+/// mid-write (a Deck running out of battery) keeps the old content, and two
+/// writers at once leave one of their writes, whole. Writes a hidden sibling
+/// of its own, flushes it to disk, then renames it over `path`. A symlink is
+/// written through (its target is replaced, the link stays), and the file
+/// keeps its permissions.
 pub fn write_atomic(path: impl AsRef<Path>, contents: impl AsRef<[u8]>) -> std::io::Result<()> {
     use std::io::Write;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static WRITES: AtomicU64 = AtomicU64::new(0);
     let path = path.as_ref();
     let target = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     let name = target.file_name().unwrap_or_default().to_string_lossy();
-    let temporary = target.with_file_name(format!(".{name}.tmp"));
+    let write = WRITES.fetch_add(1, Ordering::Relaxed);
+    let temporary = target.with_file_name(format!(".{name}.{}-{write}.tmp", std::process::id()));
     let written = std::fs::File::create(&temporary).and_then(|mut file| {
         file.write_all(contents.as_ref())?;
         if let Ok(existing) = std::fs::metadata(&target) {
@@ -348,6 +352,28 @@ mod tests {
         write_atomic(&path, b"second").unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "second");
         assert_eq!(sorted_entries(dir.path()), ["game.json"]);
+    }
+
+    #[test]
+    fn simultaneous_writes_of_one_file_each_land_whole() {
+        // The pipeline thread and the UI can write the same file at once
+        // (shortcuts.vdf, game.json): the result is one write, never a mix.
+        let dir = crate::core::testutil::TempDir::new();
+        let path = dir.path().join("shortcuts.vdf");
+        let contents: Vec<Vec<u8>> = (0..8u8).map(|i| vec![i; 64 * 1024]).collect();
+        std::thread::scope(|scope| {
+            for content in &contents {
+                let path = &path;
+                scope.spawn(move || {
+                    for _ in 0..10 {
+                        write_atomic(path, content).unwrap();
+                    }
+                });
+            }
+        });
+        let written = std::fs::read(&path).unwrap();
+        assert!(contents.contains(&written));
+        assert_eq!(sorted_entries(dir.path()), ["shortcuts.vdf"]);
     }
 
     #[cfg(unix)]
