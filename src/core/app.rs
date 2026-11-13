@@ -56,10 +56,6 @@ const README_SIGNATURE: &str = DISPLAY_NAME;
 /// cartridges on one machine don't clean up each other's games.
 const CARTRIDGE_ID_FILE: &str = "cartridge-id";
 
-pub fn data_dir_name() -> String {
-    GAME_DATA_DIR.to_string()
-}
-
 /// The file the user launched: the `.AppImage` when running from one (its
 /// runtime sets `APPIMAGE`), the `.app` bundle on macOS, else the binary
 /// itself. Inside an AppImage the binary lives in a temporary read-only mount,

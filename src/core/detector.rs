@@ -7,7 +7,6 @@ use std::path::{Path, PathBuf};
 
 use log::{info, warn};
 
-use super::app::data_dir_name;
 use super::models::{Game, SavePath, Target};
 use super::paths;
 use super::platform::{
@@ -162,12 +161,11 @@ fn is_candidate(path: &Path) -> bool {
 
 /// Descend through folders that only contain a single subfolder.
 fn real_game_dir(game_dir: &Path) -> PathBuf {
-    let data_dir = data_dir_name();
     let mut dir = paths::normpath(game_dir);
     for _ in 0..=10 {
         let entries: Vec<PathBuf> = paths::sorted_entries(&dir)
             .into_iter()
-            .filter(|n| !n.starts_with('.') && *n != data_dir)
+            .filter(|n| !n.starts_with('.'))
             .map(|n| dir.join(n))
             .collect();
         let only_one_dir = entries.len() == 1 && entries[0].is_dir();

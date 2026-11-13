@@ -174,7 +174,7 @@ pub fn download(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::app::data_dir_name;
+    use crate::core::app::GAME_DATA_DIR;
     use crate::core::models::{Game, GAME_JSON};
     use crate::core::share::server::tests::local_server;
     use crate::core::testutil::TempDir;
@@ -184,7 +184,7 @@ mod tests {
         dir.write("server/games/My Game/data.bin", &[5u8; 40_000]);
         let game = Game::skeleton(&dir.path().join("server/games/My Game"));
         dir.write(
-            &format!("server/games/My Game/{}/{GAME_JSON}", data_dir_name()),
+            &format!("server/games/My Game/{GAME_DATA_DIR}/{GAME_JSON}"),
             game.to_json().as_bytes(),
         );
         local_server(&dir.path().join("server/games"))

@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use log::{error, info, warn};
 use serde_json::{json, Map, Value};
 
-use super::app::data_dir_name;
+use super::app::GAME_DATA_DIR;
 use super::models::{folder_name_of, to_pretty_json, GAME_JSON};
 use super::paths;
 
@@ -17,7 +17,7 @@ const OLD_MANIFEST: &str = "launch_manifest.json";
 const MIGRATED_SUFFIX: &str = ".migrated";
 
 fn game_json_of(game_dir: &Path) -> PathBuf {
-    game_dir.join(data_dir_name()).join(GAME_JSON)
+    game_dir.join(GAME_DATA_DIR).join(GAME_JSON)
 }
 
 fn read_json(path: &Path) -> Option<Value> {
@@ -140,19 +140,17 @@ fn migrate_manifest(game_dir: &Path) -> bool {
         warn!("Could not rename {}: {e}", old_path.display());
     }
     info!(
-        "Migrated {}: {OLD_MANIFEST} -> {}/{GAME_JSON}",
-        folder_name_of(game_dir),
-        data_dir_name()
+        "Migrated {}: {OLD_MANIFEST} -> {GAME_DATA_DIR}/{GAME_JSON}",
+        folder_name_of(game_dir)
     );
     true
 }
 
 /// Folders holding a legacy manifest: the game folder and any nested folder.
 fn manifest_dirs(dir: &Path) -> Vec<PathBuf> {
-    let data_dir = data_dir_name();
     let nested = paths::sorted_entries(dir)
         .into_iter()
-        .filter(|n| *n != data_dir)
+        .filter(|n| *n != GAME_DATA_DIR)
         .map(|n| dir.join(n))
         .filter(|p| p.is_dir() && !paths::is_symlink(p))
         .flat_map(|p| manifest_dirs(&p));
@@ -167,10 +165,7 @@ fn migrate_launch_manifests(games_dir: &Path) -> usize {
         .filter(|dir| migrate_manifest(dir))
         .count();
     if count > 0 {
-        info!(
-            "Migration complete: {count} game(s) migrated to {}/ format",
-            data_dir_name()
-        );
+        info!("Migration complete: {count} game(s) migrated to {GAME_DATA_DIR}/ format");
     }
     count
 }

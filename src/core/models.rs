@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
-use super::app::data_dir_name;
+use super::app::GAME_DATA_DIR;
 
 pub const GAME_JSON: &str = "game.json";
 pub const SCHEMA_VERSION: u32 = 2;
@@ -350,7 +350,7 @@ impl Game {
     }
 
     pub fn data_dir(&self) -> PathBuf {
-        self.dir.join(data_dir_name())
+        self.dir.join(GAME_DATA_DIR)
     }
 
     pub fn game_json_path(&self) -> PathBuf {
