@@ -394,6 +394,14 @@ fn apply(game: &mut Game, info: SgdbInfo) {
     }
 }
 
+/// An installed game SteamGridDB may tell more about: no ID, cover or year
+/// yet. What it answered is cached, so asking again about a game it knows
+/// nothing more of costs no request.
+fn wants_enrichment(game: &Game) -> bool {
+    game.is_installed()
+        && (game.steamgriddb_id.is_none() || game.images.cover.is_none() || game.year.is_none())
+}
+
 /// Add SteamGridDB names, IDs, release years and artwork to games that lack them.
 pub fn enrich(games: &mut [Game], cfg: &Config) {
     let Some(key) = api_key(cfg) else { return };
@@ -401,20 +409,7 @@ pub fn enrich(games: &mut [Game], cfg: &Config) {
     let mut cache = load_cache(&system_dir);
     let snapshot = cache.clone();
 
-    let needs_id = games
-        .iter()
-        .any(|g| g.is_installed() && g.steamgriddb_id.is_none());
-    let todo: Vec<&mut Game> = games
-        .iter_mut()
-        .filter(|g| g.is_installed())
-        .filter(|g| {
-            if needs_id {
-                g.steamgriddb_id.is_none()
-            } else {
-                g.images.cover.is_none() || g.year.is_none()
-            }
-        })
-        .collect();
+    let todo: Vec<&mut Game> = games.iter_mut().filter(|g| wants_enrichment(g)).collect();
     if todo.is_empty() {
         return;
     }
@@ -565,6 +560,37 @@ mod tests {
         assert!(!contradicts(&entry, Some(7)));
         assert!(!contradicts(&entry, None));
         assert!(contradicts(&json!({"game_id": null}), Some(7)));
+    }
+
+    #[test]
+    fn every_game_missing_something_is_enriched_whatever_the_others() {
+        let complete = Game {
+            steamgriddb_id: Some(7),
+            year: Some(2018),
+            images: Images {
+                cover: Some("cover.png".into()),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let no_cover = Game {
+            images: Images::default(),
+            ..complete.clone()
+        };
+        let packaged = Game {
+            install: crate::core::models::Install::Packaged {
+                package: "/g/X.cartridge.tar".into(),
+            },
+            ..Default::default()
+        };
+        assert!(wants_enrichment(&Game::default()));
+        assert!(wants_enrichment(&no_cover));
+        assert!(wants_enrichment(&Game {
+            year: None,
+            ..complete.clone()
+        }));
+        assert!(!wants_enrichment(&complete));
+        assert!(!wants_enrichment(&packaged));
     }
 
     #[test]
