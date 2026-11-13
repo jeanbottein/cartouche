@@ -27,9 +27,15 @@ fn scalar_text(value: Value) -> String {
     }
 }
 
-/// `null` and `""` both mean "no image".
-fn optional_name<'de, D: Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
-    Ok(Some(scalar_text(Value::deserialize(d)?)).filter(|s| !s.is_empty()))
+/// `null` and `""` both mean "no image". Anything but a plain file name is
+/// dropped too: images are read from `.cartridge/`, served on the LAN and
+/// copied into Steam, so a shared game.json must not reach other files.
+fn optional_file_name<'de, D: Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
+    Ok(Some(scalar_text(Value::deserialize(d)?)).filter(|s| is_plain_file_name(s)))
+}
+
+fn is_plain_file_name(name: &str) -> bool {
+    !name.is_empty() && name != "." && name != ".." && !name.contains(['/', '\\', ':'])
 }
 
 /// A platform-specific executable of a game; paths are relative to the game dir.
@@ -129,31 +135,31 @@ pub struct Images {
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
-        deserialize_with = "optional_name"
+        deserialize_with = "optional_file_name"
     )]
     pub cover: Option<String>,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
-        deserialize_with = "optional_name"
+        deserialize_with = "optional_file_name"
     )]
     pub icon: Option<String>,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
-        deserialize_with = "optional_name"
+        deserialize_with = "optional_file_name"
     )]
     pub hero: Option<String>,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
-        deserialize_with = "optional_name"
+        deserialize_with = "optional_file_name"
     )]
     pub logo: Option<String>,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
-        deserialize_with = "optional_name"
+        deserialize_with = "optional_file_name"
     )]
     pub header: Option<String>,
 }
@@ -493,6 +499,21 @@ mod tests {
         assert_eq!(game.targets[0].os, "");
         assert_eq!(game.images.cover, None);
         assert!(game.save_paths.is_empty());
+    }
+
+    #[test]
+    fn drops_image_names_that_are_not_plain_file_names() {
+        let game = Game::from_json(
+            Path::new("/g/Some Game"),
+            r#"{"images": {"cover": "/home/deck/.ssh/id_ed25519", "icon": "../../secret",
+                "hero": "..", "logo": "sub\\logo.png", "header": "header.png"}}"#,
+        )
+        .unwrap();
+        assert_eq!(game.images.cover, None);
+        assert_eq!(game.images.icon, None);
+        assert_eq!(game.images.hero, None);
+        assert_eq!(game.images.logo, None);
+        assert_eq!(game.images.header.as_deref(), Some("header.png"));
     }
 
     #[test]
