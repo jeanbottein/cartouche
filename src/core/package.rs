@@ -237,7 +237,9 @@ pub fn list(games_dir: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
-fn staging_name(name: &str) -> String {
+/// Where a file or folder is written before it is complete: hidden, so the
+/// scanner never takes it for a game.
+pub fn staging_name(name: &str) -> String {
     format!(".{name}.part")
 }
 
