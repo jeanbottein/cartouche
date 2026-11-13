@@ -160,7 +160,7 @@ pub fn download(
     check_free(games_dir, id)?;
     let target = package::package_path(games_dir, id);
     let name = target.file_name().unwrap_or_default().to_string_lossy();
-    let staging = games_dir.join(format!(".{name}.part"));
+    let staging = games_dir.join(package::staging_name(&name));
     let result = (|| {
         let file = File::create(&staging).map_err(|e| format!("{}: {e}", staging.display()))?;
         let mut tee = Tee {
