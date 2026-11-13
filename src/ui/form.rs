@@ -364,17 +364,6 @@ impl Form {
             style::highlight(r, theme::accent());
         }
         let value = field.display_value();
-        let value_color = match field.kind {
-            Kind::Flag { .. } if field.is_on() => theme::accent(),
-            _ if field.value.is_empty() => theme::muted(),
-            _ => {
-                if focused {
-                    theme::text()
-                } else {
-                    theme::info()
-                }
-            }
-        };
         if let Kind::Button(color) = field.kind {
             let label = ui.truncate(&format!("> {}", field.label), r.w - 16.0);
             ui.text(
@@ -409,10 +398,12 @@ impl Form {
             Kind::Path { .. } => ui.truncate_start(&value, value_w),
             _ => ui.truncate(&value, value_w),
         };
-        let value_color = if field.disabled {
-            theme::disabled()
-        } else {
-            value_color
+        let value_color = match field.kind {
+            _ if field.disabled => theme::disabled(),
+            Kind::Flag { .. } if field.is_on() => theme::accent(),
+            _ if field.value.is_empty() => theme::muted(),
+            _ if focused => theme::text(),
+            _ => theme::info(),
         };
         ui.text(&shown, r.x + label_w, baseline, value_color);
     }

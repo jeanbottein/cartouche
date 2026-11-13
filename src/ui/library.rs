@@ -412,17 +412,8 @@ impl Library {
         let (_, Some(panel)) = self.layout(ui, area) else {
             return;
         };
-        let preview = info::split_panel(panel).cover;
         if let Some(Some(tex)) = self.covers.get(self.cursor) {
-            ui.draw_image_fit(
-                tex,
-                Rect::new(
-                    preview.x + 4.0,
-                    preview.y + 4.0,
-                    preview.w - 8.0,
-                    preview.h - 8.0,
-                ),
-            );
+            info::draw_cover(ui, panel, tex);
         }
     }
 

@@ -201,13 +201,19 @@ impl Status {
         Rect::new(left.x, left.y + 56.0, left.w, ACTIONS.len() as f32 * ROW)
     }
 
+    /// Scroll the log back by `lines` (forward when negative).
+    fn scroll_log(&mut self, lines: isize) {
+        let oldest = self.log.len().saturating_sub(1);
+        self.log_offset = self.log_offset.saturating_add_signed(lines).min(oldest);
+    }
+
     pub fn update(&mut self, ui: &Ui, area: Rect, cfg: Option<&Config>) {
         let (left, log) = self.layout(ui, area);
         if ui.action(Action::Left) {
-            self.log_offset = (self.log_offset + 5).min(self.log.len().saturating_sub(1));
+            self.scroll_log(5);
         }
         if ui.action(Action::Right) {
-            self.log_offset = self.log_offset.saturating_sub(5);
+            self.scroll_log(-5);
         }
         let (mx, my) = mouse_position();
         let over_log = ui
@@ -216,11 +222,7 @@ impl Status {
             .is_some_and(|p| log.contains(p));
         let wheel = mouse_wheel().1;
         if over_log && wheel != 0.0 {
-            self.log_offset = if wheel > 0.0 {
-                (self.log_offset + 3).min(self.log.len().saturating_sub(1))
-            } else {
-                self.log_offset.saturating_sub(3)
-            };
+            self.scroll_log(if wheel > 0.0 { 3 } else { -3 });
             return;
         }
         if !self

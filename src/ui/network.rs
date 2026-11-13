@@ -357,12 +357,8 @@ impl Network {
         let (_, Some(panel)) = Self::layout(ui, area) else {
             return;
         };
-        let cover = info::split_panel(panel).cover;
         if let Some(Some(tex)) = self.covers.get(self.list.cursor) {
-            ui.draw_image_fit(
-                tex,
-                Rect::new(cover.x + 4.0, cover.y + 4.0, cover.w - 8.0, cover.h - 8.0),
-            );
+            info::draw_cover(ui, panel, tex);
         }
     }
 
