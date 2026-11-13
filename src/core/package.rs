@@ -608,6 +608,12 @@ fn extract<R: Read>(
                 }
                 Ok(Some(crc))
             }
+            // Metadata is read, served on the LAN and copied into Steam:
+            // a link there would hand out whatever it points to.
+            tar::EntryType::Symlink if rel.starts_with(&data) => Err(format!(
+                "{}: a link among the game's metadata",
+                rel.display()
+            )),
             tar::EntryType::Symlink => {
                 let target = entry
                     .link_name()
@@ -832,6 +838,22 @@ mod tests {
             fs::read_link(dest.join("run")).unwrap(),
             Path::new("Celeste.bin")
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlink_among_the_metadata_is_refused() {
+        let dir = TempDir::new();
+        let game = sample_game(&dir);
+        let secret = dir.write("secret", b"private key");
+        make_symlink(&secret, &game.data_dir().join("cover.png")).unwrap();
+        let mut tar = Vec::new();
+        pack_to(&game, &mut tar, &Progress::default()).unwrap();
+
+        let target = dir.mkdir("target");
+        let err = unpack_from(tar.as_slice(), &target, &Progress::default()).unwrap_err();
+        assert!(err.contains("cover.png"), "{err}");
+        assert!(fs::read_dir(&target).unwrap().next().is_none());
     }
 
     #[test]
