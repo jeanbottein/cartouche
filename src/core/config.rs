@@ -168,18 +168,23 @@ fn commented_key(line: &str) -> Option<&str> {
     is_key.then_some(key)
 }
 
-/// Rewrite `text` with `updates` applied: active lines are replaced in place,
-/// otherwise the first commented-out default (`#KEY=...`) is uncommented,
-/// otherwise the key is appended. Everything else is left untouched.
+/// Rewrite `text` with `updates` applied: active lines are replaced in place
+/// (all of them: the last one counts when parsing), otherwise the first
+/// commented-out default (`#KEY=...`) is uncommented, otherwise the key is
+/// appended. Everything else is left untouched.
 pub fn apply_updates(text: &str, updates: &BTreeMap<String, String>) -> String {
     let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
     for (key, value) in updates {
         let new_line = format!("{key}={value}");
-        let slot = lines
-            .iter()
-            .position(|l| active_key(l) == Some(key))
-            .or_else(|| lines.iter().position(|l| commented_key(l) == Some(key)));
-        match slot {
+        let mut replaced = false;
+        for line in lines.iter_mut().filter(|l| active_key(l) == Some(key)) {
+            line.clone_from(&new_line);
+            replaced = true;
+        }
+        if replaced {
+            continue;
+        }
+        match lines.iter().position(|l| commented_key(l) == Some(key)) {
             Some(i) => lines[i] = new_line,
             None => lines.push(new_line),
         }
@@ -245,6 +250,16 @@ mod tests {
         assert!(!cfg.is_true("STEAM_ADD_SELF"));
         assert!(!cfg.is_not_false("MANIFEST_EXPORT"));
         assert!(cfg.is_not_false("MUSIC_ENABLED"));
+    }
+
+    #[test]
+    fn an_update_reaches_the_line_that_counts() {
+        // The last line of a key wins when parsing: the update must reach it.
+        let updated = apply_updates(
+            "THEME=midnight\nTHEME=retro\n",
+            &BTreeMap::from([("THEME".to_string(), "midnight".to_string())]),
+        );
+        assert_eq!(parse(&updated)["THEME"], "midnight");
     }
 
     #[test]
