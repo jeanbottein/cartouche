@@ -30,3 +30,21 @@ pub mod vdf;
 
 #[cfg(test)]
 pub mod testutil;
+
+/// `items` without repeats, in first-seen order.
+pub fn unique<T: PartialEq>(items: impl IntoIterator<Item = T>) -> Vec<T> {
+    items.into_iter().fold(Vec::new(), |mut kept, item| {
+        if !kept.contains(&item) {
+            kept.push(item);
+        }
+        kept
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn unique_keeps_the_first_of_each_in_order() {
+        assert_eq!(super::unique([3, 1, 3, 2, 1]), [3, 1, 2]);
+    }
+}

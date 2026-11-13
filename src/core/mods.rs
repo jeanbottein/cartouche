@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use super::config::Config;
 use super::models::to_pretty_json;
 use super::patcher::{self, FileState, Patch};
-use super::paths;
+use super::{paths, unique};
 
 const STATE_FILE: &str = "mods.json";
 
@@ -119,16 +119,7 @@ fn read_mod(root: &Path, folder: PathBuf, game_dirs: &[PathBuf]) -> Mod {
                 .into_iter()
                 .map(|(_, _, s)| s)
                 .collect();
-            let games =
-                patches
-                    .iter()
-                    .map(|p| p.game().to_string())
-                    .fold(Vec::new(), |mut acc, g| {
-                        if !acc.contains(&g) {
-                            acc.push(g);
-                        }
-                        acc
-                    });
+            let games = unique(patches.iter().map(|p| p.game().to_string()));
             (games, status_of(&states))
         }
         Err(e) => (Vec::new(), Status::Broken(e)),

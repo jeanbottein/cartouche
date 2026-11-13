@@ -10,7 +10,7 @@ use super::models::{folder_name_of, Game, Install, Resolved, SavePath, Target};
 use super::package;
 use super::paths;
 use super::platform::{arch_tag, os_tag};
-use super::steam;
+use super::{steam, unique};
 
 /// Narrow `pool` by `key`: exact match, else blank/`any`, else keep everything.
 fn filter_by<'a>(pool: Vec<&'a Target>, key: fn(&Target) -> &str, value: &str) -> Vec<&'a Target> {
@@ -22,11 +22,7 @@ fn filter_by<'a>(pool: Vec<&'a Target>, key: fn(&Target) -> &str, value: &str) -
     if !exact.is_empty() {
         return exact;
     }
-    let any: Vec<_> = pool
-        .iter()
-        .copied()
-        .filter(|t| key(t).trim().is_empty() || key(t).eq_ignore_ascii_case("any"))
-        .collect();
+    let any: Vec<_> = pool.iter().copied().filter(|t| is_any(key(t))).collect();
     if any.is_empty() {
         pool
     } else {
@@ -103,19 +99,15 @@ fn os_label(os: &str) -> String {
 
 /// Distinct `OS arch` labels of the targets, e.g. `["Linux x64", "Windows x64"]`.
 pub fn platforms(targets: &[Target]) -> Vec<String> {
-    targets
-        .iter()
-        .filter(|t| !t.target.trim().is_empty())
-        .map(|t| {
-            let arch = if is_any(&t.arch) { "" } else { t.arch.trim() };
-            format!("{} {arch}", os_label(&t.os)).trim_end().to_string()
-        })
-        .fold(Vec::new(), |mut acc, label| {
-            if !acc.contains(&label) {
-                acc.push(label);
-            }
-            acc
-        })
+    unique(
+        targets
+            .iter()
+            .filter(|t| !t.target.trim().is_empty())
+            .map(|t| {
+                let arch = if is_any(&t.arch) { "" } else { t.arch.trim() };
+                format!("{} {arch}", os_label(&t.os)).trim_end().to_string()
+            }),
+    )
 }
 
 /// Absolute paths for `target`; `startIn` defaults to the executable's folder.
@@ -209,14 +201,11 @@ pub fn resolve_runtime(game: &mut Game) {
         .unwrap_or_default();
     let valid_os = [os_tag(), target_os];
 
-    game.resolved_save_paths = game.save_paths.iter().fold(Vec::new(), |mut acc, entry| {
-        if let Some(path) = resolve_save_entry(entry, &valid_os, &game.dir, &vars) {
-            if !acc.contains(&path) {
-                acc.push(path);
-            }
-        }
-        acc
-    });
+    game.resolved_save_paths = unique(
+        game.save_paths
+            .iter()
+            .filter_map(|entry| resolve_save_entry(entry, &valid_os, &game.dir, &vars)),
+    );
 }
 
 /// Load `.cartridge/game.json` from `dir`: a skeleton when it doesn't exist,
