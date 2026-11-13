@@ -55,8 +55,11 @@ fn footer_crc(patch: &[u8], at: usize) -> u32 {
 }
 
 fn moved(base: usize, delta: i64) -> Result<usize, String> {
-    usize::try_from(base as i64 + delta)
-        .map_err(|_| "corrupt patch: offset out of range".to_string())
+    i64::try_from(base)
+        .ok()
+        .and_then(|base| base.checked_add(delta))
+        .and_then(|at| usize::try_from(at).ok())
+        .ok_or_else(|| "corrupt patch: offset out of range".to_string())
 }
 
 /// Apply `patch` to `source`, verifying the source, target and patch checksums.
@@ -211,6 +214,13 @@ mod tests {
         let endless_copy = (((1u64 << 40) - 1) << 2) | 3; // TargetCopy
         let patch = crafted(b"abc", 4, &[write_one, u64::from(b'x'), endless_copy, 0]);
         assert!(apply(&patch, b"abc").is_err());
+    }
+
+    #[test]
+    fn a_huge_relative_offset_is_an_error_not_an_overflow() {
+        assert!(moved(5, i64::MAX).is_err());
+        assert!(moved(0, -1).is_err());
+        assert_eq!(moved(5, -2), Ok(3));
     }
 
     #[test]
