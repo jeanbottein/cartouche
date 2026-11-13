@@ -14,7 +14,7 @@ use super::platform::{
     make_executable, os_tag,
 };
 use super::scanner;
-use super::steam;
+use super::{steam, unique};
 
 const SKIP_DIRS: [&str; 4] = ["java", "jre", "lib", "__pycache__"];
 const MAX_DEPTH: usize = 3;
@@ -462,15 +462,11 @@ pub fn detect_proton_save_paths(title: &str, appid: u32) -> Vec<SavePath> {
     if !drive_c.is_dir() {
         return Vec::new();
     }
-    PROTON_SEARCH_DIRS
-        .iter()
-        .flat_map(|(sub, root)| search_proton_dir(&drive_c, &title_key, sub, root))
-        .fold(Vec::new(), |mut acc, sp| {
-            if !acc.contains(&sp) {
-                acc.push(sp);
-            }
-            acc
-        })
+    unique(
+        PROTON_SEARCH_DIRS
+            .iter()
+            .flat_map(|(sub, root)| search_proton_dir(&drive_c, &title_key, sub, root)),
+    )
 }
 
 #[cfg(test)]
