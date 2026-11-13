@@ -210,36 +210,34 @@ fn make_target(os: &str, arch: &str, exe: &Path, game_dir: &Path) -> Target {
     }
 }
 
-/// Windows host: `.exe` files, preferring names hinting at this machine's arch.
-fn windows_arch_groups() -> Vec<Vec<&'static str>> {
-    let x64 = vec!["x64", "amd64", "win64", "64"];
-    let x86 = vec!["x86", "win32", "32"];
-    let arm = vec!["arm64", "aarch64"];
-    match arch_tag() {
-        "arm64" => vec![arm, x64, x86],
-        _ => vec![x64, x86, arm],
-    }
-}
-
+/// Windows host: the best-named `.exe` among those built for this machine's
+/// arch, else for the other one. By header, not name: a "64" in a helper
+/// such as `UnityCrashHandler64.exe` says nothing about the game.
 fn best_windows_exe(dir: &Path, depth: usize) -> Option<PathBuf> {
-    let candidates: Vec<PathBuf> = walk_files(dir, depth)
+    let candidates: Vec<(PathBuf, String)> = walk_files(dir, depth)
         .into_iter()
         .filter(|p| is_exe_name(p))
+        .map(|p| {
+            let arch = arch_of(&p);
+            (p, arch)
+        })
         .collect();
-    let groups = windows_arch_groups();
-    let preferred = groups.iter().find_map(|tokens| {
-        let group: Vec<PathBuf> = candidates
+    let arch_order = match arch_tag() {
+        "arm64" => ["arm64", "x64"],
+        _ => ["x64", "arm64"],
+    };
+    let built_for = |arch: &str| -> Vec<PathBuf> {
+        candidates
             .iter()
-            .filter(|p| {
-                tokens
-                    .iter()
-                    .any(|t| base_name(p).to_lowercase().contains(t))
-            })
-            .cloned()
-            .collect();
-        find_best(dir, &group)
-    });
-    preferred.or_else(|| find_best(dir, &candidates))
+            .filter(|(_, a)| a == arch)
+            .map(|(p, _)| p.clone())
+            .collect()
+    };
+    let any: Vec<PathBuf> = candidates.iter().map(|(p, _)| p.clone()).collect();
+    arch_order
+        .iter()
+        .find_map(|arch| find_best(dir, &built_for(arch)))
+        .or_else(|| find_best(dir, &any))
 }
 
 fn collect_windows_host_targets(game_dir: &Path) -> Vec<Target> {
@@ -329,7 +327,10 @@ fn detect_missing_targets(games: &mut [Game]) {
             info!("  No executable found: {}", game.folder_name);
             continue;
         }
-        game.title = title_for(&game.dir);
+        // Only a placeholder title (no game.json yet) is replaced.
+        if game.title == game.folder_name {
+            game.title = title_for(&game.dir);
+        }
         game.resolved =
             scanner::pick_target(&targets).map(|t| scanner::resolve_target(&game.dir, t));
         game.targets = targets;
@@ -518,6 +519,58 @@ mod tests {
         assert_eq!(native.start_in, "wrapper");
         let windows = targets.iter().find(|t| t.os == "windows").unwrap();
         assert_eq!(windows.target, "wrapper/Celeste.exe");
+    }
+
+    /// A Windows program for `machine` (0x8664 = x64, 0xAA64 = arm64).
+    fn pe(machine: u16) -> Vec<u8> {
+        let mut bytes = b"MZ".to_vec();
+        bytes.resize(64, 0);
+        bytes[60] = 64; // PE header right after the DOS header
+        bytes.extend(b"PE\0\0");
+        bytes.extend(machine.to_le_bytes());
+        bytes
+    }
+
+    #[test]
+    fn a_64_in_a_helper_name_does_not_beat_the_game_exe() {
+        let dir = TempDir::new();
+        let game = dir.mkdir("Hollow Knight");
+        dir.write("Hollow Knight/hollow_knight.exe", &pe(0x8664));
+        dir.write("Hollow Knight/UnityCrashHandler64.exe", &pe(0x8664));
+
+        let best = best_windows_exe(&game, 1).unwrap();
+        assert_eq!(best.file_name().unwrap(), "hollow_knight.exe");
+    }
+
+    #[test]
+    fn windows_host_prefers_an_exe_built_for_its_arch() {
+        let dir = TempDir::new();
+        let game = dir.mkdir("Game");
+        dir.write("Game/Game.exe", &pe(0xAA64));
+        dir.write("Game/Game-x64.exe", &pe(0x8664));
+        let wanted = if arch_tag() == "arm64" {
+            "Game.exe"
+        } else {
+            "Game-x64.exe"
+        };
+
+        let best = best_windows_exe(&game, 1).unwrap();
+        assert_eq!(best.file_name().unwrap(), wanted);
+    }
+
+    #[test]
+    fn detection_keeps_a_title_the_game_json_already_has() {
+        let dir = TempDir::new();
+        let game_dir = dir.mkdir("HK_v1.5");
+        dir.write("HK_v1.5/hollow_knight.exe", &pe(0x8664));
+        let mut games = [Game {
+            title: "Hollow Knight".into(),
+            ..Game::skeleton(&game_dir)
+        }];
+
+        detect(&mut games);
+        assert_eq!(games[0].targets.len(), 1);
+        assert_eq!(games[0].title, "Hollow Knight");
     }
 
     /// Write a file without execute bits (as a copy that lost them leaves it).
