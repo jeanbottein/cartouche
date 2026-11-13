@@ -12,8 +12,12 @@
 # Background music (optional)
 # Plays the audio files found under this system/ folder (mp3, flac, ogg,
 # wav, m4a/aac), shuffled and looping; fades out while a game runs.
-# Set to False to keep the UI silent.
+# Set to False to keep the UI silent; Select on a gamepad (M on a keyboard)
+# toggles this from anywhere in the UI.
 #MUSIC_ENABLED=True
+
+# Background music volume, in percent (0-100).
+#MUSIC_VOLUME=50
 
 # Widescreen layout: auto, on or off
 # auto: side panels on screens 3:2 or wider (16:10, 16:9...), 4:3 otherwise;
