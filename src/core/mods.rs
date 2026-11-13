@@ -99,8 +99,20 @@ fn status_of(states: &[FileState]) -> Status {
     }
 }
 
+fn mod_id(root: &Path, folder: &Path) -> String {
+    paths::lossy(&paths::relpath(folder, root)).replace('\\', "/")
+}
+
+/// Mod folders under `mods/`.
+fn mod_folders(root: &Path) -> Vec<PathBuf> {
+    patcher::patch_folders(root)
+        .into_iter()
+        .filter(|f| f != root)
+        .collect()
+}
+
 fn read_mod(root: &Path, folder: PathBuf, game_dirs: &[PathBuf]) -> Mod {
-    let id = paths::lossy(&paths::relpath(&folder, root)).replace('\\', "/");
+    let id = mod_id(root, &folder);
     let (games, status) = match patcher::read_patches(&folder) {
         Ok(patches) => {
             let states: Vec<FileState> = files(&patches, &folder, game_dirs)
@@ -137,9 +149,8 @@ pub fn list(cfg: &Config) -> Vec<Mod> {
         return Vec::new();
     }
     let game_dirs = patcher::game_dirs(cfg);
-    let mods: Vec<Mod> = patcher::patch_folders(&root)
+    let mods: Vec<Mod> = mod_folders(&root)
         .into_iter()
-        .filter(|f| *f != root)
         .map(|f| read_mod(&root, f, &game_dirs))
         .collect();
     let enabled = load_state(cfg).map(|s| s.enabled);
@@ -153,20 +164,22 @@ pub fn list(cfg: &Config) -> Vec<Mod> {
         .collect()
 }
 
-fn find(cfg: &Config, id: &str) -> Result<Mod, String> {
-    list(cfg)
+/// The folder of mod `id`, without checking any mod's files.
+fn find(cfg: &Config, id: &str) -> Result<PathBuf, String> {
+    let root = cfg.mods_dir();
+    mod_folders(&root)
         .into_iter()
-        .find(|m| m.id == id)
+        .find(|f| mod_id(&root, f) == id)
         .ok_or_else(|| format!("No mod {id}"))
 }
 
 /// Apply every file still original (others are already applied).
-fn apply_all(cfg: &Config, m: &Mod) -> Result<(), String> {
-    let patches = patcher::read_patches(&m.folder)?;
-    for (patch, target, state) in files(&patches, &m.folder, &patcher::game_dirs(cfg)) {
+fn apply_all(cfg: &Config, folder: &Path) -> Result<(), String> {
+    let patches = patcher::read_patches(folder)?;
+    for (patch, target, state) in files(&patches, folder, &patcher::game_dirs(cfg)) {
         match (state, target) {
             (FileState::Applied, _) => {}
-            (FileState::Original, Some(target)) => patcher::apply(&patch, &m.folder, &target)?,
+            (FileState::Original, Some(target)) => patcher::apply(&patch, folder, &target)?,
             (FileState::GameNotFound, _) => {
                 return Err(format!("{}: game not found", patch.target))
             }
@@ -205,16 +218,15 @@ fn remember(cfg: &Config, id: &str, on: bool) -> Result<(), String> {
 
 /// Turn a mod on: apply it, and keep it applied in later pipeline runs.
 pub fn enable(cfg: &Config, id: &str) -> Result<(), String> {
-    let m = find(cfg, id)?;
-    apply_all(cfg, &m)?;
+    apply_all(cfg, &find(cfg, id)?)?;
     remember(cfg, id, true)
 }
 
 /// Turn a mod off: restore the originals of the files it applied.
 pub fn disable(cfg: &Config, id: &str) -> Result<(), String> {
-    let m = find(cfg, id)?;
-    let patches = patcher::read_patches(&m.folder)?;
-    for (_, target, state) in files(&patches, &m.folder, &patcher::game_dirs(cfg)) {
+    let folder = find(cfg, id)?;
+    let patches = patcher::read_patches(&folder)?;
+    for (_, target, state) in files(&patches, &folder, &patcher::game_dirs(cfg)) {
         if let (FileState::Applied, Some(target)) = (state, target) {
             patcher::restore(&target)?;
         }
@@ -224,26 +236,23 @@ pub fn disable(cfg: &Config, id: &str) -> Result<(), String> {
 
 /// Pipeline step 8: keep the mods the user turned on applied.
 pub fn run(cfg: &Config) {
-    let mods = list(cfg);
-    let enabled = current_enabled(cfg);
-    if load_state(cfg).is_none() && !enabled.is_empty() {
-        let _ = save_state(
-            cfg,
-            &State {
-                enabled: enabled.clone(),
-            },
-        );
+    let wanted: Vec<Mod> = list(cfg).into_iter().filter(|m| m.enabled).collect();
+    if load_state(cfg).is_none() && !wanted.is_empty() {
+        let enabled = wanted.iter().map(|m| m.id.clone()).collect();
+        let _ = save_state(cfg, &State { enabled });
     }
-    let wanted: Vec<&Mod> = mods.iter().filter(|m| enabled.contains(&m.id)).collect();
     if wanted.is_empty() {
         info!("No mods turned on");
         return;
     }
     for m in wanted {
-        match (&m.status, apply_all(cfg, m)) {
-            (Status::On, _) => info!("  {}: on", m.id),
-            (_, Ok(())) => info!("  {}: applied again", m.id),
-            (_, Err(e)) => warn!("  {}: {e}", m.id),
+        if m.status == Status::On {
+            info!("  {}: on", m.id);
+            continue;
+        }
+        match apply_all(cfg, &m.folder) {
+            Ok(()) => info!("  {}: applied again", m.id),
+            Err(e) => warn!("  {}: {e}", m.id),
         }
     }
 }

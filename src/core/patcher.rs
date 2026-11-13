@@ -105,8 +105,25 @@ fn parse_crc(hex: &Option<String>) -> Result<Option<u32>, ()> {
     }
 }
 
-fn same_content(a: &Path, b: &Path) -> bool {
-    matches!((crc32_of(a), crc32_of(b)), (Ok(x), Ok(y)) if x == y)
+/// A target's size and checksum, read once per status check: targets can
+/// be multi-GB game archives.
+#[derive(Clone, Copy)]
+struct Content {
+    len: u64,
+    crc: u32,
+}
+
+fn content_of(path: &Path) -> std::io::Result<Content> {
+    Ok(Content {
+        len: std::fs::metadata(path)?.len(),
+        crc: crc32_of(path)?,
+    })
+}
+
+/// Sizes first, so a file of another size is never read.
+fn has_content(path: &Path, content: Content) -> bool {
+    std::fs::metadata(path).is_ok_and(|m| m.len() == content.len)
+        && crc32_of(path).is_ok_and(|crc| crc == content.crc)
 }
 
 pub fn backup_of(target: &Path) -> PathBuf {
@@ -114,15 +131,20 @@ pub fn backup_of(target: &Path) -> PathBuf {
 }
 
 /// Without a backup, or still equal to it: the game's own file.
-fn is_untouched(target: &Path) -> bool {
+fn is_untouched(target: &Path, actual: Content) -> bool {
     let backup = backup_of(target);
-    !backup.exists() || same_content(target, &backup)
+    !backup.exists() || has_content(&backup, actual)
 }
 
-fn replace_state(source: &Path, target: &Path, expected: Option<u32>, actual: u32) -> FileState {
-    if same_content(target, source) {
+fn replace_state(
+    source: &Path,
+    target: &Path,
+    expected: Option<u32>,
+    actual: Content,
+) -> FileState {
+    if has_content(source, actual) {
         FileState::Applied
-    } else if expected == Some(actual) || (expected.is_none() && is_untouched(target)) {
+    } else if expected == Some(actual.crc) || (expected.is_none() && is_untouched(target, actual)) {
         FileState::Original
     } else {
         FileState::Mismatch
@@ -133,15 +155,15 @@ fn patch_state(
     target: &Path,
     expected: Option<u32>,
     patched: Option<u32>,
-    actual: u32,
+    actual: Content,
 ) -> FileState {
-    if patched == Some(actual) {
+    if patched == Some(actual.crc) {
         return FileState::Applied;
     }
     match expected {
-        Some(original) if original == actual => FileState::Original,
+        Some(original) if original == actual.crc => FileState::Original,
         Some(_) => FileState::Mismatch,
-        None if is_untouched(target) => FileState::Original,
+        None if is_untouched(target, actual) => FileState::Original,
         // Modified since the backup, with no checksum to tell: assume ours.
         None if patched.is_none() => FileState::Applied,
         None => FileState::Mismatch,
@@ -163,7 +185,7 @@ pub fn state(patch: &Patch, folder: &Path, target: Option<&Path>) -> FileState {
     let Some(target) = target else {
         return FileState::GameNotFound;
     };
-    let Ok(actual) = crc32_of(target) else {
+    let Ok(actual) = content_of(target) else {
         return FileState::Broken;
     };
     match patch.method.as_str() {
