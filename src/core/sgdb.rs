@@ -44,33 +44,40 @@ pub fn http_get(url: &str, timeout_secs: u64) -> Result<ureq::Response, String> 
         .map_err(|e| e.to_string())
 }
 
-/// GET an API endpoint; its `data` when the call succeeds.
-fn request_data(endpoint: &str, key: &str) -> Option<Value> {
-    let url = format!("{API}/{endpoint}");
-    let response = ureq::get(&url)
+/// SteamGridDB gave no answer (offline, bad key, server error): nothing was
+/// learned, so nothing may be cached as "not found".
+#[derive(Debug)]
+struct Unreachable;
+
+/// GET an API endpoint; its `data` (`null` when there is none).
+fn request_data(endpoint: &str, key: &str) -> Result<Value, Unreachable> {
+    let response = ureq::get(&format!("{API}/{endpoint}"))
         .timeout(Duration::from_secs(10))
         .set("Authorization", &format!("Bearer {key}"))
         .set("User-Agent", &user_agent())
-        .call()
-        .map_err(|e| debug!("SteamGridDB request failed for {endpoint}: {e}"))
-        .ok()?;
-    let text = response
-        .into_string()
-        .map_err(|e| debug!("SteamGridDB read failed for {endpoint}: {e}"))
-        .ok()?;
-    let body: Value = serde_json::from_str(&text)
-        .map_err(|e| debug!("SteamGridDB bad JSON for {endpoint}: {e}"))
-        .ok()?;
-    if body.get("success").and_then(Value::as_bool) != Some(true) {
-        return None;
-    }
-    body.get("data").cloned()
+        .call();
+    api_data(response).inspect_err(|_| debug!("SteamGridDB gave no answer for {endpoint}"))
 }
 
-/// GET an API endpoint; the `data` list when the call succeeds and returns any.
-fn request(endpoint: &str, key: &str) -> Option<Vec<Value>> {
-    let data = request_data(endpoint, key)?.as_array()?.clone();
-    (!data.is_empty()).then_some(data)
+/// A 404 is an answer: that game or artwork doesn't exist.
+fn api_data(response: Result<ureq::Response, ureq::Error>) -> Result<Value, Unreachable> {
+    let text = match response {
+        Ok(response) => response.into_string().map_err(|_| Unreachable)?,
+        Err(ureq::Error::Status(404, _)) => return Ok(Value::Null),
+        Err(_) => return Err(Unreachable),
+    };
+    let body: Value = serde_json::from_str(&text).map_err(|_| Unreachable)?;
+    Ok(body
+        .get("data")
+        .filter(|_| body.get("success").and_then(Value::as_bool) == Some(true))
+        .cloned()
+        .unwrap_or(Value::Null))
+}
+
+/// GET an API endpoint; its `data` list (empty when there is none).
+fn request(endpoint: &str, key: &str) -> Result<Vec<Value>, Unreachable> {
+    let data = request_data(endpoint, key)?;
+    Ok(data.as_array().cloned().unwrap_or_default())
 }
 
 /// Gregorian year of a Unix timestamp (days-to-civil, Howard Hinnant).
@@ -91,8 +98,11 @@ fn release_year(game: &Value) -> Option<u32> {
 }
 
 /// Release year of a known SteamGridDB game.
-fn fetch_year(game_id: i64, key: &str) -> Option<u32> {
-    release_year(&request_data(&format!("games/id/{game_id}"), key)?)
+fn fetch_year(game_id: i64, key: &str) -> Result<Option<u32>, Unreachable> {
+    Ok(release_year(&request_data(
+        &format!("games/id/{game_id}"),
+        key,
+    )?))
 }
 
 /// Percent-encode a path segment (like `urllib.parse.quote`, keeping `/`).
@@ -122,16 +132,18 @@ fn search_hit(game: &Value) -> Option<SearchHit> {
     })
 }
 
-/// Games matching `name`, best first (empty when none, or offline).
-pub fn search_games(name: &str, key: &str) -> Vec<SearchHit> {
-    request(&format!("search/autocomplete/{}", quote(name)), key)
-        .map(|data| data.iter().filter_map(search_hit).collect())
-        .unwrap_or_default()
+fn try_search_games(name: &str, key: &str) -> Result<Vec<SearchHit>, Unreachable> {
+    let data = request(&format!("search/autocomplete/{}", quote(name)), key)?;
+    Ok(data.iter().filter_map(search_hit).collect())
 }
 
-/// Best search hit.
-pub fn search_game(name: &str, key: &str) -> Option<SearchHit> {
-    search_games(name, key).into_iter().next()
+/// Games matching `name`, best first (empty when none, or offline).
+pub fn search_games(name: &str, key: &str) -> Vec<SearchHit> {
+    try_search_games(name, key).unwrap_or_default()
+}
+
+fn search_game(name: &str, key: &str) -> Result<Option<SearchHit>, Unreachable> {
+    Ok(try_search_games(name, key)?.into_iter().next())
 }
 
 /// URL of the highest-scored entry (first on ties).
@@ -155,7 +167,7 @@ fn content_filters(cfg: &Config) -> String {
 }
 
 /// Best artwork URL per art type (every type present, `None` when not found).
-pub fn fetch_artwork_urls(game_id: i64, key: &str, cfg: &Config) -> ArtworkUrls {
+fn fetch_artwork_urls(game_id: i64, key: &str, cfg: &Config) -> Result<ArtworkUrls, Unreachable> {
     let filters = content_filters(cfg);
     let endpoints = [
         (
@@ -177,12 +189,11 @@ pub fn fetch_artwork_urls(game_id: i64, key: &str, cfg: &Config) -> ArtworkUrls 
     endpoints
         .iter()
         .map(|(art, endpoint, query, fallback)| {
-            let data = request(&format!("{endpoint}/game/{game_id}?{query}"), key).or_else(|| {
-                fallback
-                    .then(|| request(&format!("{endpoint}/game/{game_id}?{filters}"), key))
-                    .flatten()
-            });
-            (art.to_string(), data.as_deref().and_then(pick_best))
+            let mut data = request(&format!("{endpoint}/game/{game_id}?{query}"), key)?;
+            if data.is_empty() && *fallback {
+                data = request(&format!("{endpoint}/game/{game_id}?{filters}"), key)?;
+            }
+            Ok((art.to_string(), pick_best(&data)))
         })
         .collect()
 }
@@ -271,44 +282,53 @@ fn read_entry(entry: &Value) -> Option<SgdbInfo> {
     })
 }
 
-/// Fill what a partial cache entry is missing.
+/// Fill what a partial cache entry is missing; what SteamGridDB doesn't
+/// answer stays missing, to ask again next run.
 fn refresh_entry(name: &str, entry: &mut Value, key: &str, cfg: &Config) {
     if entry.get("name").is_none() {
-        if let Some(official) = search_game(name, key).and_then(|hit| hit.name) {
+        if let Ok(Some(official)) = search_game(name, key).map(|hit| hit.and_then(|h| h.name)) {
             entry["name"] = json!(official);
         }
     }
+    let Some(id) = entry.get("game_id").and_then(Value::as_i64) else {
+        return;
+    };
     if entry.get("year").is_none() {
-        if let Some(id) = entry.get("game_id").and_then(Value::as_i64) {
-            entry["year"] = json!(fetch_year(id, key)); // null: looked up, unknown
+        if let Ok(year) = fetch_year(id, key) {
+            entry["year"] = json!(year); // null: looked up, unknown
         }
     }
     let urls = urls_of(entry);
     if !urls.contains_key("icon") || !urls.contains_key("poster") {
-        if let Some(id) = entry.get("game_id").and_then(Value::as_i64) {
-            entry["urls"] = json!(fetch_artwork_urls(id, key, cfg));
+        if let Ok(urls) = fetch_artwork_urls(id, key, cfg) {
+            entry["urls"] = json!(urls);
         }
     }
 }
 
-fn fetch_entry(name: &str, known_id: Option<i64>, key: &str, cfg: &Config) -> Value {
+fn fetch_entry(
+    name: &str,
+    known_id: Option<i64>,
+    key: &str,
+    cfg: &Config,
+) -> Result<Value, Unreachable> {
     let found = match known_id {
         Some(id) => Some(SearchHit {
             id,
             name: Some(name.to_string()),
-            year: fetch_year(id, key),
+            year: fetch_year(id, key)?,
         }),
-        None => search_game(name, key),
+        None => search_game(name, key)?,
     };
-    match found {
+    Ok(match found {
         Some(hit) => json!({
             "game_id": hit.id,
-            "urls": fetch_artwork_urls(hit.id, key, cfg),
+            "urls": fetch_artwork_urls(hit.id, key, cfg)?,
             "name": hit.name,
             "year": hit.year,
         }),
         None => json!({"game_id": null, "urls": {}, "name": null}),
-    }
+    })
 }
 
 /// A cache entry for another game than the one the game.json names (the user
@@ -326,12 +346,14 @@ pub fn lookup(
     cfg: &Config,
 ) -> Option<SgdbInfo> {
     let cache_key = name.to_lowercase();
-    let entry = cache
-        .entry(cache_key)
-        .or_insert_with(|| fetch_entry(name, known_id, key, cfg));
-    if contradicts(entry, known_id) {
-        *entry = fetch_entry(name, known_id, key, cfg);
+    let stale = cache
+        .get(&cache_key)
+        .is_none_or(|entry| contradicts(entry, known_id));
+    if stale {
+        let fetched = fetch_entry(name, known_id, key, cfg).ok()?;
+        cache.insert(cache_key.clone(), fetched);
     }
+    let entry = cache.get_mut(&cache_key)?;
     if !is_complete(entry) && entry.get("game_id").is_some_and(|id| !id.is_null()) {
         refresh_entry(name, entry, key, cfg);
     }
@@ -424,7 +446,8 @@ pub fn enrich(games: &mut [Game], cfg: &Config) {
 /// new filenames and their URLs, or why nothing was fetched.
 pub fn fetch_all_images(game_id: i64, cfg: &Config) -> Result<(Images, ArtworkUrls), String> {
     let key = api_key(cfg).ok_or("No API key configured.")?;
-    let urls = fetch_artwork_urls(game_id, &key, cfg);
+    let urls = fetch_artwork_urls(game_id, &key, cfg)
+        .map_err(|_| "SteamGridDB is unreachable (offline?).")?;
     let images = image_names(&urls);
     if ImageSlot::ALL.iter().all(|&s| images.get(s).is_none()) {
         return Err("No images found on SteamGridDB.".into());
@@ -455,6 +478,29 @@ mod tests {
         assert_eq!(images.header.as_deref(), Some("header.png"));
         assert_eq!(images.icon.as_deref(), Some("icon.png"));
         assert_eq!(images.hero, None);
+    }
+
+    fn response(status: u16, body: &str) -> ureq::Response {
+        ureq::Response::new(status, "", body).unwrap()
+    }
+
+    #[test]
+    fn an_answer_is_its_data_even_when_empty() {
+        let answer = api_data(Ok(response(200, r#"{"success": true, "data": []}"#)));
+        assert_eq!(answer.unwrap(), json!([]));
+    }
+
+    #[test]
+    fn not_found_is_an_answer_with_no_data() {
+        let answer = api_data(Err(ureq::Error::Status(404, response(404, "{}"))));
+        assert_eq!(answer.unwrap(), Value::Null);
+    }
+
+    #[test]
+    fn server_errors_and_bad_bodies_are_no_answer() {
+        assert!(api_data(Err(ureq::Error::Status(500, response(500, "")))).is_err());
+        assert!(api_data(Err(ureq::Error::Status(401, response(401, "")))).is_err());
+        assert!(api_data(Ok(response(200, "<html>"))).is_err());
     }
 
     #[test]
