@@ -20,7 +20,7 @@ struct Selection {
 }
 
 fn selection_path(cfg: &Config) -> PathBuf {
-    cfg.app_dir().join(SELECTION_FILE)
+    cfg.system_dir().join(SELECTION_FILE)
 }
 
 fn load_selection(cfg: &Config) -> Option<BTreeSet<String>> {

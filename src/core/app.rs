@@ -102,10 +102,10 @@ fn workspace_in(parent: &Path) -> Option<PathBuf> {
     is_workspace(&system).then_some(system)
 }
 
-/// The cartridge's label: its folder's name (`Potato-games/system/` ->
+/// The cartridge's label: its folder's name (`Potato-games/` ->
 /// "Potato-games"). Shown in the app and as the Steam self-shortcut name.
-pub fn label(workspace: &Path) -> String {
-    workspace
+pub fn label(cartridge_dir: &Path) -> String {
+    cartridge_dir
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .filter(|n| !n.is_empty())
@@ -128,9 +128,9 @@ fn new_id() -> String {
     format!("{:016x}{:016x}", part(), part())
 }
 
-/// The id in `app_dir/cartridge-id`, created on first use.
-pub fn cartridge_id(app_dir: &Path) -> String {
-    let path = app_dir.join(CARTRIDGE_ID_FILE);
+/// The id in `system_dir/cartridge-id`, created on first use.
+pub fn cartridge_id(system_dir: &Path) -> String {
+    let path = system_dir.join(CARTRIDGE_ID_FILE);
     let existing = std::fs::read_to_string(&path).unwrap_or_default();
     let existing = existing.trim();
     if !existing.is_empty() {
@@ -147,7 +147,7 @@ pub fn cartridge_id(app_dir: &Path) -> String {
 /// 1. `cli_dir/system/` (explicit argument)
 /// 2. next to the binary / AppImage (portable mode)
 /// 3. the current directory
-pub fn find_app_dir(cli_dir: Option<&Path>) -> Option<PathBuf> {
+pub fn find_system_dir(cli_dir: Option<&Path>) -> Option<PathBuf> {
     let cwd = std::env::current_dir().unwrap_or_default();
     cli_dir
         .map(Path::to_path_buf)

@@ -27,7 +27,7 @@ use std::path::{Path, PathBuf};
 
 use macroquad::prelude::*;
 
-use crate::core::app::find_app_dir;
+use crate::core::app::find_system_dir;
 use crate::core::config::Config;
 use crate::core::init;
 use engine::canvas::{Canvas, Layout};
@@ -53,7 +53,7 @@ pub fn wants_fullscreen(window_mode: Option<&str>, gamescope: bool) -> bool {
 
 /// The window mode of the cartridge the app is about to open.
 fn starts_fullscreen(cli_dir: Option<&Path>) -> bool {
-    let cfg = find_app_dir(cli_dir).map(|dir| Config::load(&init::config_in(&dir)));
+    let cfg = find_system_dir(cli_dir).map(|dir| Config::load(&init::config_in(&dir)));
     wants_fullscreen(
         cfg.as_ref().and_then(|c| c.get("WINDOW_MODE")),
         under_gamescope(),

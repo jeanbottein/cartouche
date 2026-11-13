@@ -51,7 +51,7 @@ struct State {
 }
 
 fn state_path(cfg: &Config) -> PathBuf {
-    cfg.app_dir().join(STATE_FILE)
+    cfg.system_dir().join(STATE_FILE)
 }
 
 fn load_state(cfg: &Config) -> Option<State> {

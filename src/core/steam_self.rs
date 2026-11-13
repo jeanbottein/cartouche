@@ -175,9 +175,9 @@ pub fn register(cfg: &Config) {
         );
         return;
     }
-    let (exe, start_dir) = (paths::lossy(&exe), paths::lossy(&cfg.workspace()));
+    let (exe, start_dir) = (paths::lossy(&exe), paths::lossy(&cfg.cartridge_dir()));
     let tag = self_tag(&owner);
-    let art_dir = cfg.app_dir();
+    let art_dir = cfg.system_dir();
     let me = SelfShortcut {
         name: &owner.label,
         tag: &tag,

@@ -23,7 +23,7 @@ use super::settings::Settings;
 use super::setup::{self, Setup};
 use super::status::Status;
 use super::{style, wants_fullscreen, Hint, Ui};
-use crate::core::app::{exe_dir, find_app_dir};
+use crate::core::app::{exe_dir, find_system_dir};
 use crate::core::config::Config;
 use crate::core::logging::{self, Line};
 use crate::core::share::{self, client, server::Server};
@@ -134,8 +134,8 @@ impl App {
             back_held_over: false,
             quit: false,
         };
-        match find_app_dir(cli_dir.as_deref()) {
-            Some(app_dir) => app.open(Config::load(&init::config_in(&app_dir))),
+        match find_system_dir(cli_dir.as_deref()) {
+            Some(system_dir) => app.open(Config::load(&init::config_in(&system_dir))),
             // Portable: the cartridge goes next to the app (or in the folder
             // given on the command line).
             None => {
@@ -197,7 +197,7 @@ impl App {
             self.music = None;
             return;
         }
-        let dir = cfg.app_dir();
+        let dir = cfg.system_dir();
         if self.music.as_ref().is_some_and(|m| m.dir() == dir) {
             return;
         }

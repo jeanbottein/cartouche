@@ -32,7 +32,7 @@ src/
   main.rs, cli.rs        # Args: UI (default), -t/--terminal, -g/--group, -n/--dry-run, --pack/--unpack, --serve, --peers, --download/--install
   terminal.rs            # Terminal mode + Steam dry-run preview
   core/                  # Backend, no UI code
-    app.rs               # App name (from binary filename), workspace dir lookup
+    app.rs               # App identity, fixed folder names, cartridge id, system/ lookup
     config.rs            # config.txt parse / relative path resolution / in-place updates
     models.rs            # Game, Target, SavePath, Images; game.json (de)serialization
     paths.rs, platform.rs# normpath/expandvars/relpath; OS/arch tags, ELF/PE/Mach-O headers
@@ -61,8 +61,8 @@ testdata/                # Golden fixtures produced by the former Python impleme
 ## Data Structure
 
 ```
-WORKSPACE/
-  system/config.txt, README.txt, steamgriddb_cache.json, ui-thumbs/   # workspace
+CARTRIDGE/                                                            # Config::cartridge_dir()
+  system/config.txt, README.txt, steamgriddb_cache.json, ui-thumbs/   # workspace: Config::system_dir()
   cartridge (binary / .AppImage / .app)                               # portable: next to system/
   games/MyGame/.cartridge/game.json, cover.png, icon.png, hero.png, logo.png
   games/MyGame/.cartridge/unpacked_from.json   # id of the package it came from
@@ -75,7 +75,7 @@ Packages: a plain tar of `Foo/` with `.cartridge/package.json` first and `.cartr
 
 ## Key Conventions
 
-- **Compatibility is the contract:** game.json (4-space JSON), shortcuts.vdf, AppIDs (`crc32(exe+title) | 0x80000000`, computed once and kept in game.json `steam_appid` so a rename keeps the shortcut, Proton prefix and saves: always go through `steam::appid_for`/`appid_of`), path normalization and save layout must stay byte-compatible with existing workspaces. Golden tests in `testdata/` guard this.
+- **Compatibility is the contract:** game.json (4-space JSON), shortcuts.vdf, AppIDs (`crc32(exe+title) | 0x80000000`, computed once and kept in game.json `steam_appid` so a rename keeps the shortcut, Proton prefix and saves: always go through `steam::appid_for`/`appid_of`), path normalization and save layout must stay byte-compatible with existing cartridges. Golden tests in `testdata/` guard this.
 - **Fixed layout, no path settings:** `games/`, `mods/`, `saves-copies/`, `saves-links/` sit next to `system/` (`core::app::FOLDERS`, `Config::games_dir()`/`mods_dir()`/...). Users who want a folder elsewhere replace it with a symlink. `RUN_AFTER_*` commands still get `${FREEGAMES_PATH}`, `${PATCHES_PATH}`, `${SAVESCOPY_PATH}`, `${SAVESLINK_PATH}` as read-only folder variables.
 - **`Config`** keeps raw values (Settings editor) and resolved values (only `BACKUP_*` sources are paths, resolved against the cartridge folder).
 - **UI look:** layout is in design pixels (432 px tall canvas), rendered at the window's native resolution, so 480p and 4K share one layout. Screens draw through `ui::style` and `theme::*()` colors, never raw colors; `THEME` (Settings > DISPLAY) swaps palette, typeface and corners, never positions. Add a theme to `engine::theme::THEMES`. `WINDOW_MODE`: borderless (fullscreen, default) or a resizable window; gamescope is always fullscreen.
@@ -105,8 +105,8 @@ launch, so extracting a newer release over a cartridge keeps its settings.
 CI extracts each archive and runs the app inside it. Bare binaries are only
 published with `PUBLISH_BARE_BINARIES: true` in `release.yml`. In an AppImage
 or `.app` the binary sits in a mount/bundle: `core::app::launched_file()`
-returns the `.AppImage` / `.app` instead, for portable mode, the Steam
-self-shortcut and the app name (lowercased: `Cartridge.app` -> `cartridge`).
+returns the `.AppImage` / `.app` instead, for portable mode and the Steam
+self-shortcut.
 
 With a native toolchain instead:
 

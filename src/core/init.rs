@@ -1,4 +1,4 @@
-//! First run: create the `.cartridge/` workspace dir, the feature folders and a
+//! First run: create the `system/` workspace, the cartridge folders and a
 //! seeded `config.txt`. The UI has its own setup screen; this module holds the
 //! shared logic and the terminal wizard.
 
@@ -22,37 +22,37 @@ const WORKSPACE_README_TEXT: &str = include_str!("../../packaging/cartridge/syst
 /// exists) and the fixed folders. Returns the config path. Refuses a
 /// `system/` folder that isn't a •cartridge workspace.
 pub fn initialize(parent: &Path) -> std::io::Result<PathBuf> {
-    let app_dir = parent.join(WORKSPACE_DIR);
-    if app_dir.exists() && !is_workspace(&app_dir) {
+    let system_dir = parent.join(WORKSPACE_DIR);
+    if system_dir.exists() && !is_workspace(&system_dir) {
         return Err(std::io::Error::other(format!(
             "{} already exists and isn't a •cartridge workspace; pick a dedicated folder",
-            app_dir.display()
+            system_dir.display()
         )));
     }
-    std::fs::create_dir_all(&app_dir)?;
-    let readme = app_dir.join(WORKSPACE_README);
+    std::fs::create_dir_all(&system_dir)?;
+    let readme = system_dir.join(WORKSPACE_README);
     if !readme.exists() {
         paths::write_atomic(&readme, WORKSPACE_README_TEXT)?;
     }
     for folder in FOLDERS {
         std::fs::create_dir_all(parent.join(folder))?;
     }
-    let config = app_dir.join("config.txt");
+    let config = system_dir.join("config.txt");
     if !config.exists() {
         paths::write_atomic(&config, DEFAULT_CONFIG)?;
     }
     Ok(config)
 }
 
-/// `config.txt` inside `app_dir`. When missing (e.g. a `system/` fresh from a
+/// `config.txt` inside `system_dir`. When missing (e.g. a `system/` fresh from a
 /// release archive), it is created with the standard folders, ready to use.
-pub fn config_in(app_dir: &Path) -> PathBuf {
-    let config = app_dir.join("config.txt");
+pub fn config_in(system_dir: &Path) -> PathBuf {
+    let config = system_dir.join("config.txt");
     if config.exists() {
         info!("Loaded config from {}", config.display());
         return config;
     }
-    let parent = app_dir.parent().unwrap_or(app_dir);
+    let parent = system_dir.parent().unwrap_or(system_dir);
     match initialize(parent) {
         Ok(created) => info!(
             "config.txt missing: created {} with the standard folders",
@@ -63,22 +63,18 @@ pub fn config_in(app_dir: &Path) -> PathBuf {
     config
 }
 
-/// Folder names a cartridge holds besides the app itself.
-const CARTRIDGE_NAMES: [&str; 7] = [
-    WORKSPACE_DIR,
-    "games",
-    "mods",
-    "saves-copies",
-    "saves-links",
-    "README.txt",
-    ".DS_Store",
-];
+/// Entries a cartridge holds besides the app and its `FOLDERS`.
+const CARTRIDGE_FILES: [&str; 3] = [WORKSPACE_DIR, "README.txt", ".DS_Store"];
+
+fn is_cartridge_entry(name: &str) -> bool {
+    FOLDERS.contains(&name) || CARTRIDGE_FILES.contains(&name)
+}
 
 /// How many entries of `dir` are neither the app nor part of a cartridge.
 fn unrelated_entries(names: &[String], app_file: Option<&str>) -> usize {
     names
         .iter()
-        .filter(|n| Some(n.as_str()) != app_file && !CARTRIDGE_NAMES.contains(&n.as_str()))
+        .filter(|n| Some(n.as_str()) != app_file && !is_cartridge_entry(n))
         .count()
 }
 
@@ -95,7 +91,7 @@ fn is_writable(dir: &Path) -> bool {
     ok
 }
 
-/// What to tell the user before creating a workspace in `dir`: the portable
+/// What to tell the user before creating a cartridge in `dir`: the portable
 /// idea, plus warnings when `dir` is a poor home for a cartridge.
 pub fn folder_advice(dir: &Path) -> Vec<String> {
     let mut advice = vec![format!(
@@ -136,7 +132,7 @@ pub fn folder_advice(dir: &Path) -> Vec<String> {
     advice
 }
 
-/// Where the workspace can go: next to the binary and/or the current directory.
+/// Where the cartridge can go: next to the binary and/or the current directory.
 pub fn locations(exe_dir: &Path, cwd: &Path) -> Vec<(&'static str, PathBuf)> {
     let mut out = Vec::new();
     if std::fs::canonicalize(exe_dir).ok() != std::fs::canonicalize(cwd).ok() {

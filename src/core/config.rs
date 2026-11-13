@@ -41,10 +41,10 @@ impl Config {
     }
 
     pub fn from_raw(path: PathBuf, raw: BTreeMap<String, String>) -> Config {
-        let workspace = workspace_of(&path);
+        let cartridge = cartridge_dir_of(&path);
         let values = raw
             .iter()
-            .map(|(k, v)| (k.clone(), resolve_value(&workspace, k, v)))
+            .map(|(k, v)| (k.clone(), resolve_value(&cartridge, k, v)))
             .collect();
         Config { path, raw, values }
     }
@@ -76,48 +76,48 @@ impl Config {
             .is_some_and(|v| v.eq_ignore_ascii_case("false"))
     }
 
-    /// The workspace directory (`system/`).
-    pub fn app_dir(&self) -> PathBuf {
+    /// The workspace, `system/`: config, caches, remembered choices.
+    pub fn system_dir(&self) -> PathBuf {
         self.path
             .parent()
             .map(Path::to_path_buf)
             .unwrap_or_default()
     }
 
-    /// The workspace root: the `system/` parent.
-    pub fn workspace(&self) -> PathBuf {
-        workspace_of(&self.path)
+    /// The cartridge folder holding `system/`, `games/`, `mods/`...
+    pub fn cartridge_dir(&self) -> PathBuf {
+        cartridge_dir_of(&self.path)
     }
 
     /// The cartridge's label: its folder's name.
     pub fn label(&self) -> String {
-        super::app::label(&self.workspace())
+        super::app::label(&self.cartridge_dir())
     }
 
     /// The cartridge's stable id (`system/cartridge-id`, created on first use).
     pub fn cartridge_id(&self) -> String {
-        super::app::cartridge_id(&self.app_dir())
+        super::app::cartridge_id(&self.system_dir())
     }
 
     /// `games/`, when it exists.
     pub fn games_dir(&self) -> Option<PathBuf> {
-        Some(self.workspace().join(GAMES_DIR)).filter(|p| p.is_dir())
+        Some(self.cartridge_dir().join(GAMES_DIR)).filter(|p| p.is_dir())
     }
 
     pub fn mods_dir(&self) -> PathBuf {
-        self.workspace().join(MODS_DIR)
+        self.cartridge_dir().join(MODS_DIR)
     }
 
     pub fn saves_copies_dir(&self) -> PathBuf {
-        self.workspace().join(SAVES_COPIES_DIR)
+        self.cartridge_dir().join(SAVES_COPIES_DIR)
     }
 
     pub fn saves_links_dir(&self) -> PathBuf {
-        self.workspace().join(SAVES_LINKS_DIR)
+        self.cartridge_dir().join(SAVES_LINKS_DIR)
     }
 }
 
-fn workspace_of(config_path: &Path) -> PathBuf {
+fn cartridge_dir_of(config_path: &Path) -> PathBuf {
     config_path
         .parent()
         .and_then(Path::parent)
@@ -125,13 +125,13 @@ fn workspace_of(config_path: &Path) -> PathBuf {
         .unwrap_or_default()
 }
 
-fn resolve_value(workspace: &Path, key: &str, value: &str) -> String {
+fn resolve_value(cartridge: &Path, key: &str, value: &str) -> String {
     // `~` and `$VAR` are expanded by the saver: only a path that stays
     // relative once expanded is relative to the cartridge.
     if !is_path_key(key) || paths::expand(value).is_absolute() {
         return value.to_string();
     }
-    paths::lossy(&paths::resolve(&workspace.join(value)))
+    paths::lossy(&paths::resolve(&cartridge.join(value)))
 }
 
 /// Parse `KEY=value` lines, ignoring comments and empty values.
@@ -240,7 +240,7 @@ mod tests {
     #[test]
     fn flags_have_opt_in_and_opt_out_defaults() {
         let raw = parse("SHARE_ENABLED=TRUE\nMANIFEST_EXPORT=false\n");
-        let cfg = Config::from_raw(PathBuf::from("/ws/.cartridge/config.txt"), raw);
+        let cfg = Config::from_raw(PathBuf::from("/ws/system/config.txt"), raw);
         assert!(cfg.is_true("SHARE_ENABLED"));
         assert!(!cfg.is_true("STEAM_ADD_SELF"));
         assert!(!cfg.is_not_false("MANIFEST_EXPORT"));

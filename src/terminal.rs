@@ -7,7 +7,7 @@ use std::sync::atomic::AtomicBool;
 
 use log::{error, info};
 
-use crate::core::app::{exe_dir, find_app_dir};
+use crate::core::app::{exe_dir, find_system_dir};
 use crate::core::config::Config;
 use crate::core::package::{self, Progress};
 use crate::core::pipeline::{Group, Pipeline};
@@ -16,8 +16,8 @@ use crate::core::{detector, init, migrations, scanner, sgdb, sizer, steam};
 
 /// The workspace config, running the terminal setup wizard on first use.
 pub fn locate_config(cli_dir: Option<&Path>) -> Option<PathBuf> {
-    match find_app_dir(cli_dir) {
-        Some(app_dir) => Some(init::config_in(&app_dir)),
+    match find_system_dir(cli_dir) {
+        Some(system_dir) => Some(init::config_in(&system_dir)),
         None => init::run_terminal_wizard(&exe_dir(), &std::env::current_dir().unwrap_or_default()),
     }
 }
@@ -27,7 +27,7 @@ fn load(cli_dir: Option<&Path>) -> Result<Config, ExitCode> {
     if config.games_dir().is_none() {
         error!(
             "No games/ folder in {}. Stopping the app.",
-            config.workspace().display()
+            config.cartridge_dir().display()
         );
         return Err(ExitCode::FAILURE);
     }
