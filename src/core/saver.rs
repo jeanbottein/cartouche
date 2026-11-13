@@ -399,7 +399,8 @@ pub fn run(games: &[Game], cfg: &Config) {
     ));
 
     let link_root = cfg.saves_links_dir();
-    if links.is_empty() {
+    // Without links, still prune the ones left from games that had saves.
+    if links.is_empty() && !link_root.is_dir() {
         return;
     }
     info!("Building symlink tree at {}", link_root.display());
@@ -587,6 +588,19 @@ mod tests {
             second
         );
         assert_eq!(paths::sorted_entries(&first), Vec::<String>::new());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_last_link_goes_once_no_game_has_save_paths() {
+        let dir = TempDir::new();
+        dir.mkdir("saves-links");
+        let link = dir.path().join("saves-links/Gone");
+        std::os::unix::fs::symlink(dir.mkdir("live/saves"), &link).unwrap();
+        let cfg = Config::from_raw(dir.path().join("system/config.txt"), Default::default());
+
+        run(&[game_with_saves("No saves", Vec::new())], &cfg);
+        assert!(!paths::is_symlink(&link));
     }
 
     #[cfg(unix)]
