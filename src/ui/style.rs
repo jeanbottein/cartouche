@@ -106,27 +106,39 @@ pub fn bar(r: Rect, fraction: f32, color: Color) {
     }
 }
 
-/// A transient message along the bottom of `list`: (message, color, expiry time).
-pub fn toast(ui: &Ui, list: Rect, toast: &Option<(String, Color, f64)>) {
-    let Some((message, color, until)) = toast else {
-        return;
-    };
-    if get_time() > *until {
-        return;
+/// How long a toast stays on screen, in seconds.
+const TOAST_SECS: f64 = 4.0;
+
+/// A short message over the bottom of a list, for a few seconds.
+#[derive(Default)]
+pub struct Toast(Option<(String, Color, f64)>);
+
+impl Toast {
+    pub fn show(&mut self, message: &str, color: Color) {
+        self.0 = Some((message.to_string(), color, get_time() + TOAST_SECS));
     }
-    let t = theme::current();
-    let r = Rect::new(list.x, list.bottom() - 26.0, list.w, 24.0);
-    if t.shadow.a > 0.0 {
-        glow(r.offset(vec2(0.0, 2.0)), t.radius, 10.0, t.shadow);
+
+    pub fn draw(&self, ui: &Ui, list: Rect) {
+        let Some((message, color, until)) = &self.0 else {
+            return;
+        };
+        if get_time() > *until {
+            return;
+        }
+        let t = theme::current();
+        let r = Rect::new(list.x, list.bottom() - 26.0, list.w, 24.0);
+        if t.shadow.a > 0.0 {
+            glow(r.offset(vec2(0.0, 2.0)), t.radius, 10.0, t.shadow);
+        }
+        fill_rounded(r, t.radius, t.surface_hi);
+        stroke_rounded(r, t.radius, 1.0, *color);
+        ui.text(
+            &ui.truncate(message, r.w - 16.0),
+            r.x + 8.0,
+            r.y + 18.0,
+            *color,
+        );
     }
-    fill_rounded(r, t.radius, t.surface_hi);
-    stroke_rounded(r, t.radius, 1.0, *color);
-    ui.text(
-        &ui.truncate(message, r.w - 16.0),
-        r.x + 8.0,
-        r.y + 18.0,
-        *color,
-    );
 }
 
 pub fn chip_width(ui: &Ui, label: &str) -> f32 {

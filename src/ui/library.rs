@@ -14,7 +14,8 @@ use super::engine::theme;
 use super::info::{self, Info};
 use super::jobs::Jobs;
 use super::launcher::{self, Session};
-use super::{draw_spinner, style, Hint, Ui};
+use super::style::{self, Toast};
+use super::{draw_spinner, Hint, Ui};
 use crate::core::config::Config;
 use crate::core::models::{Game, Install};
 use crate::core::proton::Downloads;
@@ -25,8 +26,6 @@ const ROW_H: f32 = 26.0;
 const ROW_GAP: f32 = 4.0;
 const ROW_STEP: f32 = ROW_H + ROW_GAP;
 const PREVIEW_GAP: f32 = 12.0;
-/// How long a message stays on screen, in seconds.
-const TOAST_SECS: f64 = 4.0;
 
 pub enum Event {
     Launched(Session),
@@ -57,8 +56,7 @@ pub struct Library {
     focused_at: f64,
     scroll_y: f32,
     scroll_target: f32,
-    /// Message, color, expiry time.
-    toast: Option<(String, Color, f64)>,
+    pub toast: Toast,
     /// A load reading the disk in the background; the list shown stays
     /// until it arrives (events keep pointing at the games on screen).
     pending: Option<Receiver<Snapshot>>,
@@ -143,10 +141,6 @@ impl Library {
         self.pending.is_some() && self.games.is_empty()
     }
 
-    pub fn toast(&mut self, message: &str, color: Color) {
-        self.toast = Some((message.to_string(), color, get_time() + TOAST_SECS));
-    }
-
     /// Show a finished load, and upload covers decoded since the last frame.
     pub fn poll(&mut self) {
         if let Some(snapshot) = self.pending.as_ref().and_then(|rx| rx.try_recv().ok()) {
@@ -225,7 +219,8 @@ impl Library {
                 (true, _) => Some(Event::Cancel(id)),
                 (false, true) => Some(Event::Edit(self.cursor)),
                 (false, false) => {
-                    self.toast("Packaged game: unpack it to edit.", theme::secondary());
+                    self.toast
+                        .show("Packaged game: unpack it to edit.", theme::secondary());
                     None
                 }
             };
@@ -237,7 +232,8 @@ impl Library {
             return None;
         }
         if busy {
-            self.toast("Wait for the transfer to finish.", theme::secondary());
+            self.toast
+                .show("Wait for the transfer to finish.", theme::secondary());
             return None;
         }
         if !installed {
@@ -246,7 +242,7 @@ impl Library {
         match launcher::launch(&self.games[self.cursor], &self.downloads) {
             Ok(session) => Some(Event::Launched(session)),
             Err(message) => {
-                self.toast(&message, theme::secondary());
+                self.toast.show(&message, theme::secondary());
                 None
             }
         }
@@ -267,7 +263,7 @@ impl Library {
             ui.text("No games found.", area.x, area.y + 30.0, theme::text());
             ui.text(
                 &ui.truncate(
-                    "Set the games folder in SETTINGS, then run the pipeline in STATUS.",
+                    "Put each game in its own folder in games/, then run the pipeline in STATUS.",
                     area.w,
                 ),
                 area.x,
@@ -299,7 +295,7 @@ impl Library {
             );
         }
         self.draw_loading(ui, list);
-        style::toast(ui, list, &self.toast);
+        self.toast.draw(ui, list);
     }
 
     /// `with_sizes`: show each game's size on its row (no panel shows it).

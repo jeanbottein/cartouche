@@ -16,7 +16,8 @@ use super::engine::theme;
 use super::info::{self, Info};
 use super::jobs::{Jobs, Kind};
 use super::list::List;
-use super::{draw_spinner, style, Hint, Ui};
+use super::style::{self, Toast};
+use super::{draw_spinner, Hint, Ui};
 use crate::core::config::Config;
 use crate::core::share::discovery::Peer;
 use crate::core::share::{self, client, RemoteGame};
@@ -25,7 +26,6 @@ use crate::core::sizer;
 const ROW_H: f32 = 26.0;
 const ROW_STEP: f32 = 30.0;
 const PANEL_GAP: f32 = 12.0;
-const TOAST_SECS: f64 = 4.0;
 
 pub enum Event {
     /// Copy a remote game here.
@@ -60,7 +60,7 @@ pub struct Network {
     list: List,
     /// Open "how to copy" choice for the focused row.
     dialog: Option<Dialog>,
-    toast: Option<(String, Color, f64)>,
+    pub toast: Toast,
 }
 
 fn search(cfg: &Config) -> Receiver<Found> {
@@ -80,10 +80,6 @@ fn search(cfg: &Config) -> Receiver<Found> {
 }
 
 impl Network {
-    pub fn toast(&mut self, message: &str, color: Color) {
-        self.toast = Some((message.to_string(), color, get_time() + TOAST_SECS));
-    }
-
     pub fn has_modal(&self) -> bool {
         self.dialog.is_some()
     }
@@ -160,7 +156,7 @@ impl Network {
             .collect();
         self.loader = Some(ImageLoader::spawn(jobs));
         if !failed.is_empty() {
-            self.toast(
+            self.toast.show(
                 &format!("Could not list: {}", failed.join(", ")),
                 theme::danger(),
             );
@@ -209,9 +205,10 @@ impl Network {
             return None;
         }
         if busy {
-            self.toast("Already copying this game.", theme::secondary());
+            self.toast
+                .show("Already copying this game.", theme::secondary());
         } else if let Some(conflict) = row.conflict.clone() {
-            self.toast(&conflict, theme::secondary());
+            self.toast.show(&conflict, theme::secondary());
         } else {
             self.dialog = Some(self.copy_dialog(row));
         }
@@ -245,7 +242,7 @@ impl Network {
             if let Some(panel) = panel {
                 self.draw_panel(ui, panel, jobs);
             }
-            style::toast(ui, list, &self.toast);
+            self.toast.draw(ui, list);
         }
         if let Some(dialog) = &self.dialog {
             dialog.draw(ui, area);
