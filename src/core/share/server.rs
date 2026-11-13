@@ -133,7 +133,6 @@ impl Server {
 
     /// Block until the process is killed (`--serve`).
     pub fn wait(self) {
-        // Parks forever: the server only stops with the process.
         loop {
             std::thread::park();
         }
