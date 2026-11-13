@@ -195,3 +195,17 @@ impl Settings {
         self.form.hints(ui)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_setting_is_documented_in_the_default_config() {
+        let keys = SCHEMA.iter().flat_map(|(_, settings)| settings.iter());
+        for setting in keys {
+            let line = format!("{}=", setting.key);
+            assert!(config::DEFAULT_CONFIG.contains(&line), "{}", setting.key);
+        }
+    }
+}

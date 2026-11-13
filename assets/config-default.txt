@@ -124,3 +124,12 @@
 # Machines to list even when the LAN broadcast can't reach them (VPN, other subnet)
 # Format: host[:port], comma-separated
 #SHARE_PEERS=192.168.1.20,library.local:47800
+
+
+# ==========================================
+# 6. DEBUG
+# ==========================================
+
+# Interface only: hide the Steam buttons and dim the Steam settings, as on a
+# machine without Steam.
+#DEBUG_NO_STEAM=False
