@@ -4,6 +4,7 @@
 //! background and are drawn over the presented canvas, at the window's resolution.
 
 use std::collections::BTreeSet;
+use std::sync::mpsc::{channel, Receiver};
 
 use macroquad::prelude::*;
 
@@ -58,45 +59,100 @@ pub struct Library {
     scroll_target: f32,
     /// Message, color, expiry time.
     toast: Option<(String, Color, f64)>,
+    /// A load reading the disk in the background; the list shown stays
+    /// until it arrives (events keep pointing at the games on screen).
+    pending: Option<Receiver<Snapshot>>,
+    /// Where cover thumbnails are cached.
+    thumbs_dir: std::path::PathBuf,
 }
 
-impl Library {
-    /// (Re)scan the games folder, keeping the cursor on the same game.
-    pub fn load(&mut self, cfg: &Config) {
-        let focused = self.games.get(self.cursor).map(|g| g.folder_name.clone());
-        self.games = cfg
+/// What a load reads from disk, built off the UI thread: scanning reads
+/// every game.json and package, and is slow on a big library on an SD card.
+struct Snapshot {
+    games: Vec<Game>,
+    package_sizes: Vec<Option<u64>>,
+    in_steam: BTreeSet<String>,
+    steam_detected: bool,
+    downloads: Downloads,
+}
+
+impl Snapshot {
+    fn read(cfg: &Config) -> Snapshot {
+        let games = cfg
             .games_dir()
             .map(|dir| scanner::load_library(&dir))
             .unwrap_or_default();
-        self.package_sizes = self
-            .games
+        let package_sizes = games
             .iter()
             .map(|g| Some(std::fs::metadata(g.package()?).ok()?.len()))
             .collect();
-        self.steam_detected = steam::detected(cfg);
-        self.downloads = Downloads::of(cfg);
-        self.in_steam = if self.steam_detected {
-            steam::games_in_steam(cfg, &self.games)
+        let steam_detected = steam::detected(cfg);
+        let in_steam = if steam_detected {
+            steam::games_in_steam(cfg, &games)
         } else {
             BTreeSet::new()
         };
-        self.covers = vec![None; self.games.len()];
+        Snapshot {
+            games,
+            package_sizes,
+            in_steam,
+            steam_detected,
+            downloads: Downloads::of(cfg),
+        }
+    }
+}
+
+/// Where the cursor goes in a new list: on the game it was on, if still there.
+fn cursor_in(games: &[Game], focused: Option<&str>) -> usize {
+    focused
+        .and_then(|f| games.iter().position(|g| g.folder_name == f))
+        .unwrap_or(0)
+        .min(games.len().saturating_sub(1))
+}
+
+impl Library {
+    /// (Re)scan the games folder in the background; `poll` shows the result,
+    /// keeping the cursor on the same game. A newer load replaces a pending one.
+    pub fn load(&mut self, cfg: &Config) {
+        let (tx, rx) = channel();
+        let cfg = cfg.clone();
+        self.thumbs_dir = cfg.app_dir().join("ui-thumbs");
+        std::thread::spawn(move || {
+            let _ = tx.send(Snapshot::read(&cfg));
+        });
+        self.pending = Some(rx);
+    }
+
+    fn apply(&mut self, snapshot: Snapshot) {
+        let focused = self.games.get(self.cursor).map(|g| g.folder_name.clone());
+        self.cursor = cursor_in(&snapshot.games, focused.as_deref());
+        self.covers = vec![None; snapshot.games.len()];
         self.loader = Some(ImageLoader::spawn(covers::cover_jobs(
-            &self.games,
-            &cfg.app_dir().join("ui-thumbs"),
+            &snapshot.games,
+            &self.thumbs_dir,
         )));
-        self.cursor = focused
-            .and_then(|f| self.games.iter().position(|g| g.folder_name == f))
-            .unwrap_or(0)
-            .min(self.games.len().saturating_sub(1));
+        self.games = snapshot.games;
+        self.package_sizes = snapshot.package_sizes;
+        self.in_steam = snapshot.in_steam;
+        self.steam_detected = snapshot.steam_detected;
+        self.downloads = snapshot.downloads;
+    }
+
+    /// Still reading the library for the first time.
+    fn first_load(&self) -> bool {
+        self.pending.is_some() && self.games.is_empty()
     }
 
     pub fn toast(&mut self, message: &str, color: Color) {
         self.toast = Some((message.to_string(), color, get_time() + TOAST_SECS));
     }
 
-    /// Upload covers decoded since the last frame.
+    /// Show a finished load, and upload covers decoded since the last frame.
     pub fn poll(&mut self) {
+        if let Some(snapshot) = self.pending.as_ref().and_then(|rx| rx.try_recv().ok()) {
+            self.pending = None;
+            self.apply(snapshot);
+        }
         let Some(loader) = &mut self.loader else {
             return;
         };
@@ -197,6 +253,16 @@ impl Library {
     }
 
     pub fn draw(&self, ui: &Ui, area: Rect, jobs: &Jobs) {
+        if self.first_load() {
+            draw_spinner(area.x + 6.0, area.y + 24.0, 6.0, theme::accent());
+            ui.text(
+                "Loading games...",
+                area.x + 20.0,
+                area.y + 30.0,
+                theme::muted(),
+            );
+            return;
+        }
         if self.games.is_empty() {
             ui.text("No games found.", area.x, area.y + 30.0, theme::text());
             ui.text(
@@ -387,5 +453,43 @@ impl Library {
             hints.push(ui.hint(Action::Alt, steam, theme::info()));
         }
         hints
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::testutil::TempDir;
+
+    fn games(names: &[&str]) -> Vec<Game> {
+        names
+            .iter()
+            .map(|n| Game::skeleton(std::path::Path::new(n)))
+            .collect()
+    }
+
+    #[test]
+    fn the_cursor_stays_on_its_game_when_the_list_changes() {
+        let list = games(&["A", "B", "C"]);
+        assert_eq!(cursor_in(&list, Some("C")), 2);
+        assert_eq!(cursor_in(&list, Some("Gone")), 0);
+        assert_eq!(cursor_in(&list, None), 0);
+        assert_eq!(cursor_in(&[], Some("A")), 0);
+    }
+
+    #[test]
+    fn a_load_shows_once_the_background_read_arrives() {
+        let dir = TempDir::new();
+        dir.write("system/config.txt", b"");
+        dir.mkdir("games/Celeste");
+        let cfg = Config::load(&dir.path().join("system/config.txt"));
+        let mut library = Library::default();
+
+        library.load(&cfg);
+        assert!(library.first_load());
+        let snapshot = library.pending.take().unwrap().recv().unwrap();
+        library.apply(snapshot);
+        assert!(!library.first_load());
+        assert_eq!(library.games[0].folder_name, "Celeste");
     }
 }
