@@ -542,12 +542,44 @@ fn remove_owned(
     Ok(removed.len())
 }
 
-fn remove_stale(
-    config_dir: &Path,
-    valid_targets: &HashSet<String>,
-    owner_tag: &str,
-) -> Result<(), String> {
-    let removed = remove_owned(config_dir, owner_tag, |exe| !valid_targets.contains(exe))?;
+/// The shortcuts cleanup keeps: those of the games in Steam, and any in a
+/// game folder the scan could not load (a game.json mid-write or with a
+/// typo says nothing about whether the game is still wanted).
+struct Kept {
+    targets: HashSet<String>,
+    unloaded_dirs: Vec<PathBuf>,
+}
+
+impl Kept {
+    fn of(games: &[Game], selected: &BTreeSet<String>, games_dir: Option<&Path>) -> Kept {
+        let loaded: HashSet<&Path> = games.iter().map(|g| g.dir.as_path()).collect();
+        let unloaded_dirs = games_dir
+            .map(paths::visible_subdirs)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|dir| !loaded.contains(dir.as_path()))
+            .collect();
+        Kept {
+            targets: games
+                .iter()
+                .filter(|g| selected.contains(&g.folder_name))
+                .filter_map(resolved_target)
+                .collect(),
+            unloaded_dirs,
+        }
+    }
+
+    fn is_stale(&self, exe: &str) -> bool {
+        !self.targets.contains(exe)
+            && !self
+                .unloaded_dirs
+                .iter()
+                .any(|d| Path::new(exe).starts_with(d))
+    }
+}
+
+fn remove_stale(config_dir: &Path, kept: &Kept, owner_tag: &str) -> Result<(), String> {
+    let removed = remove_owned(config_dir, owner_tag, |exe| kept.is_stale(exe))?;
     if removed > 0 {
         info!(
             "  Steam user {}: removed {removed} stale shortcut(s)",
@@ -559,15 +591,14 @@ fn remove_stale(
 
 /// Remove our shortcuts whose executable is no longer in the library.
 pub fn clean(games: &[Game], cfg: &Config) {
-    let selected = games_in_steam(cfg, games);
-    let valid_targets: HashSet<String> = games
-        .iter()
-        .filter(|g| selected.contains(&g.folder_name))
-        .filter_map(resolved_target)
-        .collect();
+    let kept = Kept::of(
+        games,
+        &games_in_steam(cfg, games),
+        cfg.games_dir().as_deref(),
+    );
     let owner = Owner::of(cfg);
     for config_dir in select_config_dirs(cfg) {
-        if let Err(e) = remove_stale(&config_dir, &valid_targets, &owner.tag) {
+        if let Err(e) = remove_stale(&config_dir, &kept, &owner.tag) {
             error!("  Skipping Steam user {}: {e}", user_id(&config_dir));
         }
     }
@@ -1095,7 +1126,10 @@ mod tests {
 
         remove_stale(
             &config_dir,
-            &HashSet::from(["/g/kept2".to_string()]),
+            &Kept {
+                targets: HashSet::from(["/g/kept2".to_string()]),
+                unloaded_dirs: Vec::new(),
+            },
             "cartridge:1",
         )
         .unwrap();
@@ -1145,6 +1179,44 @@ mod tests {
                 .len(),
             1
         );
+    }
+
+    #[test]
+    fn cleanup_keeps_shortcuts_of_game_folders_that_did_not_load() {
+        let dir = TempDir::new();
+        let games_dir = dir.mkdir("games");
+        let loaded = dir.mkdir("games/Loaded");
+        let broken = dir.mkdir("games/Broken");
+        let mut game = Game::skeleton(&loaded);
+        game.resolved = Some(Resolved {
+            target: loaded.join("run"),
+            ..Default::default()
+        });
+        let kept = Kept::of(
+            &[game],
+            &BTreeSet::from(["Loaded".into()]),
+            Some(&games_dir),
+        );
+        let exe = |p: PathBuf| paths::lossy(&p);
+
+        assert!(!kept.is_stale(&exe(loaded.join("run"))));
+        assert!(!kept.is_stale(&exe(broken.join("run"))));
+        assert!(kept.is_stale(&exe(loaded.join("old-target"))));
+        assert!(kept.is_stale(&exe(games_dir.join("Deleted/run"))));
+    }
+
+    #[test]
+    fn cleanup_removes_games_taken_out_of_steam() {
+        let dir = TempDir::new();
+        let games_dir = dir.mkdir("games");
+        let folder = dir.mkdir("games/Out");
+        let mut game = Game::skeleton(&folder);
+        game.resolved = Some(Resolved {
+            target: folder.join("run"),
+            ..Default::default()
+        });
+        let kept = Kept::of(&[game], &BTreeSet::new(), Some(&games_dir));
+        assert!(kept.is_stale(&paths::lossy(&folder.join("run"))));
     }
 
     #[test]
