@@ -1,5 +1,6 @@
 //! Pipeline step 6: create/update shortcuts and their artwork; add/remove one game.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use log::{error, info, warn};
@@ -219,11 +220,13 @@ fn with_appid(game: &Game) -> Option<(&Game, u32)> {
 /// Steam, then set Proton for the Windows ones.
 pub fn export(games: &[Game], cfg: &Config) {
     let selected = games_in_steam(cfg, games);
-    let with_targets: Vec<(&Game, u32)> = games
-        .iter()
-        .filter(|g| selected.contains(&g.folder_name))
-        .filter_map(with_appid)
-        .collect();
+    let with_targets = one_per_appid(
+        games
+            .iter()
+            .filter(|g| selected.contains(&g.folder_name))
+            .filter_map(with_appid)
+            .collect(),
+    );
     if with_targets.is_empty() {
         info!("No games to keep in Steam");
         return;
@@ -236,7 +239,39 @@ pub fn export(games: &[Game], cfg: &Config) {
     }
 }
 
-/// Put one game in Steam now, and remember it.
+/// The other games of `library` with `game`'s AppID: a copied game folder
+/// keeps its game.json, so its `steam_appid`. Only one of them can be in
+/// Steam (two shortcuts with one AppID would share a Proton prefix).
+fn duplicates_of<'a>(game: &Game, library: &'a [Game]) -> Vec<&'a Game> {
+    let Some(appid) = appid_of(game) else {
+        return Vec::new();
+    };
+    library
+        .iter()
+        .filter(|g| g.folder_name != game.folder_name && appid_of(g) == Some(appid))
+        .collect()
+}
+
+/// The first game of each AppID; copies are left out of Steam (logged).
+fn one_per_appid(games: Vec<(&Game, u32)>) -> Vec<(&Game, u32)> {
+    let mut seen = HashSet::new();
+    games
+        .into_iter()
+        .filter(|&(game, appid)| {
+            let first = seen.insert(appid);
+            if !first {
+                warn!(
+                    "{}: same Steam AppID as another game (a copy?), left out of Steam",
+                    game.folder_name
+                );
+            }
+            first
+        })
+        .collect()
+}
+
+/// Put one game in Steam now, and remember it. Its copies (same AppID) are
+/// taken out: turning one on turns the others off.
 pub fn add_game(cfg: &Config, library: &[Game], game: &Game) -> Result<(), String> {
     let entry =
         with_appid(game).ok_or("No executable found yet: run the pipeline from STATUS first")?;
@@ -245,6 +280,10 @@ pub fn add_game(cfg: &Config, library: &[Game], game: &Game) -> Result<(), Strin
         return Err("Steam not found on this machine".into());
     }
     let mut selected = games_in_steam(cfg, library);
+    for copy in duplicates_of(game, library) {
+        remove_shortcuts(cfg, copy)?;
+        selected.remove(&copy.folder_name);
+    }
     export_games(cfg, &config_dirs, &[entry]);
     selected.insert(game.folder_name.clone());
     save_selection(cfg, selected)
@@ -253,14 +292,21 @@ pub fn add_game(cfg: &Config, library: &[Game], game: &Game) -> Result<(), Strin
 /// Take one game out of Steam now (only this cartridge's shortcut), and remember it.
 pub fn remove_game(cfg: &Config, library: &[Game], game: &Game) -> Result<(), String> {
     let mut selected = games_in_steam(cfg, library);
-    if let Some(target) = resolved_target(game) {
-        let owner = Owner::of(cfg);
-        for dir in select_config_dirs(cfg) {
-            remove_owned(&dir, &owner.tag, |exe| exe == target)?;
-        }
-    }
+    remove_shortcuts(cfg, game)?;
     selected.remove(&game.folder_name);
     save_selection(cfg, selected)
+}
+
+/// Remove this cartridge's shortcut of `game` for every Steam user.
+fn remove_shortcuts(cfg: &Config, game: &Game) -> Result<(), String> {
+    let Some(target) = resolved_target(game) else {
+        return Ok(());
+    };
+    let owner = Owner::of(cfg);
+    for dir in select_config_dirs(cfg) {
+        remove_owned(&dir, &owner.tag, |exe| exe == target)?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -268,6 +314,42 @@ mod tests {
     use super::*;
     use crate::core::models::Resolved;
     use crate::core::steam::*;
+
+    /// A game folder `name` running `run`, with a stored AppID.
+    fn installed(name: &str, appid: u32) -> Game {
+        let mut game = Game::skeleton(&Path::new("/g").join(name));
+        game.resolved = Some(Resolved {
+            target: Path::new("/g").join(name).join("run"),
+            ..Default::default()
+        });
+        game.steam_appid = Some(appid);
+        game
+    }
+
+    #[test]
+    fn copies_of_a_game_are_the_others_with_its_appid() {
+        let library = [
+            installed("Celeste", 7),
+            installed("Celeste copy", 7),
+            installed("Other", 8),
+        ];
+        let names: Vec<&str> = duplicates_of(&library[0], &library)
+            .iter()
+            .map(|g| g.folder_name.as_str())
+            .collect();
+        assert_eq!(names, ["Celeste copy"]);
+        assert!(duplicates_of(&library[2], &library).is_empty());
+    }
+
+    #[test]
+    fn only_the_first_game_of_an_appid_gets_a_shortcut() {
+        let library = [installed("A", 7), installed("B", 7), installed("C", 8)];
+        let kept: Vec<&str> = one_per_appid(library.iter().filter_map(with_appid).collect())
+            .iter()
+            .map(|(g, _)| g.folder_name.as_str())
+            .collect();
+        assert_eq!(kept, ["A", "C"]);
+    }
     use crate::core::testutil::TempDir;
 
     #[test]
