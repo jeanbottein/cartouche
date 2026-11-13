@@ -40,7 +40,8 @@ src/
     package.rs           # Foo.cartridge.tar: pack/unpack with progress + crc verification
     share/               # LAN sharing: server.rs (HTTP, GET only), discovery.rs (UDP broadcast), client.rs
     vdf.rs               # Binary (shortcuts.vdf) + text (config.vdf) KeyValues
-    steam.rs steam_self.rs manifest.rs bps.rs saver.rs commands.rs
+    steam/               # users, selection (steam.json), host (detect/restart), shortcuts (vdf), clean, export, compat (Proton builds)
+    steam_self.rs manifest.rs bps.rs saver.rs commands.rs
     proton.rs            # Windows games with Steam's Proton + runtime, in the shortcut's compatdata prefix; winetricks
     patcher.rs mods.rs   # mod file engine (state/apply/restore) + mod model (list, on/off)
     pipeline.rs init.rs logging.rs
