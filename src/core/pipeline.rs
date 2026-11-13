@@ -124,7 +124,7 @@ pub struct Pipeline<'a> {
 
 impl<'a> Pipeline<'a> {
     pub fn new(cfg: &'a Config) -> Pipeline<'a> {
-        let games_dir = cfg.workspace().join(super::app::GAMES_DIR);
+        let games_dir = cfg.cartridge_dir().join(super::app::GAMES_DIR);
         Pipeline {
             cfg,
             games_dir,
@@ -199,7 +199,7 @@ mod tests {
 
     #[test]
     fn cancel_stops_before_the_next_phase() {
-        let cfg = Config::from_raw("/nowhere/.cartridge/config.txt".into(), Default::default());
+        let cfg = Config::from_raw("/nowhere/system/config.txt".into(), Default::default());
         let cancel = AtomicBool::new(true);
         let mut started = 0;
         assert!(!Pipeline::new(&cfg).run_group(Group::Patch, &cancel, |_| started += 1));

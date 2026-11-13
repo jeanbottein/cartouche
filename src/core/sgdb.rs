@@ -1,5 +1,5 @@
 //! Pipeline step 3: SteamGridDB metadata (official names, IDs, artwork URLs),
-//! with a JSON cache in `.cartridge/steamgriddb_cache.json` to spare API calls.
+//! with a JSON cache in `system/steamgriddb_cache.json` to spare API calls.
 
 use std::path::Path;
 use std::time::Duration;
@@ -223,8 +223,8 @@ pub fn image_names(urls: &ArtworkUrls) -> Images {
 
 // ── Cache ────────────────────────────────────────────────────────────────
 
-pub fn load_cache(app_dir: &Path) -> Map<String, Value> {
-    let path = app_dir.join(CACHE_FILE);
+pub fn load_cache(system_dir: &Path) -> Map<String, Value> {
+    let path = system_dir.join(CACHE_FILE);
     let Ok(text) = std::fs::read_to_string(&path) else {
         return Map::new();
     };
@@ -234,9 +234,9 @@ pub fn load_cache(app_dir: &Path) -> Map<String, Value> {
     })
 }
 
-fn save_cache(app_dir: &Path, cache: &Map<String, Value>) {
+fn save_cache(system_dir: &Path, cache: &Map<String, Value>) {
     let text = serde_json::to_string_pretty(cache).expect("JSON serialization cannot fail");
-    if let Err(e) = paths::write_atomic(app_dir.join(CACHE_FILE), text) {
+    if let Err(e) = paths::write_atomic(system_dir.join(CACHE_FILE), text) {
         warn!("Failed to save SteamGridDB cache: {e}");
     }
 }
@@ -397,8 +397,8 @@ fn apply(game: &mut Game, info: SgdbInfo) {
 /// Add SteamGridDB names, IDs, release years and artwork to games that lack them.
 pub fn enrich(games: &mut [Game], cfg: &Config) {
     let Some(key) = api_key(cfg) else { return };
-    let app_dir = cfg.app_dir();
-    let mut cache = load_cache(&app_dir);
+    let system_dir = cfg.system_dir();
+    let mut cache = load_cache(&system_dir);
     let snapshot = cache.clone();
 
     let needs_id = games
@@ -439,7 +439,7 @@ pub fn enrich(games: &mut [Game], cfg: &Config) {
     }
 
     if cache != snapshot {
-        save_cache(&app_dir, &cache);
+        save_cache(&system_dir, &cache);
     }
 }
 
@@ -524,7 +524,7 @@ mod tests {
 
     #[test]
     fn cached_entries_skip_the_network() {
-        let cfg = Config::from_raw("/ws/.cartridge/config.txt".into(), Default::default());
+        let cfg = Config::from_raw("/ws/system/config.txt".into(), Default::default());
         let mut cache = Map::new();
         cache.insert(
             "celeste".into(),

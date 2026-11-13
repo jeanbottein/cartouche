@@ -116,7 +116,7 @@ impl Library {
     pub fn load(&mut self, cfg: &Config) {
         let (tx, rx) = channel();
         let cfg = cfg.clone();
-        self.thumbs_dir = cfg.app_dir().join("ui-thumbs");
+        self.thumbs_dir = cfg.system_dir().join("ui-thumbs");
         std::thread::spawn(move || {
             let _ = tx.send(Snapshot::read(&cfg));
         });

@@ -134,7 +134,7 @@ mod tests {
 
     #[test]
     fn port_falls_back_to_default() {
-        let cfg = Config::from_raw("/ws/.cartridge/config.txt".into(), Default::default());
+        let cfg = Config::from_raw("/ws/system/config.txt".into(), Default::default());
         assert_eq!(port(&cfg), DEFAULT_PORT);
     }
 }

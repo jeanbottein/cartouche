@@ -11,13 +11,12 @@ use super::config::Config;
 use super::paths;
 
 fn expand_template(command: &str, cfg: &Config) -> String {
-    let workspace = cfg.workspace();
     let builtins = [
         ("_CONFIG_PATH", paths::lossy(&cfg.path)),
         ("_SCRIPT_DIR", paths::lossy(&super::app::exe_dir())),
         (
             "FREEGAMES_PATH",
-            paths::lossy(&workspace.join(super::app::GAMES_DIR)),
+            paths::lossy(&cfg.cartridge_dir().join(super::app::GAMES_DIR)),
         ),
         ("PATCHES_PATH", paths::lossy(&cfg.mods_dir())),
         ("SAVESCOPY_PATH", paths::lossy(&cfg.saves_copies_dir())),

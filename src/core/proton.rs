@@ -323,7 +323,7 @@ pub struct Downloads {
 impl Downloads {
     pub fn of(cfg: &Config) -> Downloads {
         Downloads {
-            kept: cfg.app_dir().join("winetricks"),
+            kept: cfg.system_dir().join("winetricks"),
             keep: cfg.is_true("PROTON_KEEP_DOWNLOADS"),
         }
     }
