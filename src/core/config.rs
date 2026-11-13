@@ -231,7 +231,10 @@ mod tests {
         let raw = parse("BACKUP_x=~/Emulation/saves\nBACKUP_y=$HOME/saves\n");
         let cfg = Config::from_raw(PathBuf::from("/ws/system/config.txt"), raw);
         assert_eq!(cfg.get("BACKUP_x"), Some("~/Emulation/saves"));
-        assert_eq!(cfg.get("BACKUP_y"), Some("$HOME/saves"));
+        // Windows has no HOME (USERPROFILE instead).
+        if cfg!(unix) {
+            assert_eq!(cfg.get("BACKUP_y"), Some("$HOME/saves"));
+        }
     }
 
     #[test]

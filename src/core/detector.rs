@@ -576,7 +576,7 @@ mod tests {
     fn detection_stores_the_appid_the_game_has_now_and_keeps_a_stored_one() {
         let dir = TempDir::new();
         let game_dir = dir.mkdir("Game");
-        let exe = dir.write("Game/Game.exe", &pe(0x8664));
+        dir.write("Game/Game.exe", &pe(0x8664));
         let target = Target {
             target: "Game.exe".into(),
             os: "windows".into(),
@@ -597,6 +597,7 @@ mod tests {
         ];
 
         detect(&mut games);
+        let exe = scanner::resolve_target(&game_dir, &target).target;
         let expected = steam::generate_appid("Game", &paths::lossy(&exe));
         assert_eq!(games[0].steam_appid, Some(expected));
         assert!(games[0].needs_persist);
