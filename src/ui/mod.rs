@@ -172,12 +172,11 @@ impl Ui {
     /// `s` fitted to `max_w`: when it is too long, it scrolls one character
     /// at a time, `elapsed` seconds after it started.
     pub fn ticker(&self, s: &str, max_w: f32, elapsed: f64) -> String {
-        let chars: Vec<char> = s.chars().collect();
-        let tail = |from: usize| chars[from..].iter().collect::<String>();
-        let steps = (0..chars.len())
-            .find(|&from| self.measure(&tail(from)) <= max_w)
-            .unwrap_or(chars.len());
-        let shown = tail(text::ticker_offset(steps, elapsed));
+        let steps = text::ticker_steps(s, max_w, |s| self.measure(s));
+        let shown: String = s
+            .chars()
+            .skip(text::ticker_offset(steps, elapsed))
+            .collect();
         self.truncate(shown.trim_start(), max_w)
     }
 
@@ -211,33 +210,12 @@ impl Ui {
     }
 
     fn truncate_sized(&self, s: &str, max_w: f32, size: Size) -> String {
-        if self.measure_sized(s, size) <= max_w {
-            return s.to_string();
-        }
-        let mut chars: Vec<char> = s.chars().collect();
-        while !chars.is_empty()
-            && self.measure_sized(
-                &format!("{}\u{2026}", chars.iter().collect::<String>()),
-                size,
-            ) > max_w
-        {
-            chars.pop();
-        }
-        format!("{}\u{2026}", chars.iter().collect::<String>().trim_end())
+        text::truncate_end(s, max_w, |s| self.measure_sized(s, size))
     }
 
     /// The end of `s` with a leading ellipsis, to fit `max_w` (for paths).
     pub fn truncate_start(&self, s: &str, max_w: f32) -> String {
-        if self.measure(s) <= max_w {
-            return s.to_string();
-        }
-        let mut chars: Vec<char> = s.chars().collect();
-        while !chars.is_empty()
-            && self.measure(&format!("\u{2026}{}", chars.iter().collect::<String>())) > max_w
-        {
-            chars.remove(0);
-        }
-        format!("\u{2026}{}", chars.iter().collect::<String>())
+        text::truncate_start(s, max_w, |s| self.measure(s))
     }
 
     /// Wrap `s` on spaces into lines no wider than `max_w`.
