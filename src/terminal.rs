@@ -15,45 +15,43 @@ use crate::core::share::{self, client, discovery::Peer, server::Server};
 use crate::core::{detector, init, migrations, scanner, sgdb, sizer, steam};
 
 /// The workspace config, running the terminal setup wizard on first use.
-pub fn locate_config(cli_dir: Option<&Path>) -> Option<PathBuf> {
+fn locate_config(cli_dir: Option<&Path>) -> Option<PathBuf> {
     match find_system_dir(cli_dir) {
         Some(system_dir) => Some(init::config_in(&system_dir)),
         None => init::run_terminal_wizard(&exe_dir(), &std::env::current_dir().unwrap_or_default()),
     }
 }
 
-fn load(cli_dir: Option<&Path>) -> Result<Config, ExitCode> {
-    let config = Config::load(&locate_config(cli_dir).ok_or(ExitCode::SUCCESS)?);
-    if config.games_dir().is_none() {
+/// Run `task` on the cartridge's config and games folder.
+pub fn with_cartridge(
+    cli_dir: Option<&Path>,
+    task: impl FnOnce(&Config, &Path) -> ExitCode,
+) -> ExitCode {
+    let Some(config_path) = locate_config(cli_dir) else {
+        return ExitCode::SUCCESS; // the user left the setup wizard
+    };
+    let config = Config::load(&config_path);
+    let Some(games_dir) = config.games_dir() else {
         error!(
             "No games/ folder in {}. Stopping the app.",
             config.cartridge_dir().display()
         );
-        return Err(ExitCode::FAILURE);
-    }
-    Ok(config)
+        return ExitCode::FAILURE;
+    };
+    task(&config, &games_dir)
 }
 
-pub fn run(cli_dir: Option<&Path>, group: Group) -> ExitCode {
-    let config = match load(cli_dir) {
-        Ok(config) => config,
-        Err(code) => return code,
-    };
-    Pipeline::new(&config).run_group(group, &AtomicBool::new(false), |_| {});
+pub fn run(config: &Config, group: Group) -> ExitCode {
+    Pipeline::new(config).run_group(group, &AtomicBool::new(false), |_| {});
     ExitCode::SUCCESS
 }
 
 /// Dry run: what a Steam sync would create, without touching Steam.
-pub fn preview(cli_dir: Option<&Path>) -> ExitCode {
-    let config = match load(cli_dir) {
-        Ok(config) => config,
-        Err(code) => return code,
-    };
-    let games_dir = config.games_dir().unwrap_or_default();
-    migrations::run_all(&games_dir);
-    let mut games = scanner::scan(&games_dir);
+pub fn preview(config: &Config, games_dir: &Path) -> ExitCode {
+    migrations::run_all(games_dir);
+    let mut games = scanner::scan(games_dir);
     detector::detect(&mut games);
-    sgdb::enrich(&mut games, &config);
+    sgdb::enrich(&mut games, config);
 
     let with_targets: Vec<_> = games
         .iter()
@@ -62,13 +60,13 @@ pub fn preview(cli_dir: Option<&Path>) -> ExitCode {
     info!("Steam preview: {} game(s) with targets", with_targets.len());
     info!(
         "SteamGridDB API key: {}",
-        if sgdb::api_key(&config).is_some() {
+        if sgdb::api_key(config).is_some() {
             "configured"
         } else {
             "NOT SET"
         }
     );
-    let in_steam = steam::games_in_steam(&config, &games);
+    let in_steam = steam::games_in_steam(config, &games);
     info!(
         "Games in Steam: {}\n",
         if in_steam.is_empty() {
@@ -105,7 +103,7 @@ pub fn preview(cli_dir: Option<&Path>) -> ExitCode {
         info!("");
     }
 
-    let owner = steam::Owner::of(&config);
+    let owner = steam::Owner::of(config);
     for config_dir in steam::userdata_config_dirs() {
         let uid = steam::user_id(&config_dir);
         match steam::owned_shortcut_names(&config_dir, &owner.tag) {
@@ -165,13 +163,8 @@ fn report<T>(result: Result<T, String>, done: impl FnOnce(T)) -> ExitCode {
 }
 
 /// `--pack GAME`: `GAME/` -> `GAME.cartridge.tar`, next to it.
-pub fn pack(cli_dir: Option<&Path>, name: &str) -> ExitCode {
-    let config = match load(cli_dir) {
-        Ok(config) => config,
-        Err(code) => return code,
-    };
-    let games_dir = config.games_dir().unwrap_or_default();
-    let Some(game) = scanner::load_library(&games_dir)
+pub fn pack(games_dir: &Path, name: &str) -> ExitCode {
+    let Some(game) = scanner::load_library(games_dir)
         .into_iter()
         .find(|g| g.folder_name == name && g.is_installed())
     else {
@@ -181,7 +174,7 @@ pub fn pack(cli_dir: Option<&Path>, name: &str) -> ExitCode {
         );
         return ExitCode::FAILURE;
     };
-    let target = package::package_path(&games_dir, name);
+    let target = package::package_path(games_dir, name);
     info!("Packing {} -> {}", game.title, target.display());
     report(with_progress(|p| package::pack(&game, &target, p)), |m| {
         info!("Packed {} files ({})", m.files, sizer::human(m.size))
@@ -189,33 +182,23 @@ pub fn pack(cli_dir: Option<&Path>, name: &str) -> ExitCode {
 }
 
 /// `--unpack GAME`: `GAME.cartridge.tar` -> `GAME/`, keeping the package.
-pub fn unpack(cli_dir: Option<&Path>, name: &str) -> ExitCode {
-    let config = match load(cli_dir) {
-        Ok(config) => config,
-        Err(code) => return code,
-    };
-    let games_dir = config.games_dir().unwrap_or_default();
-    let source = package::package_path(&games_dir, name);
+pub fn unpack(games_dir: &Path, name: &str) -> ExitCode {
+    let source = package::package_path(games_dir, name);
     if !source.is_file() {
         error!("No package {}", source.display());
         return ExitCode::FAILURE;
     }
     info!("Unpacking {}", source.display());
     report(
-        with_progress(|p| package::unpack(&source, &games_dir, p)),
+        with_progress(|p| package::unpack(&source, games_dir, p)),
         |dest| info!("Unpacked and verified into {}", dest.display()),
     )
 }
 
 /// `--serve`: share the games folder until killed (headless library machine).
-pub fn serve(cli_dir: Option<&Path>) -> ExitCode {
-    let config = match load(cli_dir) {
-        Ok(config) => config,
-        Err(code) => return code,
-    };
-    let games_dir = config.games_dir().unwrap_or_default();
-    let port = share::port(&config);
-    match Server::start(&games_dir, share::machine_name(), port) {
+pub fn serve(config: &Config, games_dir: &Path) -> ExitCode {
+    let port = share::port(config);
+    match Server::start(games_dir, share::machine_name(), port) {
         Ok(server) => {
             info!(
                 "Other machines can't see this one? Open the port, e.g.:\n  \
@@ -233,12 +216,8 @@ pub fn serve(cli_dir: Option<&Path>) -> ExitCode {
 }
 
 /// `--peers`: •cartridge servers answering on the LAN, with their games.
-pub fn peers(cli_dir: Option<&Path>) -> ExitCode {
-    let config = match load(cli_dir) {
-        Ok(config) => config,
-        Err(code) => return code,
-    };
-    let peers = client::find_peers(&config);
+pub fn peers(config: &Config) -> ExitCode {
+    let peers = client::find_peers(config);
     if peers.is_empty() {
         info!("No •cartridge server found on the LAN.");
     }
@@ -275,20 +254,15 @@ fn resolve_peer(config: &Config, wanted: &str) -> Option<Peer> {
 }
 
 /// `--download` / `--install PEER GAME`.
-pub fn copy(cli_dir: Option<&Path>, peer: &str, game: &str, how: Copy) -> ExitCode {
-    let config = match load(cli_dir) {
-        Ok(config) => config,
-        Err(code) => return code,
-    };
-    let games_dir = config.games_dir().unwrap_or_default();
-    let Some(peer) = resolve_peer(&config, peer) else {
+pub fn copy(config: &Config, games_dir: &Path, peer: &str, game: &str, how: Copy) -> ExitCode {
+    let Some(peer) = resolve_peer(config, peer) else {
         error!("No •cartridge server named or reachable at {peer}");
         return ExitCode::FAILURE;
     };
     info!("Copying {game} from {} ({})", peer.info.name, peer.addr);
     let result = with_progress(|p| match how {
-        Copy::Download => client::download(peer.addr, game, &games_dir, p),
-        Copy::Install => client::install(peer.addr, game, &games_dir, p),
+        Copy::Download => client::download(peer.addr, game, games_dir, p),
+        Copy::Install => client::install(peer.addr, game, games_dir, p),
     });
     report(result, |path| info!("Done, verified: {}", path.display()))
 }

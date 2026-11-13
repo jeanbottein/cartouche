@@ -29,21 +29,35 @@ fn main() -> ExitCode {
     let dir = args.dir.as_deref().map(core::paths::resolve);
     let dir = dir.as_deref();
     match args.mode {
-        Mode::Help => println!("{}", cli::USAGE),
-        Mode::Version => println!("{} {}", core::app::APP_NAME, env!("CARGO_PKG_VERSION")),
-        Mode::Terminal(group) => return terminal::run(dir, group),
-        Mode::DryRun => return terminal::preview(dir),
-        Mode::Pack(name) => return terminal::pack(dir, &name),
-        Mode::Unpack(name) => return terminal::unpack(dir, &name),
-        Mode::Serve => return terminal::serve(dir),
-        Mode::Peers => return terminal::peers(dir),
-        Mode::Download { peer, game } => return terminal::copy(dir, &peer, &game, Copy::Download),
-        Mode::Install { peer, game } => return terminal::copy(dir, &peer, &game, Copy::Install),
-        Mode::Ui if core::app::has_display() => ui::run(dir),
+        Mode::Help => {
+            println!("{}", cli::USAGE);
+            ExitCode::SUCCESS
+        }
+        Mode::Version => {
+            println!("{} {}", core::app::APP_NAME, env!("CARGO_PKG_VERSION"));
+            ExitCode::SUCCESS
+        }
+        Mode::Ui if core::app::has_display() => {
+            ui::run(dir);
+            ExitCode::SUCCESS
+        }
         Mode::Ui => {
             log::info!("No display detected. Running in terminal mode.");
-            return terminal::run(dir, Group::All);
+            terminal::with_cartridge(dir, |cfg, _| terminal::run(cfg, Group::All))
         }
+        Mode::Terminal(group) => terminal::with_cartridge(dir, |cfg, _| terminal::run(cfg, group)),
+        Mode::DryRun => terminal::with_cartridge(dir, terminal::preview),
+        Mode::Pack(name) => terminal::with_cartridge(dir, |_, games| terminal::pack(games, &name)),
+        Mode::Unpack(name) => {
+            terminal::with_cartridge(dir, |_, games| terminal::unpack(games, &name))
+        }
+        Mode::Serve => terminal::with_cartridge(dir, terminal::serve),
+        Mode::Peers => terminal::with_cartridge(dir, |cfg, _| terminal::peers(cfg)),
+        Mode::Download { peer, game } => terminal::with_cartridge(dir, |cfg, games| {
+            terminal::copy(cfg, games, &peer, &game, Copy::Download)
+        }),
+        Mode::Install { peer, game } => terminal::with_cartridge(dir, |cfg, games| {
+            terminal::copy(cfg, games, &peer, &game, Copy::Install)
+        }),
     }
-    ExitCode::SUCCESS
 }
