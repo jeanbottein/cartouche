@@ -69,7 +69,7 @@ WORKSPACE/
   games/Other.cartridge.tar                    # packaged game (not unpacked yet)
 ```
 
-Folder names are fixed, whatever the binary is called: per-game metadata is always `.cartridge/` (part of the game and package format), the workspace is always `system/`. `system/` only counts with a `config.txt` or our README (the name is common). A legacy `.cartridge/` workspace is moved to `system/` once, unless an unrelated `system/` exists (`core::app::workspace_in`).
+Folder names are fixed, whatever the binary is called: per-game metadata is always `.cartridge/` (part of the game and package format), the workspace is always `system/`. `system/` only counts with a `config.txt` or our README (the name is common). A `.cartridge/` folder next to the app is not a workspace (`core::app::workspace_in`).
 
 Packages: a plain tar of `Foo/` with `.cartridge/package.json` first and `.cartridge/checksums.json` last. The scanner merges `Foo.cartridge.tar` and `Foo/` into one game (`models::Install`). Packaged-only games are read-only: phases that write (detector, sgdb, persister, editor) skip them. Staging uses hidden `.Foo…part` names, which the scanner ignores.
 
