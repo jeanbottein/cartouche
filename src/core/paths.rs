@@ -247,8 +247,9 @@ pub fn copy_with_mtime(src: &Path, dst: &Path) -> std::io::Result<()> {
 
 /// `fs::write` that never leaves a half-written file: a crash or power loss
 /// mid-write (a Deck running out of battery) keeps the old content, and two
-/// writers at once leave one of their writes, whole. Writes a hidden sibling
-/// of its own, flushes it to disk, then renames it over `path`. A symlink is
+/// writers at once never mix: one of their writes lands whole (on Windows,
+/// the other may fail instead). Writes a hidden sibling of its own, flushes
+/// it to disk, then renames it over `path`. A symlink is
 /// written through (its target is replaced, the link stays), and the file
 /// keeps its permissions.
 pub fn write_atomic(path: impl AsRef<Path>, contents: impl AsRef<[u8]>) -> std::io::Result<()> {
@@ -354,6 +355,9 @@ mod tests {
         assert_eq!(sorted_entries(dir.path()), ["game.json"]);
     }
 
+    // Windows refuses to rename over a file another thread is replacing at
+    // that instant: a simultaneous write fails there, it doesn't mix.
+    #[cfg(unix)]
     #[test]
     fn simultaneous_writes_of_one_file_each_land_whole() {
         // The pipeline thread and the UI can write the same file at once
