@@ -236,9 +236,17 @@ fn build_symlink_tree(entries: &[LinkEntry], root: &Path) {
     let _ = std::fs::create_dir_all(root);
     let mut created = HashSet::new();
     for entry in entries.iter().filter(|e| e.source.is_dir()) {
+        let top = root.join(&entry.top);
         let link = match &entry.sub {
-            None => root.join(&entry.top),
-            Some(sub) => root.join(&entry.top).join(sub),
+            None => top,
+            Some(sub) => {
+                // A link left from when the game had one save path: links
+                // created through it would land in the live save folder.
+                if paths::is_symlink(&top) {
+                    let _ = std::fs::remove_file(&top);
+                }
+                top.join(sub)
+            }
         };
         create_symlink(&link, &entry.source);
         created.insert(entry.top.clone());
@@ -255,14 +263,39 @@ fn build_symlink_tree(entries: &[LinkEntry], root: &Path) {
 
 // ── Run ──────────────────────────────────────────────────────────────────
 
-fn process_game_saves(games: &[Game], saves_root: &Path, strategy: Strategy) -> Vec<LinkEntry> {
+/// Hands out folder names, adding `_2`, `_3`… to a name already taken, so
+/// two backups never share (and prune) one folder. Case-insensitive:
+/// Windows and macOS folders are.
+#[derive(Default)]
+struct FolderNames(HashSet<String>);
+
+impl FolderNames {
+    fn claim(&mut self, wanted: &str) -> String {
+        let name = std::iter::once(wanted.to_string())
+            .chain((2..).map(|n| format!("{wanted}_{n}")))
+            .find(|name| !self.0.contains(&name.to_lowercase()))
+            .unwrap_or_default();
+        self.0.insert(name.to_lowercase());
+        name
+    }
+}
+
+fn process_game_saves(
+    games: &[Game],
+    saves_root: &Path,
+    strategy: Strategy,
+    tops: &mut FolderNames,
+) -> Vec<LinkEntry> {
     let mut links = Vec::new();
     let mut processed = 0;
     for game in games.iter().filter(|g| !g.resolved_save_paths.is_empty()) {
-        let title = sanitize_title(&game.title);
+        let title = tops.claim(&sanitize_title(&game.title));
         let multi = game.resolved_save_paths.len() > 1;
+        let mut subs = FolderNames::default();
         for save in &game.resolved_save_paths {
-            let sub = sanitize_title(&save.file_name().unwrap_or_default().to_string_lossy());
+            let sub = subs.claim(&sanitize_title(
+                &save.file_name().unwrap_or_default().to_string_lossy(),
+            ));
             let (dst, label) = if multi {
                 (
                     saves_root.join(&title).join(&sub),
@@ -286,7 +319,12 @@ fn process_game_saves(games: &[Game], saves_root: &Path, strategy: Strategy) -> 
     links
 }
 
-fn process_custom_backups(cfg: &Config, saves_root: &Path, strategy: Strategy) -> Vec<LinkEntry> {
+fn process_custom_backups(
+    cfg: &Config,
+    saves_root: &Path,
+    strategy: Strategy,
+    tops: &mut FolderNames,
+) -> Vec<LinkEntry> {
     let custom: Vec<(&str, &str)> = cfg
         .values()
         .iter()
@@ -304,7 +342,7 @@ fn process_custom_backups(cfg: &Config, saves_root: &Path, strategy: Strategy) -
         .into_iter()
         .map(|(name, source)| {
             let src = base_path(source);
-            let top = sanitize_title(name);
+            let top = tops.claim(&sanitize_title(name));
             sync_directory(name, &src, &saves_root.join(&top), strategy);
             LinkEntry {
                 top,
@@ -327,8 +365,14 @@ pub fn run(games: &[Game], cfg: &Config) {
         format!("{strategy:?}").to_lowercase()
     );
 
-    let mut links = process_game_saves(games, &saves_root, strategy);
-    links.extend(process_custom_backups(cfg, &saves_root, strategy));
+    let mut tops = FolderNames::default();
+    let mut links = process_game_saves(games, &saves_root, strategy, &mut tops);
+    links.extend(process_custom_backups(
+        cfg,
+        &saves_root,
+        strategy,
+        &mut tops,
+    ));
 
     let link_root = cfg.saves_links_dir();
     if links.is_empty() {
@@ -370,6 +414,105 @@ mod tests {
         std::fs::remove_file(src.join("slot1.sav")).unwrap();
         restore_dir("Game", &src, &dst);
         assert_eq!(std::fs::read(src.join("slot1.sav")).unwrap(), b"one");
+    }
+
+    fn game_with_saves(title: &str, saves: Vec<PathBuf>) -> Game {
+        Game {
+            title: title.into(),
+            resolved_save_paths: saves,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn folder_names_add_a_number_to_a_taken_name_ignoring_case() {
+        let mut names = FolderNames::default();
+        assert_eq!(names.claim("Saves"), "Saves");
+        assert_eq!(names.claim("saves"), "saves_2");
+        assert_eq!(names.claim("Saves"), "Saves_3");
+    }
+
+    #[test]
+    fn save_paths_with_the_same_folder_name_back_up_to_separate_folders() {
+        let dir = TempDir::new();
+        dir.write("local/Studio/Saves/a.sav", b"a");
+        dir.write("documents/Studio/Saves/b.sav", b"b");
+        let game = game_with_saves(
+            "Game",
+            vec![
+                dir.path().join("local/Studio/Saves"),
+                dir.path().join("documents/Studio/Saves"),
+            ],
+        );
+        let root = dir.path().join("saves-copies");
+
+        process_game_saves(
+            &[game],
+            &root,
+            Strategy::Backup,
+            &mut FolderNames::default(),
+        );
+        assert!(root.join("Game/Saves/a.sav").exists());
+        assert!(root.join("Game/Saves_2/b.sav").exists());
+    }
+
+    #[test]
+    fn titles_that_sanitize_alike_back_up_to_separate_folders() {
+        let dir = TempDir::new();
+        dir.write("one/a.sav", b"a");
+        dir.write("two/b.sav", b"b");
+        let games = [
+            game_with_saves("Game: X", vec![dir.path().join("one")]),
+            game_with_saves("Game? X", vec![dir.path().join("two")]),
+        ];
+        let root = dir.path().join("saves-copies");
+
+        process_game_saves(&games, &root, Strategy::Backup, &mut FolderNames::default());
+        assert!(root.join("Game__X/a.sav").exists());
+        assert!(root.join("Game__X_2/b.sav").exists());
+    }
+
+    #[test]
+    fn custom_backup_named_like_a_game_gets_its_own_folder() {
+        let dir = TempDir::new();
+        dir.write("game/a.sav", b"a");
+        dir.write("custom/b.cfg", b"b");
+        let game = game_with_saves("shaders", vec![dir.path().join("game")]);
+        let values = [(
+            "BACKUP_shaders".to_string(),
+            dir.path().join("custom").to_string_lossy().into_owned(),
+        )];
+        let cfg = Config::from_raw(
+            dir.path().join("system/config.txt"),
+            values.into_iter().collect(),
+        );
+
+        run(&[game], &cfg);
+        assert!(dir.path().join("saves-copies/shaders/a.sav").exists());
+        assert!(dir.path().join("saves-copies/shaders_2/b.cfg").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn second_save_path_replaces_the_game_link_with_a_folder() {
+        let dir = TempDir::new();
+        let first = dir.mkdir("live/first");
+        let second = dir.mkdir("live/second");
+        let root = dir.mkdir("saves-links");
+        std::os::unix::fs::symlink(&first, root.join("Game")).unwrap();
+        let entries = [&first, &second].map(|source| LinkEntry {
+            top: "Game".into(),
+            sub: source.file_name().map(|n| n.to_string_lossy().into_owned()),
+            source: source.clone(),
+        });
+
+        build_symlink_tree(&entries, &root);
+        assert!(!paths::is_symlink(&root.join("Game")));
+        assert_eq!(
+            std::fs::read_link(root.join("Game/second")).unwrap(),
+            second
+        );
+        assert_eq!(paths::sorted_entries(&first), Vec::<String>::new());
     }
 
     #[cfg(unix)]
