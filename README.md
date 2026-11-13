@@ -96,7 +96,9 @@ Without a display (e.g. over SSH) the UI isn't available, so •cartridge runs t
 | Confirm (Library: play) | Enter / Space | A | Click the focused row |
 | Edit (Library: edit game) | X | X | — |
 | Back (other tabs: to Library; Library: **hold 1 s to quit**) | Esc / Backspace | B | — |
-| Switch tab | Q / E or 1 2 3 | LB / RB | — |
+| Library: add to / remove from Steam; Network, Mods: refresh | H | Y | — |
+| Mute / unmute the background music | M | Select | — |
+| Switch tab | Q / E or 1 to 5 | LB / RB | — |
 | Fullscreen | F | — | — |
 
 In text fields, the physical keyboard types directly; on a gamepad use the on-screen keyboard (A types, B deletes, X space, Y shift, Start accepts).

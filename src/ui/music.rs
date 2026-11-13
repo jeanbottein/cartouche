@@ -1,7 +1,7 @@
 //! Background music: every audio file under the workspace's `system/`
-//! folder, shuffled, looping. Fades out and pauses while a game runs, fades
-//! back in when it exits. Off with `MUSIC_ENABLED=False`, or when built
-//! without the `music` feature.
+//! folder, shuffled, looping, at `MUSIC_VOLUME`. Fades out and pauses while a
+//! game runs or while muted (`MUSIC_ENABLED=False`, toggled by Select), fades
+//! back in to the same track. Silent when built without the `music` feature.
 
 // Without the feature only the stub player is used.
 #![cfg_attr(not(feature = "music"), allow(dead_code))]
@@ -10,8 +10,9 @@ use std::path::{Path, PathBuf};
 
 use crate::core::package;
 
-/// Background level: music sits under the UI, not over it.
-const VOLUME: f32 = 0.5;
+/// `MUSIC_VOLUME` when unset: music sits under the UI, not over it.
+const DEFAULT_PERCENT: f32 = 50.0;
+/// Seconds a fade takes from full volume to silence.
 const FADE_SECS: f32 = 1.5;
 const EXTENSIONS: [&str; 7] = ["mp3", "flac", "ogg", "oga", "wav", "m4a", "aac"];
 
@@ -50,9 +51,17 @@ fn seed() -> u64 {
         .map_or(1, |d| d.as_nanos() as u64)
 }
 
-/// Move `volume` toward `target` by one frame of a `FADE_SECS` fade.
+/// The volume `MUSIC_VOLUME` asks for (a percentage), from 0 to 1.
+pub fn level(setting: Option<&str>) -> f32 {
+    let percent = setting
+        .and_then(|v| v.trim().parse::<f32>().ok())
+        .unwrap_or(DEFAULT_PERCENT);
+    percent.clamp(0.0, 100.0) / 100.0
+}
+
+/// Move `volume` toward `target` by one frame of a fade.
 fn fade_step(volume: f32, target: f32, dt: f32) -> f32 {
-    let step = VOLUME * dt / FADE_SECS;
+    let step = dt / FADE_SECS;
     if volume < target {
         (volume + step).min(target)
     } else {
@@ -69,7 +78,7 @@ mod player {
     use log::{info, warn};
     use rodio::{Decoder, OutputStream, OutputStreamBuilder, Sink};
 
-    use super::{fade_step, seed, shuffled, tracks, VOLUME};
+    use super::{fade_step, seed, shuffled, tracks};
 
     pub struct Music {
         dir: PathBuf,
@@ -78,7 +87,10 @@ mod player {
         sink: Sink,
         /// Tracks left in this round; reshuffled from disk when empty.
         queue: Vec<PathBuf>,
+        /// Where the volume is now, and where it settles when playing.
         volume: f32,
+        level: f32,
+        muted: bool,
         /// No file could be decoded: stop trying (until the app restarts).
         silent: bool,
     }
@@ -101,6 +113,8 @@ mod player {
                 sink,
                 queue: Vec::new(),
                 volume: 0.0,
+                level: super::level(None),
+                muted: false,
                 silent: false,
             })
         }
@@ -109,13 +123,21 @@ mod player {
             &self.dir
         }
 
-        /// Per frame: fade toward silence while `quiet` (a game runs), else
-        /// toward the background level, and keep a track playing.
+        pub fn set_level(&mut self, level: f32) {
+            self.level = level;
+        }
+
+        pub fn set_muted(&mut self, muted: bool) {
+            self.muted = muted;
+        }
+
+        /// Per frame: fade toward silence while `quiet` (a game runs) or
+        /// muted, else toward the level, and keep a track playing.
         pub fn update(&mut self, dt: f32, quiet: bool) {
-            let target = if quiet { 0.0 } else { VOLUME };
+            let target = if quiet || self.muted { 0.0 } else { self.level };
             self.volume = fade_step(self.volume, target, dt);
             self.sink.set_volume(self.volume);
-            if quiet && self.volume == 0.0 {
+            if target == 0.0 && self.volume == 0.0 {
                 self.sink.pause();
                 return;
             }
@@ -171,6 +193,10 @@ mod player {
             Path::new("")
         }
 
+        pub fn set_level(&mut self, _level: f32) {}
+
+        pub fn set_muted(&mut self, _muted: bool) {}
+
         pub fn update(&mut self, _dt: f32, _quiet: bool) {}
     }
 }
@@ -208,10 +234,25 @@ mod tests {
 
     #[test]
     fn fades_reach_their_target_without_overshoot() {
-        let up = (0..200).fold(0.0, |v, _| fade_step(v, VOLUME, 0.016));
-        assert_eq!(up, VOLUME);
-        let half_way = fade_step(VOLUME, 0.0, FADE_SECS / 2.0);
-        assert!((half_way - VOLUME / 2.0).abs() < 1e-6);
+        let up = (0..200).fold(0.0, |v, _| fade_step(v, 0.8, 0.016));
+        assert_eq!(up, 0.8);
+        let half_way = fade_step(1.0, 0.0, FADE_SECS / 2.0);
+        assert!((half_way - 0.5).abs() < 1e-6);
         assert_eq!(fade_step(0.01, 0.0, 1.0), 0.0);
+    }
+
+    #[test]
+    fn a_fade_to_silence_ends_whatever_the_volume() {
+        let down = (0..200).fold(0.5, |v, _| fade_step(v, 0.0, 0.016));
+        assert_eq!(down, 0.0);
+    }
+
+    #[test]
+    fn the_volume_setting_is_a_percentage_defaulting_to_half() {
+        assert_eq!(level(Some("80")), 0.8);
+        assert_eq!(level(Some(" 0 ")), 0.0);
+        assert_eq!(level(Some("150")), 1.0);
+        assert_eq!(level(Some("loud")), 0.5);
+        assert_eq!(level(None), 0.5);
     }
 }

@@ -28,9 +28,11 @@ pub enum Action {
     Edit,
     /// Tertiary action: e.g. shift on the on-screen keyboard (pad Y).
     Alt,
+    /// Mute / unmute the background music (pad Select, keyboard M).
+    ToggleMusic,
 }
 
-const ALL_ACTIONS: [Action; 11] = [
+const ALL_ACTIONS: [Action; 12] = [
     Action::Up,
     Action::Down,
     Action::Left,
@@ -42,6 +44,7 @@ const ALL_ACTIONS: [Action; 11] = [
     Action::TabNext,
     Action::Edit,
     Action::Alt,
+    Action::ToggleMusic,
 ];
 
 const ARROW_KEYS: [(KeyCode, Action); 4] = [
@@ -52,7 +55,7 @@ const ARROW_KEYS: [(KeyCode, Action); 4] = [
 ];
 
 /// Every other key: off while typing, so it reaches the text.
-const COMMAND_KEYS: [(KeyCode, Action); 12] = [
+const COMMAND_KEYS: [(KeyCode, Action); 13] = [
     (KeyCode::W, Action::Up),
     (KeyCode::S, Action::Down),
     (KeyCode::A, Action::Left),
@@ -65,10 +68,11 @@ const COMMAND_KEYS: [(KeyCode, Action); 12] = [
     (KeyCode::E, Action::TabNext),
     (KeyCode::X, Action::Edit),
     (KeyCode::H, Action::Alt),
+    (KeyCode::M, Action::ToggleMusic),
 ];
 
 #[cfg(feature = "gamepad")]
-const PAD_BUTTONS: [(Button, Action); 11] = [
+const PAD_BUTTONS: [(Button, Action); 12] = [
     (Button::DPadUp, Action::Up),
     (Button::DPadDown, Action::Down),
     (Button::DPadLeft, Action::Left),
@@ -80,6 +84,7 @@ const PAD_BUTTONS: [(Button, Action); 11] = [
     (Button::RightTrigger, Action::TabNext),
     (Button::West, Action::Edit),
     (Button::North, Action::Alt),
+    (Button::Select, Action::ToggleMusic),
 ];
 
 #[cfg(feature = "gamepad")]

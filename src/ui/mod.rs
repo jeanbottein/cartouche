@@ -247,6 +247,7 @@ impl Ui {
             Action::Menu => ("START", "START"),
             Action::TabPrev | Action::TabNext => ("LB RB", "Q E"),
             Action::Left | Action::Right => ("< >", "< >"),
+            Action::ToggleMusic => ("SELECT", "M"),
             Action::Up | Action::Down => ("", ""),
         };
         if self.input.gamepad_last() {

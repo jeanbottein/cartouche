@@ -28,6 +28,11 @@ pub enum Kind {
     },
     /// (stored value, shown label) pairs.
     Choice(Vec<(String, String)>),
+    /// 0 to 100, moved by `step`; empty means `default`.
+    Percent {
+        default: u32,
+        step: u32,
+    },
     /// Relative values are relative to `base`.
     Path {
         dirs_only: bool,
@@ -91,6 +96,10 @@ impl Field {
         Field::new(id, label, value, Kind::Choice(options))
     }
 
+    pub fn percent(id: &str, label: &str, value: &str, default: u32, step: u32) -> Field {
+        Field::new(id, label, value, Kind::Percent { default, step })
+    }
+
     pub fn path(id: &str, label: &str, value: &str, dirs_only: bool, base: &Path) -> Field {
         Field::new(
             id,
@@ -140,6 +149,9 @@ impl Field {
                     .map_or(self.value.as_str(), |(_, label)| label.as_str());
                 format!("< {} >", if label.is_empty() { "-" } else { label })
             }
+            Kind::Percent { default, .. } => {
+                format!("{}%", percent_after(&self.value, *default, 0))
+            }
             Kind::Secret if !self.value.is_empty() => {
                 "*".repeat(self.value.chars().count().min(16))
             }
@@ -166,6 +178,12 @@ pub struct Form {
     pub fields: Vec<Field>,
     list: List,
     modal: Option<Modal>,
+}
+
+/// A percentage `value` (else `default`) moved by `delta`, kept within 0 and 100.
+fn percent_after(value: &str, default: u32, delta: i32) -> u32 {
+    let current = value.trim().parse::<u32>().unwrap_or(default).min(100);
+    current.saturating_add_signed(delta).min(100)
 }
 
 /// The browser's pick, relative to `base` when inside it.
@@ -253,6 +271,15 @@ impl Form {
                     (None, _) => 0,
                 };
                 field.value = options[next].0.clone();
+                Some(Event::Changed(id))
+            }
+            Kind::Percent { default, step } if left || right => {
+                let delta = if left { -(*step as i32) } else { *step as i32 };
+                let next = percent_after(&field.value, *default, delta).to_string();
+                if next == field.value {
+                    return None;
+                }
+                field.value = next;
                 Some(Event::Changed(id))
             }
             Kind::Path { dirs_only, base } if activated => {
@@ -405,6 +432,14 @@ impl Form {
             _ if focused => theme::text(),
             _ => theme::info(),
         };
+        if let Kind::Percent { default, .. } = field.kind {
+            let fraction = percent_after(&field.value, default, 0) as f32 / 100.0;
+            let bar_w = (value_w - ui.measure("100%") - 10.0).min(160.0);
+            let track = Rect::new(r.x + label_w, r.y + r.h / 2.0 - 3.0, bar_w, 6.0);
+            style::bar(track, fraction, value_color);
+            ui.text(&shown, track.right() + 10.0, baseline, value_color);
+            return;
+        }
         ui.text(&shown, r.x + label_w, baseline, value_color);
     }
 
@@ -421,7 +456,9 @@ impl Form {
             Kind::Section => Vec::new(),
             Kind::Button(_) => vec![ui.hint(Action::Confirm, "Select", theme::accent())],
             Kind::Flag { .. } => vec![ui.hint(Action::Confirm, "Toggle", theme::accent())],
-            Kind::Choice(_) => vec![ui.hint(Action::Left, "Change", theme::accent())],
+            Kind::Choice(_) | Kind::Percent { .. } => {
+                vec![ui.hint(Action::Left, "Change", theme::accent())]
+            }
             Kind::Path { .. } => vec![
                 ui.hint(Action::Confirm, "Browse", theme::accent()),
                 ui.hint(Action::Edit, "Type", theme::info()),
@@ -452,6 +489,15 @@ mod tests {
             picked_value(Path::new("/other/x"), Path::new("/ws")),
             "/other/x"
         );
+    }
+
+    #[test]
+    fn percentages_step_within_0_and_100() {
+        assert_eq!(percent_after("50", 50, 5), 55);
+        assert_eq!(percent_after("", 40, -5), 35);
+        assert_eq!(percent_after("98", 50, 5), 100);
+        assert_eq!(percent_after("3", 50, -5), 0);
+        assert_eq!(percent_after("junk", 50, 5), 55);
     }
 
     #[test]

@@ -1,6 +1,7 @@
 //! Application shell: shared state, the tab bar and footer, global toggles,
 //! the "now playing" lock while a game runs, and per-screen dispatch.
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::mpsc::{channel, Receiver};
 
@@ -17,14 +18,14 @@ use super::jobs::{Jobs, Kind};
 use super::launcher::Session;
 use super::library::{self, Library};
 use super::mods::ModsScreen;
-use super::music::Music;
+use super::music::{self, Music};
 use super::network::{self, Network};
 use super::settings::Settings;
 use super::setup::{self, Setup};
 use super::status::Status;
 use super::{style, wants_fullscreen, Hint, Ui};
 use crate::core::app::{exe_dir, find_system_dir};
-use crate::core::config::Config;
+use crate::core::config::{self, Config};
 use crate::core::logging::{self, Line};
 use crate::core::share::{self, client, server::Server};
 use crate::core::{init, migrations};
@@ -95,7 +96,7 @@ pub struct App {
     input_resume_at: f64,
     /// LAN sharing server, while `SHARE_ENABLED` is on.
     server: Option<Server>,
-    /// Background music, while `MUSIC_ENABLED` is on and there are tracks.
+    /// Background music, once `MUSIC_ENABLED` was on and there are tracks.
     music: Option<Music>,
     /// Steam shortcuts were added or removed: offer to restart Steam on quit.
     steam_changed: bool,
@@ -190,18 +191,39 @@ impl App {
             .set_widescreen(Widescreen::parse(cfg.get("WIDESCREEN")));
     }
 
-    /// Start or stop the music to match the config (and the workspace folder).
+    /// Match the music to the config: started for the workspace folder when
+    /// on, at its volume; muted when off, so a player already playing fades
+    /// out and resumes the same track once turned back on.
     fn sync_music(&mut self) {
         let Some(cfg) = &self.config else { return };
-        if !cfg.is_not_false("MUSIC_ENABLED") {
-            self.music = None;
-            return;
-        }
+        let enabled = cfg.is_not_false("MUSIC_ENABLED");
         let dir = cfg.system_dir();
-        if self.music.as_ref().is_some_and(|m| m.dir() == dir) {
+        if enabled && self.music.as_ref().is_none_or(|m| m.dir() != dir) {
+            self.music = Music::start(&dir);
+        }
+        if let Some(music) = &mut self.music {
+            music.set_level(music::level(cfg.get("MUSIC_VOLUME")));
+            music.set_muted(!enabled);
+        }
+    }
+
+    /// Select: turn the background music off or back on, as Settings does.
+    fn toggle_music(&mut self) {
+        let Some(cfg) = &self.config else { return };
+        let value = if cfg.is_not_false("MUSIC_ENABLED") {
+            "False"
+        } else {
+            "True"
+        };
+        let update = BTreeMap::from([("MUSIC_ENABLED".to_string(), value.to_string())]);
+        if let Err(e) = config::update_file(&cfg.path, &update) {
+            log::error!("Cannot save MUSIC_ENABLED: {e}");
             return;
         }
-        self.music = Music::start(&dir);
+        self.reload_config();
+        if let Some(settings) = &mut self.settings {
+            settings.note("Saved MUSIC_ENABLED.", theme::Tone::Accent);
+        }
     }
 
     /// Start, restart (port or folder changed) or stop the sharing server to
@@ -350,6 +372,9 @@ impl App {
     fn handle_global(&mut self) {
         if is_key_pressed(KeyCode::F) {
             self.set_fullscreen(!self.fullscreen);
+        }
+        if self.ui.action(Action::ToggleMusic) {
+            self.toggle_music();
         }
         if self.modal_open() {
             return;
@@ -688,9 +713,9 @@ impl App {
         draw_rectangle(0.0, HEADER_H, w, 1.0, theme::border());
     }
 
-    /// Right side of the header: the cartridge's name, then the pipeline run,
-    /// transfers and sharing. Stops before running into the tabs (which end
-    /// at `tabs_end`).
+    /// Right side of the header: the cartridge's name, then music muted, the
+    /// pipeline run, transfers and sharing. Stops before running into the
+    /// tabs (which end at `tabs_end`).
     fn draw_indicators(&self, tabs_end: f32, w: f32) {
         let mut x = w - MARGIN;
         let mut indicator = |label: &str, color: Color, busy: bool| {
@@ -709,6 +734,9 @@ impl App {
         };
         if let Some(cfg) = &self.config {
             indicator(&cfg.label(), theme::muted(), false);
+            if !cfg.is_not_false("MUSIC_ENABLED") {
+                indicator("MUTED", theme::secondary(), false);
+            }
         }
         if self.status.is_running() {
             indicator("RUNNING", theme::secondary(), true);

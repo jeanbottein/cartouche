@@ -25,6 +25,8 @@ enum Kind {
     Flag(bool),
     /// One of these values; the first is the default.
     Choice(&'static [&'static str]),
+    /// 0 to 100 %, with this default.
+    Percent(u32),
     /// A Steam account on this machine; empty means all of them.
     SteamUser,
     /// One of the UI themes; empty means the default.
@@ -51,7 +53,8 @@ const SCHEMA: [(&str, &[Setting]); 5] = [
     ("GENERAL", &[
         s(SELF_SHORTCUT, "in Steam", Kind::Flag(false), "Add this cartridge to Steam under its folder name, with retro artwork (or your cover.png, hero.png... in system/). Applied right away."),
         s("SAVESCOPY_STRATEGY", "Save strategy", Kind::Choice(STRATEGIES), "backup: copy saves into saves-copies/. restore: copy them back over the saves, every run (careful!)."),
-        s("MUSIC_ENABLED", "Background music", Kind::Flag(true), "Shuffle the audio files in the workspace's system/ folder (mp3, flac, ogg, wav, m4a). Fades out while a game runs."),
+        s("MUSIC_ENABLED", "Background music", Kind::Flag(true), "Shuffle the audio files in system/ (mp3, flac, ogg, wav, m4a); fades out while a game runs. SELECT (M) turns it on and off anywhere."),
+        s("MUSIC_VOLUME", "Music volume", Kind::Percent(50), "How loud the background music plays. Applied right away."),
     ]),
     ("DISPLAY", &[
         s("THEME", "Theme", Kind::Theme, "Colors, font and shapes of the interface. The layout stays the same."),
@@ -109,6 +112,7 @@ fn fields(cfg: &Config) -> Vec<Field> {
                     Kind::Text => Field::text(s.key, label, v),
                     Kind::Secret => Field::secret(s.key, label, v),
                     Kind::Flag(default) => Field::flag(s.key, label, v, default),
+                    Kind::Percent(default) => Field::percent(s.key, label, v, default, 5),
                     Kind::Choice(options) => {
                         let v = if v.is_empty() { options[0] } else { v };
                         Field::choice(s.key, label, v, options)
