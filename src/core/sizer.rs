@@ -1,5 +1,5 @@
-//! Pipeline step: measure each installed game's size on disk and store it in
-//! `game.json` when it changed.
+//! Pipeline step: measure the size on disk of installed games whose size
+//! isn't known yet, and store it in `game.json`.
 
 use std::path::Path;
 
@@ -32,22 +32,26 @@ pub fn human(bytes: u64) -> String {
     format!("{value:.1} {}", UNITS[exponent])
 }
 
-/// Update `size` on installed games; flags changed ones for persistence.
+/// Measure installed games of unknown size; flags them for persistence.
+/// A known size is kept: walking every game's files on every run is slow on
+/// a big library (SD card), and unpacking records the size anyway.
 pub fn measure(games: &mut [Game]) {
-    let mut changed = 0;
-    for game in games.iter_mut().filter(|g| g.is_installed()) {
+    let mut measured = 0;
+    for game in games
+        .iter_mut()
+        .filter(|g| g.is_installed() && g.size.is_none())
+    {
         match measure_game(&game.dir) {
-            Ok(size) if game.size != Some(size) => {
+            Ok(size) => {
                 game.size = Some(size);
                 game.needs_persist = true;
-                changed += 1;
+                measured += 1;
             }
-            Ok(_) => {}
             Err(e) => warn!("  Cannot measure {}: {e}", game.folder_name),
         }
     }
-    if changed > 0 {
-        info!("Measured {changed} game(s) with a new size");
+    if measured > 0 {
+        info!("Measured {measured} game(s)");
     }
 }
 
@@ -74,20 +78,22 @@ mod tests {
     }
 
     #[test]
-    fn flags_only_changed_installed_games() {
+    fn measures_only_installed_games_of_unknown_size() {
         let dir = TempDir::new();
-        dir.write("Same/a", &[0; 4]);
+        dir.write("Known/a", &[0; 4]);
         dir.write("New/a", &[0; 4]);
-        let mut same = Game::skeleton(&dir.path().join("Same"));
-        same.size = Some(4);
+        // Walking every game on every run is slow on a big SD card: a known
+        // size stays until the game is installed again.
+        let mut known = Game::skeleton(&dir.path().join("Known"));
+        known.size = Some(1);
         let new = Game::skeleton(&dir.path().join("New"));
         let mut packaged = Game::skeleton(&dir.path().join("Missing"));
         packaged.install = Install::Packaged {
             package: dir.path().join("Missing.cartridge.tar"),
         };
-        let mut games = vec![same, new, packaged];
+        let mut games = vec![known, new, packaged];
         measure(&mut games);
-        assert!(!games[0].needs_persist);
+        assert!(!games[0].needs_persist && games[0].size == Some(1));
         assert!(games[1].needs_persist && games[1].size == Some(4));
         assert!(!games[2].needs_persist && games[2].size.is_none());
     }
