@@ -206,19 +206,12 @@ pub fn apply(patch: &Patch, folder: &Path, target: &Path) -> Result<(), String> 
     }
 }
 
-/// Patch via a temporary file, then move it over the target.
+/// Patch in memory, then replace the target atomically, keeping its permissions.
 fn apply_bps(patch_file: &Path, target: &Path) -> Result<(), String> {
-    let patched = PathBuf::from(format!("{}.patched", target.display()));
-    let result = std::fs::read(patch_file)
-        .and_then(|patch| Ok((patch, std::fs::read(target)?)))
-        .map_err(|e| e.to_string())
-        .and_then(|(patch, source)| bps::apply(&patch, &source))
-        .and_then(|out| std::fs::write(&patched, out).map_err(|e| e.to_string()))
-        .and_then(|_| std::fs::rename(&patched, target).map_err(|e| e.to_string()));
-    if result.is_err() {
-        let _ = std::fs::remove_file(&patched);
-    }
-    result
+    let patch = std::fs::read(patch_file).map_err(|e| e.to_string())?;
+    let source = std::fs::read(target).map_err(|e| e.to_string())?;
+    let patched = bps::apply(&patch, &source)?;
+    paths::write_atomic(target, patched).map_err(|e| e.to_string())
 }
 
 /// Put the original back (the backup moves over the target).
@@ -291,6 +284,21 @@ mod tests {
         assert_eq!(std::fs::read(&target).unwrap(), SOURCE);
         assert!(!backup_of(&target).exists());
         assert_eq!(state(&p, &mods, Some(&target)), FileState::Original);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_patched_program_stays_executable() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = TempDir::new();
+        let mods = dir.mkdir("mods");
+        dir.write("mods/fix", PATCH);
+        let target = dir.write("games/Game/data", SOURCE);
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        apply(&patch("patch"), &mods, &target).unwrap();
+        let mode = std::fs::metadata(&target).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o755);
     }
 
     #[test]
