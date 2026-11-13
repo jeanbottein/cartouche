@@ -1,4 +1,4 @@
-//! Unified input layer (ENGINE-3).
+//! Unified input layer.
 //!
 //! Collapses keyboard, gamepad (via `gilrs`, behind the `gamepad` feature) and —
 //! for pointing — mouse into a single [`Action`] vocabulary so the rest of the app
@@ -51,11 +51,8 @@ const ARROW_KEYS: [(KeyCode, Action); 4] = [
     (KeyCode::Right, Action::Right),
 ];
 
-const KEYS: [(KeyCode, Action); 16] = [
-    (KeyCode::Up, Action::Up),
-    (KeyCode::Down, Action::Down),
-    (KeyCode::Left, Action::Left),
-    (KeyCode::Right, Action::Right),
+/// Every other key: off while typing, so it reaches the text.
+const COMMAND_KEYS: [(KeyCode, Action); 12] = [
     (KeyCode::W, Action::Up),
     (KeyCode::S, Action::Down),
     (KeyCode::A, Action::Left),
@@ -68,6 +65,21 @@ const KEYS: [(KeyCode, Action); 16] = [
     (KeyCode::E, Action::TabNext),
     (KeyCode::X, Action::Edit),
     (KeyCode::H, Action::Alt),
+];
+
+#[cfg(feature = "gamepad")]
+const PAD_BUTTONS: [(Button, Action); 11] = [
+    (Button::DPadUp, Action::Up),
+    (Button::DPadDown, Action::Down),
+    (Button::DPadLeft, Action::Left),
+    (Button::DPadRight, Action::Right),
+    (Button::South, Action::Confirm),
+    (Button::East, Action::Back),
+    (Button::Start, Action::Menu),
+    (Button::LeftTrigger, Action::TabPrev),
+    (Button::RightTrigger, Action::TabNext),
+    (Button::West, Action::Edit),
+    (Button::North, Action::Alt),
 ];
 
 #[cfg(feature = "gamepad")]
@@ -220,67 +232,29 @@ impl Input {
     fn collect_down(&self) -> HashSet<Action> {
         let mut s = HashSet::new();
 
-        // --- Keyboard ---
-        let keys: &[(KeyCode, Action)] = if self.text_mode { &ARROW_KEYS } else { &KEYS };
-        for &(key, action) in keys {
+        let commands: &[(KeyCode, Action)] = if self.text_mode { &[] } else { &COMMAND_KEYS };
+        for &(key, action) in ARROW_KEYS.iter().chain(commands) {
             if is_key_down(key) {
                 s.insert(action);
             }
         }
 
-        // --- Gamepad (any connected pad) ---
         #[cfg(feature = "gamepad")]
         if let Some(g) = self.gilrs.as_ref() {
             for (_id, pad) in g.gamepads() {
-                if pad.is_pressed(Button::DPadUp) {
-                    s.insert(Action::Up);
+                for &(button, action) in &PAD_BUTTONS {
+                    if pad.is_pressed(button) {
+                        s.insert(action);
+                    }
                 }
-                if pad.is_pressed(Button::DPadDown) {
-                    s.insert(Action::Down);
-                }
-                if pad.is_pressed(Button::DPadLeft) {
-                    s.insert(Action::Left);
-                }
-                if pad.is_pressed(Button::DPadRight) {
-                    s.insert(Action::Right);
-                }
-
-                let ly = pad.value(Axis::LeftStickY);
-                if ly > DEADZONE {
-                    s.insert(Action::Up);
-                }
-                if ly < -DEADZONE {
-                    s.insert(Action::Down);
-                }
-                let lx = pad.value(Axis::LeftStickX);
-                if lx > DEADZONE {
-                    s.insert(Action::Right);
-                }
-                if lx < -DEADZONE {
-                    s.insert(Action::Left);
-                }
-
-                if pad.is_pressed(Button::South) {
-                    s.insert(Action::Confirm);
-                }
-                if pad.is_pressed(Button::East) {
-                    s.insert(Action::Back);
-                }
-                if pad.is_pressed(Button::Start) {
-                    s.insert(Action::Menu);
-                }
-                if pad.is_pressed(Button::LeftTrigger) {
-                    s.insert(Action::TabPrev);
-                }
-                if pad.is_pressed(Button::RightTrigger) {
-                    s.insert(Action::TabNext);
-                }
-                if pad.is_pressed(Button::West) {
-                    s.insert(Action::Edit);
-                }
-                if pad.is_pressed(Button::North) {
-                    s.insert(Action::Alt);
-                }
+                let (x, y) = (pad.value(Axis::LeftStickX), pad.value(Axis::LeftStickY));
+                let stick = [
+                    (y > DEADZONE, Action::Up),
+                    (y < -DEADZONE, Action::Down),
+                    (x > DEADZONE, Action::Right),
+                    (x < -DEADZONE, Action::Left),
+                ];
+                s.extend(stick.iter().filter(|(pushed, _)| *pushed).map(|&(_, a)| a));
             }
         }
 
