@@ -138,11 +138,7 @@ pub fn resolve_target(game_dir: &Path, target: &Target) -> Resolved {
 
 /// `${steamappid}` / `${proton_c}` for a game's save paths: the AppID Steam gives
 /// its non-Steam shortcut, which is also the Proton prefix folder name.
-pub fn save_path_vars(title: &str, target: &Path) -> HashMap<String, String> {
-    if title.is_empty() {
-        return HashMap::new();
-    }
-    let appid = steam::generate_appid(title, &paths::lossy(target));
+pub fn save_path_vars(appid: u32) -> HashMap<String, String> {
     HashMap::from([
         ("steamappid".to_string(), appid.to_string()),
         ("proton_c".to_string(), steam::proton_prefix(appid)),
@@ -203,10 +199,8 @@ pub fn resolve_save_entry(
 /// Fill the runtime fields (best target, save paths) for the current platform.
 pub fn resolve_runtime(game: &mut Game) {
     game.resolved = pick_target(&game.targets).map(|t| resolve_target(&game.dir, t));
-    let vars = game
-        .resolved
-        .as_ref()
-        .map(|r| save_path_vars(&game.title, &r.target))
+    let vars = steam::appid_of(game)
+        .map(save_path_vars)
         .unwrap_or_default();
     let target_os = game
         .resolved

@@ -17,7 +17,7 @@ use crate::core::config::Config;
 use crate::core::models::{is_env_name, Game, ImageSlot, Images, Install, SavePath, Target};
 use crate::core::platform::{arch_tag, os_tag};
 use crate::core::sgdb::{self, SearchHit};
-use crate::core::{detector, paths, persister, proton, scanner};
+use crate::core::{detector, paths, persister, proton, scanner, steam};
 
 const OS_OPTIONS: &[&str] = &["linux", "windows", "macos", "android", "web", "any"];
 const ARCH_OPTIONS: &[&str] = &["x64", "arm64", "any"];
@@ -283,11 +283,16 @@ impl Editor {
 
     pub fn new(game: &Game, cfg: &Config) -> Editor {
         let proton_tools = installed_proton_tools();
+        // Kept before any rename in here can change it (saved with the game).
+        let game = Game {
+            steam_appid: game.steam_appid.or_else(|| steam::appid_of(game)),
+            ..game.clone()
+        };
         let mut editor = Editor {
+            saved_json: cleaned(&game).to_json(),
             game: game.clone(),
-            saved_json: cleaned(game).to_json(),
             cfg: cfg.clone(),
-            form: Form::new(fields(game, &proton_tools)),
+            form: Form::new(fields(&game, &proton_tools)),
             dialog: None,
             fetch: None,
             search: None,
@@ -413,7 +418,8 @@ impl Editor {
         let Some(exe) = self.current_exe() else {
             return self.say("No executable found to get the app ID.", Tone::Secondary);
         };
-        let found = detector::detect_proton_save_paths(&self.game.title, &exe);
+        let appid = steam::appid_for(&self.game, &exe);
+        let found = detector::detect_proton_save_paths(&self.game.title, appid);
         if found.is_empty() {
             return self.say("No saves found in the Proton prefix.", Tone::Secondary);
         }
@@ -441,7 +447,7 @@ impl Editor {
         };
         let vars = self
             .current_exe()
-            .map(|exe| scanner::save_path_vars(&self.game.title, &exe))
+            .map(|exe| scanner::save_path_vars(steam::appid_for(&self.game, &exe)))
             .unwrap_or_default();
         let entry = SavePath {
             os: if entry.os.is_empty() {

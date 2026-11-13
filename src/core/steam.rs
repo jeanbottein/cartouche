@@ -34,6 +34,18 @@ pub fn generate_appid(name: &str, exe: &str) -> u32 {
     crc32fast::hash(format!("{exe}{name}").as_bytes()) | 0x8000_0000
 }
 
+/// The AppID of `game`'s shortcut and Proton prefix when it runs `exe`: the
+/// one game.json keeps, else the one its title gives now.
+pub fn appid_for(game: &Game, exe: &Path) -> u32 {
+    game.steam_appid
+        .unwrap_or_else(|| generate_appid(&game.title, &paths::lossy(exe)))
+}
+
+/// `appid_for` the game's resolved target.
+pub fn appid_of(game: &Game) -> Option<u32> {
+    game.resolved.as_ref().map(|r| appid_for(game, &r.target))
+}
+
 /// `shortcuts.vdf` stores AppIDs as signed 32-bit ints.
 pub fn signed32(appid: u32) -> i32 {
     appid as i32
@@ -702,14 +714,16 @@ fn export_to_user(
         let icon = icon_path(game, &grid, appid);
         let managed = managed_launch_options(game);
         let entry = |options: &str| {
-            make_shortcut(
+            let mut entry = make_shortcut(
                 &game.title,
                 &target,
                 &start_in,
                 options,
                 &icon,
                 &[&owner.tag, &owner.label],
-            )
+            );
+            entry.insert("appid", Value::Int32(signed32(appid)));
+            entry
         };
 
         // (key, launch options to keep, changed?) of the shortcut we already
@@ -723,7 +737,7 @@ fn export_to_user(
             let wanted = entry(&options);
             let changed = appname(s) != game.title
                 || options != current
-                || ["icon", "StartDir", "tags"]
+                || ["appid", "icon", "StartDir", "tags"]
                     .iter()
                     .any(|key| s.get(key) != wanted.get(key));
             Some((k.clone(), options, changed))
@@ -822,7 +836,7 @@ fn export_games(
 }
 
 fn with_appid(game: &Game) -> Option<(&Game, u32)> {
-    resolved_target(game).map(|t| (game, generate_appid(&game.title, &t)))
+    appid_of(game).map(|appid| (game, appid))
 }
 
 /// Pipeline step 6: create/update the shortcuts of the games the user put in
@@ -1179,6 +1193,42 @@ mod tests {
                 .len(),
             1
         );
+    }
+
+    #[test]
+    fn a_renamed_game_keeps_its_stored_appid() {
+        let dir = TempDir::new();
+        let config_dir = dir.mkdir("userdata/1/config");
+        let mut game = Game::skeleton(&dir.mkdir("games/Celeste"));
+        game.resolved = Some(Resolved {
+            target: "/g/celeste".into(),
+            ..Default::default()
+        });
+        game.steam_appid = appid_of(&game);
+        let before = game.steam_appid.unwrap();
+        game.title = "Celeste DX".into();
+        assert_eq!(appid_of(&game), Some(before));
+
+        let owner = Owner {
+            tag: "cartridge:1".into(),
+            label: "games".into(),
+        };
+        export_to_user(&config_dir, &[with_appid(&game).unwrap()], &owner).unwrap();
+        let saved = load_shortcuts(&shortcuts_path(&config_dir)).unwrap();
+        let entry = as_shortcut(saved.values().next().unwrap()).unwrap();
+        assert_eq!(entry.get_int("appid"), Some(i64::from(signed32(before))));
+        assert_eq!(appname(entry), "Celeste DX");
+    }
+
+    #[test]
+    fn without_a_stored_appid_it_comes_from_title_and_exe() {
+        let mut game = Game::skeleton(Path::new("/g/Hollow Knight"));
+        game.title = "Hollow Knight".into();
+        game.resolved = Some(Resolved {
+            target: "/g/Hollow Knight/hollow_knight.exe".into(),
+            ..Default::default()
+        });
+        assert_eq!(appid_of(&game), Some(3770780903));
     }
 
     #[test]

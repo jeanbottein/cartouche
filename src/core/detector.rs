@@ -289,10 +289,25 @@ pub fn collect_targets(game_dir: &Path) -> Vec<Target> {
 /// native targets back the execute bit a copy lost.
 pub fn detect(games: &mut [Game]) {
     detect_missing_targets(games);
+    remember_appids(games);
     games
         .iter()
         .filter(|g| g.is_installed())
         .for_each(restore_exec_bits);
+}
+
+/// Store the AppID each game has now (from its current title), so a later
+/// rename keeps its Steam shortcut, Proton prefix and saves.
+fn remember_appids(games: &mut [Game]) {
+    for game in games
+        .iter_mut()
+        .filter(|g| g.is_installed() && g.steam_appid.is_none())
+    {
+        if let Some(appid) = steam::appid_of(game) {
+            game.steam_appid = Some(appid);
+            game.needs_persist = true;
+        }
+    }
 }
 
 fn restore_exec_bits(game: &Game) {
@@ -440,12 +455,11 @@ fn search_proton_dir(
 
 /// Save folders inside a game's Proton prefix whose name contains the title,
 /// as Windows-style paths (`%APPDATA%/...`).
-pub fn detect_proton_save_paths(title: &str, exe: &Path) -> Vec<SavePath> {
+pub fn detect_proton_save_paths(title: &str, appid: u32) -> Vec<SavePath> {
     let title_key = alphanumeric_key(title);
     if title_key.is_empty() {
         return Vec::new();
     }
-    let appid = steam::generate_appid(title, &paths::lossy(exe));
     let drive_c = paths::expand(&steam::proton_prefix(appid));
     if !drive_c.is_dir() {
         return Vec::new();
@@ -556,6 +570,38 @@ mod tests {
 
         let best = best_windows_exe(&game, 1).unwrap();
         assert_eq!(best.file_name().unwrap(), wanted);
+    }
+
+    #[test]
+    fn detection_stores_the_appid_the_game_has_now_and_keeps_a_stored_one() {
+        let dir = TempDir::new();
+        let game_dir = dir.mkdir("Game");
+        let exe = dir.write("Game/Game.exe", &pe(0x8664));
+        let target = Target {
+            target: "Game.exe".into(),
+            os: "windows".into(),
+            ..Default::default()
+        };
+        let mut games = [
+            Game {
+                targets: vec![target.clone()],
+                resolved: Some(scanner::resolve_target(&game_dir, &target)),
+                ..Game::skeleton(&game_dir)
+            },
+            Game {
+                targets: vec![target.clone()],
+                resolved: Some(scanner::resolve_target(&game_dir, &target)),
+                steam_appid: Some(42),
+                ..Game::skeleton(&game_dir)
+            },
+        ];
+
+        detect(&mut games);
+        let expected = steam::generate_appid("Game", &paths::lossy(&exe));
+        assert_eq!(games[0].steam_appid, Some(expected));
+        assert!(games[0].needs_persist);
+        assert_eq!(games[1].steam_appid, Some(42));
+        assert!(!games[1].needs_persist);
     }
 
     #[test]

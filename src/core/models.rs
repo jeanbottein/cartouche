@@ -266,6 +266,9 @@ pub struct Game {
     pub proton: Proton,
     pub save_paths: Vec<SavePath>,
     pub steamgriddb_id: Option<i64>,
+    /// The AppID of the game's Steam shortcut (and Proton prefix), kept once
+    /// known so a rename doesn't move it: see `steam::appid_of`.
+    pub steam_appid: Option<u32>,
     pub images: Images,
     pub notes: String,
     pub year: Option<u32>,
@@ -298,6 +301,8 @@ struct GameFileOut<'a> {
     images: &'a Images,
     #[serde(skip_serializing_if = "Option::is_none")]
     steamgriddb_id: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    steam_appid: Option<u32>,
     #[serde(skip_serializing_if = "str::is_empty")]
     notes: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -324,6 +329,7 @@ struct GameFileIn {
     save_paths: Value,
     images: Value,
     steamgriddb_id: Value,
+    steam_appid: Value,
     notes: Value,
     year: Value,
     players: Value,
@@ -372,6 +378,9 @@ impl Game {
             proton: serde_json::from_value(file.proton).unwrap_or_default(),
             save_paths: entries(file.save_paths),
             steamgriddb_id: as_id(&file.steamgriddb_id),
+            steam_appid: as_id(&file.steam_appid)
+                .and_then(|id| u32::try_from(id).ok())
+                .filter(|&id| id != 0),
             images: serde_json::from_value(file.images).unwrap_or_default(),
             notes: file.notes.as_str().unwrap_or_default().to_string(),
             year: as_id(&file.year).and_then(|y| u32::try_from(y).ok()),
@@ -393,6 +402,7 @@ impl Game {
             save_paths: &self.save_paths,
             images: &self.images,
             steamgriddb_id: self.steamgriddb_id,
+            steam_appid: self.steam_appid,
             notes: &self.notes,
             year: self.year,
             players: &self.players,
@@ -499,6 +509,18 @@ mod tests {
         assert_eq!(game.targets[0].os, "");
         assert_eq!(game.images.cover, None);
         assert!(game.save_paths.is_empty());
+    }
+
+    #[test]
+    fn steam_appid_round_trips_and_is_left_out_when_unknown() {
+        let mut game =
+            Game::from_json(Path::new("/g/Celeste"), r#"{"steam_appid": 3770780903}"#).unwrap();
+        assert_eq!(game.steam_appid, Some(3_770_780_903));
+        assert!(game.to_json().contains("\"steam_appid\": 3770780903"));
+        game.steam_appid = None;
+        assert!(!game.to_json().contains("steam_appid"));
+        let zero = Game::from_json(Path::new("/g/Celeste"), r#"{"steam_appid": 0}"#).unwrap();
+        assert_eq!(zero.steam_appid, None);
     }
 
     #[test]

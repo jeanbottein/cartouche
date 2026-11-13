@@ -407,7 +407,7 @@ impl Runner {
             .resolved
             .as_ref()
             .ok_or("No executable target in game.json")?;
-        let appid = steam::generate_appid(&game.title, &paths::lossy(&resolved.target));
+        let appid = steam::appid_for(game, &resolved.target);
         let tool = installed
             .tool_for(&game.proton.version, appid)
             .ok_or("No Proton installed: install one in Steam (Library > Tools)")?;

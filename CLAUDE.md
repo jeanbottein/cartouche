@@ -74,7 +74,7 @@ Packages: a plain tar of `Foo/` with `.cartridge/package.json` first and `.cartr
 
 ## Key Conventions
 
-- **Compatibility is the contract:** game.json (4-space JSON), shortcuts.vdf, AppIDs (`crc32(exe+title) | 0x80000000`), path normalization and save layout must stay byte-compatible with existing workspaces. Golden tests in `testdata/` guard this.
+- **Compatibility is the contract:** game.json (4-space JSON), shortcuts.vdf, AppIDs (`crc32(exe+title) | 0x80000000`, computed once and kept in game.json `steam_appid` so a rename keeps the shortcut, Proton prefix and saves: always go through `steam::appid_for`/`appid_of`), path normalization and save layout must stay byte-compatible with existing workspaces. Golden tests in `testdata/` guard this.
 - **Fixed layout, no path settings:** `games/`, `mods/`, `saves-copies/`, `saves-links/` sit next to `system/` (`core::app::FOLDERS`, `Config::games_dir()`/`mods_dir()`/...). Users who want a folder elsewhere replace it with a symlink. `RUN_AFTER_*` commands still get `${FREEGAMES_PATH}`, `${PATCHES_PATH}`, `${SAVESCOPY_PATH}`, `${SAVESLINK_PATH}` as read-only folder variables.
 - **`Config`** keeps raw values (Settings editor) and resolved values (only `BACKUP_*` sources are paths, resolved against the cartridge folder).
 - **UI look:** layout is in design pixels (432 px tall canvas), rendered at the window's native resolution, so 480p and 4K share one layout. Screens draw through `ui::style` and `theme::*()` colors, never raw colors; `THEME` (Settings > DISPLAY) swaps palette, typeface and corners, never positions. Add a theme to `engine::theme::THEMES`. `WINDOW_MODE`: borderless (fullscreen, default) or a resizable window; gamescope is always fullscreen.

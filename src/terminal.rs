@@ -12,7 +12,7 @@ use crate::core::config::Config;
 use crate::core::package::{self, Progress};
 use crate::core::pipeline::{Group, Pipeline};
 use crate::core::share::{self, client, discovery::Peer, server::Server};
-use crate::core::{detector, init, migrations, paths, scanner, sgdb, sizer, steam};
+use crate::core::{detector, init, migrations, scanner, sgdb, sizer, steam};
 
 /// The workspace config, running the terminal setup wizard on first use.
 pub fn locate_config(cli_dir: Option<&Path>) -> Option<PathBuf> {
@@ -79,7 +79,7 @@ pub fn preview(cli_dir: Option<&Path>) -> ExitCode {
     );
 
     for (game, resolved) in with_targets {
-        let appid = steam::generate_appid(&game.title, &paths::lossy(&resolved.target));
+        let appid = steam::appid_for(game, &resolved.target);
         info!("  {}", game.title);
         info!(
             "     AppID:    {appid} (signed: {})",
