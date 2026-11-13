@@ -8,6 +8,8 @@
 
 use std::path::{Path, PathBuf};
 
+use super::paths;
+
 /// Identifier: binary, Steam ownership prefix, user agent.
 pub const APP_NAME: &str = "cartridge";
 /// How the app is written in text: "dot cartridge".
@@ -139,7 +141,7 @@ pub fn cartridge_id(app_dir: &Path) -> String {
         return existing.to_string();
     }
     let id = new_id();
-    if let Err(e) = std::fs::write(&path, format!("{id}\n")) {
+    if let Err(e) = paths::write_atomic(&path, format!("{id}\n")) {
         log::warn!("Cannot save {}: {e}", path.display());
     }
     id

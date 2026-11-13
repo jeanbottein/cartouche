@@ -648,7 +648,7 @@ fn finish(staging: &Path, dest: &Path, manifest: &Manifest, game_bytes: u64) -> 
     let record = UnpackedFrom {
         id: manifest.id.clone(),
     };
-    fs::write(data.join(UNPACKED_FROM_JSON), to_pretty_json(&record))?;
+    paths::write_atomic(data.join(UNPACKED_FROM_JSON), to_pretty_json(&record))?;
     let game_json = data.join(GAME_JSON);
     let Ok(text) = fs::read_to_string(&game_json) else {
         return Ok(());
@@ -657,7 +657,7 @@ fn finish(staging: &Path, dest: &Path, manifest: &Manifest, game_bytes: u64) -> 
         return Ok(());
     };
     game.size = Some(game_bytes);
-    fs::write(game_json, game.to_json())
+    paths::write_atomic(game_json, game.to_json())
 }
 
 /// Unpack a package stream into `games_dir/<folder>`. The folder appears only

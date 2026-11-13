@@ -30,7 +30,7 @@ fn read_json(path: &Path) -> Option<Value> {
 }
 
 fn write_json(path: &Path, value: &Value) -> bool {
-    std::fs::write(path, to_pretty_json(value))
+    paths::write_atomic(path, to_pretty_json(value))
         .map_err(|e| error!("Failed to write {}: {e}", path.display()))
         .is_ok()
 }

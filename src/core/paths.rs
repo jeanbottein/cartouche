@@ -245,6 +245,31 @@ pub fn copy_with_mtime(src: &Path, dst: &Path) -> std::io::Result<()> {
         .set_modified(mtime)
 }
 
+/// `fs::write` that never leaves a half-written file: a crash or power loss
+/// mid-write (a Deck running out of battery) keeps the old content. Writes
+/// a hidden sibling, flushes it to disk, then renames it over `path`. A
+/// symlink is written through (its target is replaced, the link stays), and
+/// the file keeps its permissions.
+pub fn write_atomic(path: impl AsRef<Path>, contents: impl AsRef<[u8]>) -> std::io::Result<()> {
+    use std::io::Write;
+    let path = path.as_ref();
+    let target = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let name = target.file_name().unwrap_or_default().to_string_lossy();
+    let temporary = target.with_file_name(format!(".{name}.tmp"));
+    let written = std::fs::File::create(&temporary).and_then(|mut file| {
+        file.write_all(contents.as_ref())?;
+        if let Ok(existing) = std::fs::metadata(&target) {
+            file.set_permissions(existing.permissions())?;
+        }
+        file.sync_all()
+    });
+    let result = written.and_then(|()| std::fs::rename(&temporary, &target));
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temporary);
+    }
+    result
+}
+
 pub fn lossy(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
@@ -312,5 +337,33 @@ mod tests {
     fn expand_user_only_touches_leading_tilde() {
         assert_eq!(expand_user("a/~/b"), "a/~/b");
         assert!(!expand_user("~/x").starts_with('~'));
+    }
+
+    #[test]
+    fn write_atomic_creates_then_replaces_leaving_no_temporary_file() {
+        let dir = crate::core::testutil::TempDir::new();
+        let path = dir.path().join("game.json");
+
+        write_atomic(&path, "first").unwrap();
+        write_atomic(&path, b"second").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "second");
+        assert_eq!(sorted_entries(dir.path()), ["game.json"]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_atomic_keeps_permissions_and_writes_through_symlinks() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = crate::core::testutil::TempDir::new();
+        let real = dir.write("elsewhere/config.txt", b"old");
+        std::fs::set_permissions(&real, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let link = dir.path().join("config.txt");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+
+        write_atomic(&link, "new").unwrap();
+        assert!(is_symlink(&link));
+        assert_eq!(std::fs::read_to_string(&real).unwrap(), "new");
+        let mode = std::fs::metadata(&real).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
     }
 }

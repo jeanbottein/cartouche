@@ -8,7 +8,7 @@ use log::{error, info, warn};
 
 use super::app::data_dir_name;
 use super::models::{Game, ImageSlot, GAME_JSON};
-use super::sgdb;
+use super::{paths, sgdb};
 
 fn download(url: &str, dest: &Path) -> Result<(), String> {
     let response = sgdb::http_get(url, 15)?;
@@ -17,7 +17,7 @@ fn download(url: &str, dest: &Path) -> Result<(), String> {
         .into_reader()
         .read_to_end(&mut bytes)
         .map_err(|e| e.to_string())?;
-    std::fs::write(dest, bytes).map_err(|e| e.to_string())
+    paths::write_atomic(dest, bytes).map_err(|e| e.to_string())
 }
 
 /// Download the artwork collected during enrichment whose destination passes
@@ -46,7 +46,7 @@ fn download_images(game: &mut Game, wanted: impl Fn(&Path) -> bool) {
 /// Write `game.json` for one game.
 pub fn write_game_json(game: &mut Game) -> std::io::Result<()> {
     std::fs::create_dir_all(game.data_dir())?;
-    std::fs::write(game.game_json_path(), game.to_json())?;
+    paths::write_atomic(game.game_json_path(), game.to_json())?;
     game.has_cartridge = true;
     game.needs_persist = false;
     Ok(())

@@ -196,7 +196,7 @@ pub fn update_file(path: &Path, updates: &BTreeMap<String, String>) -> std::io::
         // Unreadable (or not UTF-8): rewriting it would drop every other line.
         Err(e) => return Err(e),
     };
-    std::fs::write(path, apply_updates(&text, updates))
+    paths::write_atomic(path, apply_updates(&text, updates))
 }
 
 #[cfg(test)]

@@ -10,6 +10,7 @@ use serde_json::{json, Map, Value};
 use super::app::APP_NAME;
 use super::config::Config;
 use super::models::{ArtworkUrls, Game, ImageSlot, Images};
+use super::paths;
 
 const API: &str = "https://www.steamgriddb.com/api/v2";
 const CACHE_FILE: &str = "steamgriddb_cache.json";
@@ -235,7 +236,7 @@ pub fn load_cache(app_dir: &Path) -> Map<String, Value> {
 
 fn save_cache(app_dir: &Path, cache: &Map<String, Value>) {
     let text = serde_json::to_string_pretty(cache).expect("JSON serialization cannot fail");
-    if let Err(e) = std::fs::write(app_dir.join(CACHE_FILE), text) {
+    if let Err(e) = paths::write_atomic(app_dir.join(CACHE_FILE), text) {
         warn!("Failed to save SteamGridDB cache: {e}");
     }
 }

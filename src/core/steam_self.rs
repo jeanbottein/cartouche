@@ -84,7 +84,7 @@ fn install_art(grid: &Path, appid: u32, art_dir: &Path) -> String {
         if std::fs::read(&dest).is_ok_and(|current| current == bytes) {
             continue;
         }
-        if let Err(e) = std::fs::write(&dest, bytes) {
+        if let Err(e) = paths::write_atomic(&dest, bytes) {
             warn!("    Failed to write artwork {}: {e}", dest.display());
         }
     }

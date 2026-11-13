@@ -168,7 +168,7 @@ fn load_selection(cfg: &Config) -> Option<BTreeSet<String>> {
 
 fn save_selection(cfg: &Config, games: BTreeSet<String>) -> Result<(), String> {
     let path = selection_path(cfg);
-    std::fs::write(&path, to_pretty_json(&Selection { games }))
+    paths::write_atomic(&path, to_pretty_json(&Selection { games }))
         .map_err(|e| format!("{}: {e}", path.display()))
 }
 
@@ -384,7 +384,7 @@ pub fn save_shortcuts(path: &Path, shortcuts: Map) -> std::io::Result<()> {
         std::fs::create_dir_all(dir)?;
     }
     let root = Map(vec![("shortcuts".to_string(), Value::Map(shortcuts))]);
-    std::fs::write(path, vdf::to_binary(&root))
+    paths::write_atomic(path, vdf::to_binary(&root))
 }
 
 pub fn as_shortcut(value: &Value) -> Option<&Map> {
@@ -965,7 +965,7 @@ pub fn set_compat_tools(wanted: &[(u32, CompatTool)], config_dir: &Path) -> usiz
     if changes.is_empty() {
         return 0;
     }
-    if let Err(e) = std::fs::write(&path, vdf::to_text(&data)) {
+    if let Err(e) = paths::write_atomic(&path, vdf::to_text(&data)) {
         error!("Failed to write {}: {e}", path.display());
         return 0;
     }

@@ -33,7 +33,7 @@ pub fn write(games: &[Game], output: &Path) {
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
         .map_or(Ok(()), std::fs::create_dir_all)
-        .and_then(|_| std::fs::write(output, to_pretty_json(&entries)));
+        .and_then(|_| paths::write_atomic(output, to_pretty_json(&entries)));
     match result {
         Ok(()) => info!(
             "Wrote manifests.json ({} games) to {}",

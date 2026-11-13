@@ -12,6 +12,7 @@ use super::app::{
     WORKSPACE_README,
 };
 use super::config::DEFAULT_CONFIG;
+use super::paths;
 
 /// Written to `system/README.txt`; its first word marks the folder as ours.
 /// Shared with the release archives' template, so both always match.
@@ -31,14 +32,14 @@ pub fn initialize(parent: &Path) -> std::io::Result<PathBuf> {
     std::fs::create_dir_all(&app_dir)?;
     let readme = app_dir.join(WORKSPACE_README);
     if !readme.exists() {
-        std::fs::write(&readme, WORKSPACE_README_TEXT)?;
+        paths::write_atomic(&readme, WORKSPACE_README_TEXT)?;
     }
     for folder in FOLDERS {
         std::fs::create_dir_all(parent.join(folder))?;
     }
     let config = app_dir.join("config.txt");
     if !config.exists() {
-        std::fs::write(&config, DEFAULT_CONFIG)?;
+        paths::write_atomic(&config, DEFAULT_CONFIG)?;
     }
     Ok(config)
 }

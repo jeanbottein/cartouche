@@ -60,7 +60,7 @@ fn load_state(cfg: &Config) -> Option<State> {
 }
 
 fn save_state(cfg: &Config, state: &State) -> Result<(), String> {
-    std::fs::write(state_path(cfg), to_pretty_json(state)).map_err(|e| e.to_string())
+    paths::write_atomic(state_path(cfg), to_pretty_json(state)).map_err(|e| e.to_string())
 }
 
 /// Each entry with its target (if the game was found) and state.
