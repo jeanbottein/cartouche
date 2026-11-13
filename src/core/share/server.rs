@@ -14,9 +14,9 @@ use std::io::{self, BufRead, BufReader, BufWriter, Read, Write};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, TcpStream, UdpSocket};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use log::{debug, info, warn};
 use serde::Serialize;
@@ -28,6 +28,9 @@ use crate::core::scanner;
 
 const MAX_HEAD: u64 = 8 * 1024;
 const READ_TIMEOUT: Duration = Duration::from_secs(10);
+/// How long a library scan answers requests: a peer browsing asks for the
+/// list then every cover, and a scan reads every game.json and package.
+const LIBRARY_TTL: Duration = Duration::from_secs(5);
 
 /// What a request asks for.
 #[derive(Debug, PartialEq, Eq)]
@@ -69,6 +72,8 @@ pub struct Shared {
     stop: AtomicBool,
     /// Packages being sent right now.
     pub sending: AtomicUsize,
+    /// The last scan and when it was made.
+    library: Mutex<Option<(Instant, Arc<Vec<Game>>)>>,
 }
 
 /// A running server; stops when dropped (and frees its port).
@@ -87,12 +92,7 @@ impl Server {
     fn start_on(games_dir: &Path, name: String, ip: IpAddr, port: u16) -> io::Result<Server> {
         let listener = TcpListener::bind((ip, port))?;
         let addr = listener.local_addr()?;
-        let shared = Arc::new(Shared {
-            games_dir: games_dir.to_path_buf(),
-            info: ServerInfo::new(name, addr.port()),
-            stop: AtomicBool::new(false),
-            sending: AtomicUsize::new(0),
-        });
+        let shared = Arc::new(Shared::new(games_dir, ServerInfo::new(name, addr.port())));
         let accept_shared = Arc::clone(&shared);
         let mut threads = vec![std::thread::spawn(move || {
             accept_loop(listener, accept_shared)
@@ -153,6 +153,16 @@ impl Drop for Server {
 }
 
 impl Shared {
+    fn new(games_dir: &Path, info: ServerInfo) -> Shared {
+        Shared {
+            games_dir: games_dir.to_path_buf(),
+            info,
+            stop: AtomicBool::new(false),
+            sending: AtomicUsize::new(0),
+            library: Mutex::new(None),
+        }
+    }
+
     pub fn info(&self) -> &ServerInfo {
         &self.info
     }
@@ -161,8 +171,20 @@ impl Shared {
         self.stop.load(Ordering::Relaxed)
     }
 
-    pub fn library(&self) -> Vec<Game> {
-        scanner::load_library(&self.games_dir)
+    pub fn library(&self) -> Arc<Vec<Game>> {
+        self.library_at(Instant::now())
+    }
+
+    /// The cached scan while fresh at `now`, else a new one. The lock is held
+    /// while scanning, so simultaneous requests share one scan.
+    fn library_at(&self, now: Instant) -> Arc<Vec<Game>> {
+        let mut cache = self.library.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((_, games)) = cache.as_ref().filter(|(at, _)| now < *at + LIBRARY_TTL) {
+            return Arc::clone(games);
+        }
+        let games = Arc::new(scanner::load_library(&self.games_dir));
+        *cache = Some((now, Arc::clone(&games)));
+        games
     }
 }
 
@@ -202,7 +224,11 @@ fn handle(stream: TcpStream, shared: &Shared) -> io::Result<()> {
 }
 
 fn find(shared: &Shared, id: &str) -> Option<Game> {
-    shared.library().into_iter().find(|g| g.folder_name == id)
+    shared
+        .library()
+        .iter()
+        .find(|g| g.folder_name == id)
+        .cloned()
 }
 
 fn answer(route: Route, shared: &Shared, out: &mut impl Write) -> io::Result<()> {
@@ -320,6 +346,19 @@ pub mod tests {
     use crate::core::models::GAME_JSON;
     use crate::core::share::encode_segment;
     use crate::core::testutil::TempDir;
+
+    #[test]
+    fn the_library_is_scanned_once_per_burst_of_requests() {
+        let dir = TempDir::new();
+        dir.mkdir("games/One");
+        let shared = Shared::new(&dir.path().join("games"), ServerInfo::new("t".into(), 1));
+        let start = Instant::now();
+        assert_eq!(shared.library_at(start).len(), 1);
+
+        dir.mkdir("games/Two");
+        assert_eq!(shared.library_at(start + Duration::from_secs(1)).len(), 1);
+        assert_eq!(shared.library_at(start + LIBRARY_TTL).len(), 2);
+    }
 
     #[test]
     fn routes_only_known_get_paths() {
