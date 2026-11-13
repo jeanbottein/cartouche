@@ -27,8 +27,27 @@ fn get(url: &str, read_timeout: Duration) -> Result<ureq::Response, String> {
         .map_err(|e| e.to_string())
 }
 
+/// Covers are a few hundred KB, game lists well under a MB: a broken or
+/// hostile peer can't fill memory with either.
+const MAX_BODY: u64 = 16 * 1024 * 1024;
+
+/// The whole body, unless it is longer than `limit`.
+fn read_body(response: ureq::Response, limit: u64) -> Result<Vec<u8>, String> {
+    let mut bytes = Vec::new();
+    response
+        .into_reader()
+        .take(limit + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| e.to_string())?;
+    if bytes.len() as u64 > limit {
+        return Err(format!("answer larger than {limit} bytes"));
+    }
+    Ok(bytes)
+}
+
 fn get_json<T: serde::de::DeserializeOwned>(url: &str) -> Result<T, String> {
-    serde_json::from_reader(get(url, LIST_TIMEOUT)?.into_reader()).map_err(|e| e.to_string())
+    let body = read_body(get(url, LIST_TIMEOUT)?, MAX_BODY)?;
+    serde_json::from_slice(&body).map_err(|e| e.to_string())
 }
 
 fn api(addr: SocketAddr, path: &str) -> String {
@@ -82,13 +101,8 @@ pub fn list(addr: SocketAddr) -> Result<Vec<RemoteGame>, String> {
 }
 
 pub fn cover(addr: SocketAddr, id: &str) -> Option<Vec<u8>> {
-    let mut bytes = Vec::new();
-    get(&game_url(addr, id, "cover"), LIST_TIMEOUT)
-        .ok()?
-        .into_reader()
-        .read_to_end(&mut bytes)
-        .ok()?;
-    Some(bytes)
+    let response = get(&game_url(addr, id, "cover"), LIST_TIMEOUT).ok()?;
+    read_body(response, MAX_BODY).ok()
 }
 
 /// Why `id` can't be copied into `games_dir`, if it can't: the game is
@@ -178,6 +192,13 @@ mod tests {
     use crate::core::models::{Game, GAME_JSON};
     use crate::core::share::server::tests::local_server;
     use crate::core::testutil::TempDir;
+
+    #[test]
+    fn a_body_past_the_limit_is_refused_not_read_whole() {
+        let response = |body: &str| ureq::Response::new(200, "OK", body).unwrap();
+        assert_eq!(read_body(response("abcd"), 4), Ok(b"abcd".to_vec()));
+        assert!(read_body(response("abcde"), 4).is_err());
+    }
 
     /// A server sharing `server/games` with one installed game, "My Game".
     fn sharing(dir: &TempDir) -> crate::core::share::server::Server {
