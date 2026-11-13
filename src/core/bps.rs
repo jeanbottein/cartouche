@@ -84,11 +84,21 @@ pub fn apply(patch: &[u8], source: &[u8]) -> Result<Vec<u8>, String> {
         return Err("source file size does not match the patch".into());
     }
 
-    let mut out: Vec<u8> = Vec::with_capacity(target_len);
+    // The declared size is only trusted once the output reaches it: a
+    // crafted patch could declare petabytes, or copy its output onto itself
+    // forever. Every action must fit in the declared size.
+    let mut out: Vec<u8> = Vec::with_capacity(target_len.min(source.len() + patch.len()));
     let (mut source_rel, mut target_rel) = (0usize, 0usize);
     while cur.pos < body_end {
         let word = cur.number()?;
         let len = (word >> 2) as usize + 1;
+        if out
+            .len()
+            .checked_add(len)
+            .is_none_or(|end| end > target_len)
+        {
+            return Err("corrupt patch: output larger than declared".into());
+        }
         match word & 3 {
             0 => {
                 let at = out.len();
@@ -159,6 +169,48 @@ mod tests {
             pos: 0,
         };
         assert_eq!(cur.number(), Ok(5 + 128 + 128));
+    }
+
+    /// BPS number encoding (the inverse of `Cursor::number`).
+    fn encode(mut n: u64) -> Vec<u8> {
+        let mut out = Vec::new();
+        loop {
+            let low = (n & 0x7F) as u8;
+            n >>= 7;
+            if n == 0 {
+                out.push(low | 0x80);
+                return out;
+            }
+            out.push(low);
+            n -= 1;
+        }
+    }
+
+    /// A patch with valid checksums: header numbers, then actions.
+    fn crafted(source: &[u8], target_len: u64, actions: &[u64]) -> Vec<u8> {
+        let mut patch = MAGIC.to_vec();
+        for n in [source.len() as u64, target_len, 0].iter().chain(actions) {
+            patch.extend(encode(*n));
+        }
+        patch.extend(crc32fast::hash(source).to_le_bytes());
+        patch.extend(0u32.to_le_bytes()); // target crc: never reached
+        patch.extend(crc32fast::hash(&patch).to_le_bytes());
+        patch
+    }
+
+    #[test]
+    fn a_huge_declared_size_is_an_error_not_an_allocation() {
+        let patch = crafted(b"abc", u64::MAX >> 8, &[]);
+        assert!(apply(&patch, b"abc").is_err());
+    }
+
+    #[test]
+    fn copies_past_the_declared_size_are_errors_not_endless_growth() {
+        // Write one byte, then copy the output onto itself 2^40 times.
+        let write_one = 1; // TargetRead of length 1
+        let endless_copy = (((1u64 << 40) - 1) << 2) | 3; // TargetCopy
+        let patch = crafted(b"abc", 4, &[write_one, u64::from(b'x'), endless_copy, 0]);
+        assert!(apply(&patch, b"abc").is_err());
     }
 
     #[test]
