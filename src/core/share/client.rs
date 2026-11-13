@@ -118,7 +118,7 @@ pub fn install(
     progress: &Progress,
 ) -> Result<PathBuf, String> {
     check_free(games_dir, id)?;
-    package::unpack_from(stream(addr, id)?, games_dir, progress)
+    package::unpack_from(stream(addr, id)?, games_dir, Some(id), progress)
 }
 
 /// Writes everything read through it to `file` as well.

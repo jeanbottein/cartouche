@@ -666,16 +666,24 @@ fn finish(staging: &Path, dest: &Path, manifest: &Manifest, game_bytes: u64) -> 
     paths::write_atomic(game_json, game.to_json())
 }
 
-/// Unpack a package stream into `games_dir/<folder>`. The folder appears only
-/// once every file is written and verified.
+/// Unpack a package stream into `games_dir/<folder>`, refusing a package of
+/// another folder than `expected` when given (the game asked of a peer). The
+/// folder appears only once every file is written and verified.
 pub fn unpack_from(
     input: impl Read,
     games_dir: &Path,
+    expected: Option<&str>,
     progress: &Progress,
 ) -> Result<PathBuf, String> {
     let mut archive = tar::Archive::new(input);
     let mut entries = archive.entries().map_err(|e| e.to_string())?;
     let manifest = read_manifest(&mut entries)?;
+    if let Some(wanted) = expected.filter(|wanted| *wanted != manifest.folder_name) {
+        return Err(format!(
+            "The package holds {} instead of {wanted}",
+            manifest.folder_name
+        ));
+    }
     let dest = games_dir.join(&manifest.folder_name);
     if dest.exists() {
         return Err(format!("{} already exists", dest.display()));
@@ -697,7 +705,12 @@ pub fn unpack_from(
 
 pub fn unpack(package: &Path, games_dir: &Path, progress: &Progress) -> Result<PathBuf, String> {
     let file = File::open(package).map_err(|e| format!("{}: {e}", package.display()))?;
-    unpack_from(BufReader::with_capacity(1 << 20, file), games_dir, progress)
+    unpack_from(
+        BufReader::with_capacity(1 << 20, file),
+        games_dir,
+        None,
+        progress,
+    )
 }
 
 #[cfg(test)]
@@ -778,8 +791,22 @@ mod tests {
         let bytes = fs::read(&package).unwrap();
         let target = dir.mkdir("target");
         let cut = &bytes[..bytes.len() / 2];
-        assert!(unpack_from(cut, &target, &Progress::default()).is_err());
+        assert!(unpack_from(cut, &target, None, &Progress::default()).is_err());
         assert!(!target.join("Celeste").exists());
+    }
+
+    #[test]
+    fn a_package_of_another_game_than_expected_is_refused() {
+        let dir = TempDir::new();
+        let (_, package, _) = packed(&dir);
+        let bytes = fs::read(&package).unwrap();
+        let target = dir.mkdir("target");
+        let unpack =
+            |expected| unpack_from(bytes.as_slice(), &target, expected, &Progress::default());
+
+        assert!(unpack(Some("Other")).unwrap_err().contains("Other"));
+        assert!(fs::read_dir(&target).unwrap().next().is_none());
+        assert!(unpack(Some("Celeste")).is_ok());
     }
 
     #[test]
@@ -828,7 +855,7 @@ mod tests {
         let mut tar = Vec::new();
         pack_to(&game, &mut tar, &Progress::default()).unwrap();
         let target = dir.mkdir("target");
-        let dest = unpack_from(tar.as_slice(), &target, &Progress::default()).unwrap();
+        let dest = unpack_from(tar.as_slice(), &target, None, &Progress::default()).unwrap();
         let mode = fs::metadata(dest.join("Celeste.bin"))
             .unwrap()
             .permissions()
@@ -851,7 +878,7 @@ mod tests {
         pack_to(&game, &mut tar, &Progress::default()).unwrap();
 
         let target = dir.mkdir("target");
-        let err = unpack_from(tar.as_slice(), &target, &Progress::default()).unwrap_err();
+        let err = unpack_from(tar.as_slice(), &target, None, &Progress::default()).unwrap_err();
         assert!(err.contains("cover.png"), "{err}");
         assert!(fs::read_dir(&target).unwrap().next().is_none());
         assert!(verify_from(tar.as_slice(), &Progress::default()).is_err());
