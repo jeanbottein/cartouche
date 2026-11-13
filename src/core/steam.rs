@@ -83,7 +83,10 @@ fn persona_names(loginusers: &str) -> BTreeMap<String, String> {
         .filter_map(|(steam64, user)| {
             let account = steam64.parse::<u64>().ok()?.checked_sub(STEAM64_BASE)?;
             let Value::Map(user) = user else { return None };
-            Some((account.to_string(), user.get_str("PersonaName")?.to_string()))
+            Some((
+                account.to_string(),
+                user.get_str("PersonaName")?.to_string(),
+            ))
         })
         .collect()
 }
@@ -251,8 +254,12 @@ fn restart_script(plan: &RestartPlan) -> String {
 fn game_mode_unit() -> Option<String> {
     let out = std::process::Command::new("systemctl")
         .args([
-            "--user", "list-units", "gamescope-session-plus@*",
-            "--state=active", "--plain", "--no-legend",
+            "--user",
+            "list-units",
+            "gamescope-session-plus@*",
+            "--state=active",
+            "--plain",
+            "--no-legend",
         ])
         .output()
         .ok()?;
@@ -628,7 +635,11 @@ fn install_wide_capsule(src: &Path, grid: &Path, appid: u32) {
         let _ = std::fs::remove_file(grid.join(format!("{appid}.{other}")));
     }
     if let Err(e) = paths::copy_with_mtime(src, &dest) {
-        warn!("    Failed to copy artwork {} -> {}: {e}", src.display(), dest.display());
+        warn!(
+            "    Failed to copy artwork {} -> {}: {e}",
+            src.display(),
+            dest.display()
+        );
     }
 }
 
@@ -678,10 +689,12 @@ fn export_to_user(
                 .filter(|s| has_ownership_tag(s, &owner.tag) && exe_of(s) == target)?;
             let current = s.get_str("LaunchOptions").unwrap_or("");
             let options = managed.clone().unwrap_or_else(|| current.to_string());
+            let wanted = entry(&options);
             let changed = appname(s) != game.title
-                || s.get_str("icon").unwrap_or("") != icon
                 || options != current
-                || s.get("tags") != entry(&options).get("tags");
+                || ["icon", "StartDir", "tags"]
+                    .iter()
+                    .any(|key| s.get(key) != wanted.get(key));
             Some((k.clone(), options, changed))
         });
         match owned {
@@ -937,21 +950,36 @@ mod tests {
     #[test]
     fn game_mode_session_wins_over_installed_steam() {
         let unit = "gamescope-session-plus@ogui-steam.service".to_string();
-        let h = Host { game_mode_unit: Some(unit.clone()), native_steam: true, ..host("linux") };
+        let h = Host {
+            game_mode_unit: Some(unit.clone()),
+            native_steam: true,
+            ..host("linux")
+        };
         assert_eq!(restart_plan(&h), Some(RestartPlan::GameModeSession(unit)));
     }
 
     #[test]
     fn unknown_game_mode_session_is_left_alone() {
-        let h = Host { gamepad_ui: true, native_steam: true, ..host("linux") };
+        let h = Host {
+            gamepad_ui: true,
+            native_steam: true,
+            ..host("linux")
+        };
         assert_eq!(restart_plan(&h), None);
     }
 
     #[test]
     fn linux_desktop_prefers_native_then_flatpak() {
-        let both = Host { native_steam: true, flatpak_steam: true, ..host("linux") };
+        let both = Host {
+            native_steam: true,
+            flatpak_steam: true,
+            ..host("linux")
+        };
         assert_eq!(restart_plan(&both), Some(RestartPlan::NativeLinux));
-        let flatpak = Host { flatpak_steam: true, ..host("linux") };
+        let flatpak = Host {
+            flatpak_steam: true,
+            ..host("linux")
+        };
         assert_eq!(restart_plan(&flatpak), Some(RestartPlan::FlatpakLinux));
         assert_eq!(restart_plan(&host("linux")), None);
     }
@@ -965,9 +993,13 @@ mod tests {
     #[test]
     fn scripts_restart_the_right_thing() {
         let unit = RestartPlan::GameModeSession("gamescope-session-plus@x.service".into());
-        assert_eq!(restart_script(&unit), "systemctl --user restart 'gamescope-session-plus@x.service'");
+        assert_eq!(
+            restart_script(&unit),
+            "systemctl --user restart 'gamescope-session-plus@x.service'"
+        );
         assert!(restart_script(&RestartPlan::NativeLinux).starts_with("steam -shutdown;"));
-        assert!(restart_script(&RestartPlan::FlatpakLinux).contains("flatpak run com.valvesoftware.Steam"));
+        assert!(restart_script(&RestartPlan::FlatpakLinux)
+            .contains("flatpak run com.valvesoftware.Steam"));
         assert!(restart_script(&RestartPlan::MacOs).contains("open -a Steam"));
     }
 
@@ -1113,6 +1145,33 @@ mod tests {
                 .len(),
             1
         );
+    }
+
+    #[test]
+    fn export_updates_a_changed_start_folder() {
+        let dir = TempDir::new();
+        let config_dir = dir.mkdir("userdata/1/config");
+        let mut game = Game::skeleton(&dir.mkdir("games/Celeste"));
+        game.resolved = Some(Resolved {
+            target: "/g/celeste".into(),
+            start_in: "/g".into(),
+            ..Default::default()
+        });
+        let owner = Owner {
+            tag: "cartridge:1".into(),
+            label: "games".into(),
+        };
+        let appid = generate_appid(&game.title, "/g/celeste");
+        export_to_user(&config_dir, &[(&game, appid)], &owner).unwrap();
+
+        game.resolved.as_mut().unwrap().start_in = "/g/bin".into();
+        assert_eq!(
+            export_to_user(&config_dir, &[(&game, appid)], &owner).unwrap(),
+            (0, 1)
+        );
+        let saved = load_shortcuts(&shortcuts_path(&config_dir)).unwrap();
+        let entry = as_shortcut(saved.values().next().unwrap()).unwrap();
+        assert_eq!(entry.get_str("StartDir"), Some("\"/g/bin\""));
     }
 
     #[test]
