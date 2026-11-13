@@ -61,7 +61,7 @@ On Linux, Windows games start from the app with the Proton builds Steam installe
 ## Getting started
 
 1. Download the binary for your platform from the releases (or build it, see below).
-2. Run it. On first launch it asks where to put the workspace (a `system/` folder with `config.txt`) and which folders to create. •cartridge is portable: keep it in its own folder, next to `system/` and your games.
+2. Run it. On first launch it creates the cartridge next to the app: `system/` (settings in `config.txt`), `games/`, `mods/`, `saves-copies/` and `saves-links/`. The layout is fixed; to put a folder elsewhere, replace it with a symbolic link. •cartridge is portable: keep it in its own folder, so the whole cartridge moves and backs up as one piece.
 3. Fill in the settings (in the UI, or by editing `system/config.txt`), then run the pipeline from the **Status** tab.
 
 ```text
@@ -73,6 +73,15 @@ Usage: cartridge [OPTIONS] [DIR]
   -g, --group <NAME>   Phases to run in the terminal (implies -t):
                        all (default), parse, steam, backup, patch
   -n, --dry-run        Preview the Steam sync without changing Steam
+      --pack <GAME>    Pack the game folder GAME into GAME.cartridge.tar
+      --unpack <GAME>  Unpack GAME.cartridge.tar into the folder GAME
+      --serve          Share the games folder on the LAN, without the UI
+      --peers          List •cartridge servers found on the LAN, with their games
+      --download <PEER> <GAME>
+                       Copy GAME from PEER as a package (GAME.cartridge.tar)
+      --install <PEER> <GAME>
+                       Copy GAME from PEER into the folder GAME
+                       PEER: a name shown by --peers, or host[:port]
   -h, --help           Print this help
   -V, --version        Print the version
 ```
