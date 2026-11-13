@@ -679,7 +679,7 @@ mod tests {
         let runner = Runner::new(&installed, &game, &Downloads::default()).unwrap();
         let cmd = runner.game_command(game.resolved.as_ref().unwrap());
         let proton = steam.path().join("steamapps/common/Proton 9.0/proton");
-        assert_eq!(cmd.get_program(), proton.as_os_str());
+        assert_eq!(Path::new(cmd.get_program()), proton);
     }
 
     #[test]
@@ -779,26 +779,26 @@ mod tests {
         let runtime = steam
             .path()
             .join("steamapps/common/SteamLinuxRuntime_sniper/_v2-entry-point");
-        assert_eq!(cmd.get_program(), runtime.as_os_str());
-        let args: Vec<&OsStr> = cmd.get_args().collect();
+        assert_eq!(Path::new(cmd.get_program()), runtime);
+        let args: Vec<&Path> = cmd.get_args().map(Path::new).collect();
         let proton = steam.path().join("steamapps/common/Proton 10.0/proton");
         assert_eq!(
             args,
             [
-                OsStr::new("--verb=waitforexitandrun"),
-                OsStr::new("--"),
-                proton.as_os_str(),
-                OsStr::new("waitforexitandrun"),
-                OsStr::new("/g/Rayman/Rayman.exe"),
-                OsStr::new("-w"),
+                Path::new("--verb=waitforexitandrun"),
+                Path::new("--"),
+                &proton,
+                Path::new("waitforexitandrun"),
+                Path::new("/g/Rayman/Rayman.exe"),
+                Path::new("-w"),
             ]
         );
         let env: BTreeMap<&OsStr, Option<&OsStr>> = cmd.get_envs().collect();
         let appid = steam::generate_appid("Rayman", "/g/Rayman/Rayman.exe");
         let compat = steam.path().join(format!("steamapps/compatdata/{appid}"));
         assert_eq!(
-            env[OsStr::new("STEAM_COMPAT_DATA_PATH")],
-            Some(compat.as_os_str())
+            env[OsStr::new("STEAM_COMPAT_DATA_PATH")].map(Path::new),
+            Some(compat.as_path())
         );
         assert_eq!(env[OsStr::new("PROTON_LOG")], Some(OsStr::new("1")));
         assert_eq!(cmd.get_current_dir(), Some(Path::new("/g/Rayman")));
@@ -817,7 +817,7 @@ mod tests {
         let runner = Runner::new(&installed, &game, &Downloads::default()).unwrap();
         let cmd = runner.game_command(game.resolved.as_ref().unwrap());
         let proton = steam.path().join("compatibilitytools.d/GE/proton");
-        assert_eq!(cmd.get_program(), proton.as_os_str());
+        assert_eq!(Path::new(cmd.get_program()), proton);
     }
 
     #[cfg(unix)]
