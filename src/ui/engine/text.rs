@@ -197,32 +197,86 @@ pub fn measure(s: &str, size: Size, fonts: &Fonts, scale: f32) -> f32 {
 }
 
 /// Join `segments` with `sep`, wrapping to new lines so each stays within
-/// `max_w` as measured by `width`.
+/// `max_w` as measured by `width`. Each piece is measured once: widths are
+/// sums of glyph advances (no kerning), so a line's width is its pieces'.
 pub fn wrap_segments(
     segments: &[&str],
     sep: &str,
     max_w: f32,
     width: impl Fn(&str) -> f32,
 ) -> Vec<String> {
+    let sep_w = width(sep);
     let mut lines = Vec::new();
-    let mut cur = String::new();
+    let (mut cur, mut cur_w) = (String::new(), 0.0);
     for seg in segments {
-        let trial = if cur.is_empty() {
-            (*seg).to_string()
-        } else {
-            format!("{cur}{sep}{seg}")
-        };
-        if width(&trial) > max_w && !cur.is_empty() {
+        let seg_w = width(seg);
+        if !cur.is_empty() && cur_w + sep_w + seg_w > max_w {
             lines.push(std::mem::take(&mut cur));
-            cur = (*seg).to_string();
-        } else {
-            cur = trial;
+            cur_w = 0.0;
         }
+        if !cur.is_empty() {
+            cur.push_str(sep);
+            cur_w += sep_w;
+        }
+        cur.push_str(seg);
+        cur_w += seg_w;
     }
     if !cur.is_empty() {
         lines.push(cur);
     }
     lines
+}
+
+const ELLIPSIS: char = '\u{2026}';
+
+/// `s` cut with an ellipsis to fit `max_w` as measured by `width`.
+pub fn truncate_end(s: &str, max_w: f32, width: impl Fn(&str) -> f32) -> String {
+    if width(s) <= max_w {
+        return s.to_string();
+    }
+    let chars: Vec<char> = s.chars().collect();
+    let start = |n: usize| chars[..n].iter().collect::<String>();
+    let kept = longest_fitting(chars.len(), |n| {
+        width(&format!("{}{ELLIPSIS}", start(n))) <= max_w
+    });
+    format!("{}{ELLIPSIS}", start(kept).trim_end())
+}
+
+/// The end of `s` behind an ellipsis, to fit `max_w` (for paths).
+pub fn truncate_start(s: &str, max_w: f32, width: impl Fn(&str) -> f32) -> String {
+    if width(s) <= max_w {
+        return s.to_string();
+    }
+    let chars: Vec<char> = s.chars().collect();
+    let end = |n: usize| chars[chars.len() - n..].iter().collect::<String>();
+    let kept = longest_fitting(chars.len(), |n| {
+        width(&format!("{ELLIPSIS}{}", end(n))) <= max_w
+    });
+    format!("{ELLIPSIS}{}", end(kept))
+}
+
+/// How many leading characters of `s` a ticker drops before the rest fits
+/// `max_w`.
+pub fn ticker_steps(s: &str, max_w: f32, width: impl Fn(&str) -> f32) -> usize {
+    let chars: Vec<char> = s.chars().collect();
+    let end = |n: usize| chars[chars.len() - n..].iter().collect::<String>();
+    chars.len() - longest_fitting(chars.len(), |n| width(&end(n)) <= max_w)
+}
+
+/// The largest `n` in `0..=len` for which `fits(n)` holds, `fits` holding up
+/// to some `n` and not after it. A binary search: a few measurements of a
+/// text instead of one per character it is too long by.
+fn longest_fitting(len: usize, fits: impl Fn(usize) -> bool) -> usize {
+    let (mut lo, mut hi) = (0, len);
+    while lo < hi {
+        let mid = lo + (hi - lo).div_ceil(2);
+        if fits(mid) {
+            lo = mid;
+        } else {
+            hi = mid - 1;
+        }
+    }
+    lo
 }
 
 /// `lines` kept to `max` lines, the overflow joined onto the last one (for
@@ -311,6 +365,31 @@ mod tests {
         let end = TICKER_PAUSE + 5.0 * TICKER_STEP;
         assert_eq!(ticker_offset(5, end + 1.0), 5);
         assert_eq!(ticker_offset(5, end + TICKER_PAUSE + 0.01), 0);
+    }
+
+    #[test]
+    fn truncation_keeps_what_fits_with_the_ellipsis() {
+        assert_eq!(truncate_end("abcdef", 6.0, chars), "abcdef");
+        assert_eq!(truncate_end("abcdef", 4.0, chars), "abc…");
+        assert_eq!(truncate_end("ab cdef", 4.0, chars), "ab…");
+        assert_eq!(truncate_end("abcdef", 0.5, chars), "…");
+        assert_eq!(truncate_start("/a/b/c/d", 4.0, chars), "…c/d");
+        assert_eq!(truncate_start("/a/b", 4.0, chars), "/a/b");
+    }
+
+    #[test]
+    fn a_ticker_steps_until_the_rest_fits() {
+        assert_eq!(ticker_steps("abcdef", 6.0, chars), 0);
+        assert_eq!(ticker_steps("abcdef", 4.0, chars), 2);
+        assert_eq!(ticker_steps("abcdef", 0.5, chars), 6);
+    }
+
+    #[test]
+    fn longest_fitting_finds_the_last_length_that_fits() {
+        assert_eq!(longest_fitting(10, |n| n <= 3), 3);
+        assert_eq!(longest_fitting(2, |n| n <= 3), 2);
+        assert_eq!(longest_fitting(10, |_| false), 0);
+        assert_eq!(longest_fitting(0, |_| true), 0);
     }
 
     #[test]
