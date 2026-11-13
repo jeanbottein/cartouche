@@ -408,6 +408,7 @@ pub mod tests {
         let dest = package::unpack_from(
             get(server.port(), &path).into_reader(),
             &target,
+            Some("My Game"),
             &Progress::default(),
         )
         .unwrap();
