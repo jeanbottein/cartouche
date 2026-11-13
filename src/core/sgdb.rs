@@ -454,6 +454,7 @@ pub fn fetch_all_images(game_id: i64, cfg: &Config) -> Result<(Images, ArtworkUr
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::models::Install;
 
     fn urls(pairs: &[(&str, Option<&str>)]) -> ArtworkUrls {
         pairs
@@ -578,7 +579,7 @@ mod tests {
             ..complete.clone()
         };
         let packaged = Game {
-            install: crate::core::models::Install::Packaged {
+            install: Install::Packaged {
                 package: "/g/X.cartridge.tar".into(),
             },
             ..Default::default()

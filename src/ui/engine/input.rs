@@ -230,23 +230,25 @@ impl Input {
     }
 
     fn collect_down(&self) -> HashSet<Action> {
-        let mut s = HashSet::new();
-
         let commands: &[(KeyCode, Action)] = if self.text_mode { &[] } else { &COMMAND_KEYS };
-        for &(key, action) in ARROW_KEYS.iter().chain(commands) {
-            if is_key_down(key) {
-                s.insert(action);
-            }
-        }
+        ARROW_KEYS
+            .iter()
+            .chain(commands)
+            .filter(|(key, _)| is_key_down(*key))
+            .map(|&(_, action)| action)
+            .chain(self.pad_down())
+            .collect()
+    }
 
-        #[cfg(feature = "gamepad")]
-        if let Some(g) = self.gilrs.as_ref() {
-            for (_id, pad) in g.gamepads() {
-                for &(button, action) in &PAD_BUTTONS {
-                    if pad.is_pressed(button) {
-                        s.insert(action);
-                    }
-                }
+    /// Actions held on any connected gamepad.
+    #[cfg(feature = "gamepad")]
+    fn pad_down(&self) -> Vec<Action> {
+        let Some(gilrs) = self.gilrs.as_ref() else {
+            return Vec::new();
+        };
+        gilrs
+            .gamepads()
+            .flat_map(|(_, pad)| {
                 let (x, y) = (pad.value(Axis::LeftStickX), pad.value(Axis::LeftStickY));
                 let stick = [
                     (y > DEADZONE, Action::Up),
@@ -254,10 +256,19 @@ impl Input {
                     (x > DEADZONE, Action::Right),
                     (x < -DEADZONE, Action::Left),
                 ];
-                s.extend(stick.iter().filter(|(pushed, _)| *pushed).map(|&(_, a)| a));
-            }
-        }
+                PAD_BUTTONS
+                    .map(|(button, action)| (pad.is_pressed(button), action))
+                    .into_iter()
+                    .chain(stick)
+                    .filter(|(held, _)| *held)
+                    .map(|(_, action)| action)
+                    .collect::<Vec<_>>()
+            })
+            .collect()
+    }
 
-        s
+    #[cfg(not(feature = "gamepad"))]
+    fn pad_down(&self) -> Vec<Action> {
+        Vec::new()
     }
 }
