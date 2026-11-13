@@ -126,7 +126,9 @@ fn workspace_of(config_path: &Path) -> PathBuf {
 }
 
 fn resolve_value(workspace: &Path, key: &str, value: &str) -> String {
-    if !is_path_key(key) || Path::new(value).is_absolute() {
+    // `~` and `$VAR` are expanded by the saver: only a path that stays
+    // relative once expanded is relative to the cartridge.
+    if !is_path_key(key) || paths::expand(value).is_absolute() {
         return value.to_string();
     }
     paths::lossy(&paths::resolve(&workspace.join(value)))
@@ -222,6 +224,14 @@ mod tests {
         assert_eq!(cfg.get("BACKUP_y"), Some(resolved("/abs").as_str()));
         assert_eq!(cfg.raw()["BACKUP_x"], "emu/saves");
         assert_eq!(cfg.mods_dir(), Path::new("/ws/mods"));
+    }
+
+    #[test]
+    fn backup_sources_under_home_are_left_for_the_saver_to_expand() {
+        let raw = parse("BACKUP_x=~/Emulation/saves\nBACKUP_y=$HOME/saves\n");
+        let cfg = Config::from_raw(PathBuf::from("/ws/system/config.txt"), raw);
+        assert_eq!(cfg.get("BACKUP_x"), Some("~/Emulation/saves"));
+        assert_eq!(cfg.get("BACKUP_y"), Some("$HOME/saves"));
     }
 
     #[test]
