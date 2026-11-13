@@ -574,6 +574,14 @@ fn for_each_checked<R: Read>(
             expected = Some(serde_json::from_reader(&mut entry).map_err(|e| e.to_string())?);
             continue;
         }
+        // Metadata is read, served on the LAN and copied into Steam: a link
+        // there would hand out whatever it points to.
+        if entry.header().entry_type().is_symlink() && rel.starts_with(GAME_DATA_DIR) {
+            return Err(format!(
+                "{}: a link among the game's metadata",
+                rel.display()
+            ));
+        }
         if let Some(crc) = handle(&rel, &mut entry)? {
             actual.insert(key_of(&rel), crc);
         }
@@ -606,12 +614,6 @@ fn extract<R: Read>(
                 }
                 Ok(Some(crc))
             }
-            // Metadata is read, served on the LAN and copied into Steam:
-            // a link there would hand out whatever it points to.
-            tar::EntryType::Symlink if rel.starts_with(&data) => Err(format!(
-                "{}: a link among the game's metadata",
-                rel.display()
-            )),
             tar::EntryType::Symlink => {
                 let target = entry
                     .link_name()
@@ -852,6 +854,7 @@ mod tests {
         let err = unpack_from(tar.as_slice(), &target, &Progress::default()).unwrap_err();
         assert!(err.contains("cover.png"), "{err}");
         assert!(fs::read_dir(&target).unwrap().next().is_none());
+        assert!(verify_from(tar.as_slice(), &Progress::default()).is_err());
     }
 
     #[test]
