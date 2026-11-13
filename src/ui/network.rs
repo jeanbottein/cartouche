@@ -16,7 +16,7 @@ use super::engine::theme;
 use super::info::{self, Info};
 use super::jobs::{Jobs, Kind};
 use super::list::List;
-use super::{draw_spinner, stroke_rect, Hint, Ui};
+use super::{draw_spinner, style, Hint, Ui};
 use crate::core::config::Config;
 use crate::core::share::discovery::Peer;
 use crate::core::share::{self, client, RemoteGame};
@@ -162,7 +162,7 @@ impl Network {
         if !failed.is_empty() {
             self.toast(
                 &format!("Could not list: {}", failed.join(", ")),
-                theme::RED,
+                theme::danger(),
             );
         }
     }
@@ -209,9 +209,9 @@ impl Network {
             return None;
         }
         if busy {
-            self.toast("Already copying this game.", theme::AMBER);
+            self.toast("Already copying this game.", theme::secondary());
         } else if let Some(conflict) = row.conflict.clone() {
-            self.toast(&conflict, theme::AMBER);
+            self.toast(&conflict, theme::secondary());
         } else {
             self.dialog = Some(self.copy_dialog(row));
         }
@@ -229,9 +229,9 @@ impl Network {
             &format!("Copy {}", row.game.title),
             &message,
             &[
-                ("Install here", theme::ACCENT),
-                ("Download package", theme::BLUE),
-                ("Cancel", theme::MUTED),
+                ("Install here", theme::accent()),
+                ("Download package", theme::info()),
+                ("Cancel", theme::muted()),
             ],
         )
     }
@@ -245,7 +245,7 @@ impl Network {
             if let Some(panel) = panel {
                 self.draw_panel(ui, panel, jobs);
             }
-            self.draw_toast(ui, list);
+            style::toast(ui, list, &self.toast);
         }
         if let Some(dialog) = &self.dialog {
             dialog.draw(ui, area);
@@ -255,8 +255,8 @@ impl Network {
     fn draw_empty(&self, ui: &Ui, area: Rect, cfg: Option<&Config>) {
         let mut y = area.y + 30.0;
         if self.searching.is_some() {
-            draw_spinner(area.x + 6.0, y - 5.0, 6.0, theme::ACCENT);
-            ui.text("Searching the network...", area.x + 20.0, y, theme::TEXT);
+            draw_spinner(area.x + 6.0, y - 5.0, 6.0, theme::accent());
+            ui.text("Searching the network...", area.x + 20.0, y, theme::text());
             return;
         }
         let headline = if self.peers.is_empty() {
@@ -264,7 +264,7 @@ impl Network {
         } else {
             "Other machines share no games."
         };
-        ui.text(headline, area.x, y, theme::TEXT);
+        ui.text(headline, area.x, y, theme::text());
         y += 30.0;
         let port = cfg.map_or(share::DEFAULT_PORT, share::port);
         let help = [
@@ -275,7 +275,7 @@ impl Network {
             "Not on the same network segment? Add it in SETTINGS > Extra peers.".to_string(),
         ];
         for line in help {
-            ui.text(&ui.truncate(&line, area.w), area.x, y, theme::MUTED);
+            ui.text(&ui.truncate(&line, area.w), area.x, y, theme::muted());
             y += 20.0;
         }
     }
@@ -285,36 +285,31 @@ impl Network {
             let row = &self.rows[i];
             let focused = i == self.list.cursor;
             let frame = Rect::new(r.x, r.y, r.w, ROW_H);
-            if focused {
-                draw_rectangle(frame.x, frame.y, frame.w, frame.h, theme::PANEL);
-            }
             let stripe = if row.conflict.is_some() {
-                theme::BORDER
+                theme::disabled()
             } else if focused {
-                theme::ACCENT
+                theme::accent()
             } else {
-                theme::BLUE
+                theme::info()
             };
-            draw_rectangle(frame.x, frame.y, 5.0, ROW_H, stripe);
-            let (border, th) = if focused {
-                (theme::ACCENT, 2.0)
-            } else {
-                (theme::BORDER, 1.0)
-            };
-            stroke_rect(frame, th, border);
+            style::card(frame, stripe, focused);
             let tag = if row.conflict.is_some() {
                 "HERE".to_string()
             } else {
                 row.peer.info.name.clone()
             };
             let tag_w = ui.measure(&tag) + 12.0;
-            ui.text(&tag, frame.right() - tag_w, frame.y + 18.0, theme::MUTED);
+            ui.text(&tag, frame.right() - tag_w, frame.y + 18.0, theme::muted());
             let title = ui.truncate(&row.game.title, frame.w - 18.0 - tag_w);
-            let color = if focused { theme::TEXT } else { theme::MUTED };
+            let color = if focused {
+                theme::text()
+            } else {
+                theme::muted()
+            };
             ui.text(&title, frame.x + 12.0, frame.y + 18.0, color);
             if let Some(job) = jobs.for_game(&row.game.id) {
-                let track = Rect::new(frame.x + 6.0, frame.y + ROW_H - 5.0, frame.w - 8.0, 3.0);
-                info::bar(track, job.fraction(), theme::AMBER);
+                let track = Rect::new(frame.x + 8.0, frame.y + ROW_H - 5.0, frame.w - 16.0, 3.0);
+                style::bar(track, job.fraction(), theme::secondary());
             }
         }
     }
@@ -344,9 +339,9 @@ impl Network {
             if loading {
                 ui.text(
                     "loading...",
-                    cover.center().x - 40.0,
+                    cover.center().x - ui.measure("loading...") / 2.0,
                     cover.center().y,
-                    theme::MUTED,
+                    theme::muted(),
                 );
             }
         }
@@ -359,24 +354,6 @@ impl Network {
             description: &row.game.description,
         };
         info::draw(ui, info_area, &info, jobs.for_game(&row.game.id));
-    }
-
-    fn draw_toast(&self, ui: &Ui, list: Rect) {
-        let Some((message, color, until)) = &self.toast else {
-            return;
-        };
-        if get_time() > *until {
-            return;
-        }
-        let y = list.bottom() - 26.0;
-        draw_rectangle(list.x, y, list.w, 24.0, theme::BG);
-        stroke_rect(Rect::new(list.x, y, list.w, 24.0), 1.0, *color);
-        ui.text(
-            &ui.truncate(message, list.w - 16.0),
-            list.x + 8.0,
-            y + 18.0,
-            *color,
-        );
     }
 
     /// Full-resolution cover of the focused game (after the canvas is presented).
@@ -400,13 +377,13 @@ impl Network {
         if let Some(dialog) = &self.dialog {
             return dialog.hints(ui);
         }
-        let refresh = ui.hint(Action::Alt, "Refresh", theme::BLUE);
+        let refresh = ui.hint(Action::Alt, "Refresh", theme::info());
         let Some(row) = self.rows.get(self.list.cursor) else {
             return vec![refresh];
         };
         let action = match (jobs.for_game(&row.game.id), &row.conflict) {
-            (Some(_), _) => ui.hint(Action::Edit, "Cancel", theme::RED),
-            (None, None) => ui.hint(Action::Confirm, "Copy", theme::ACCENT),
+            (Some(_), _) => ui.hint(Action::Edit, "Cancel", theme::danger()),
+            (None, None) => ui.hint(Action::Confirm, "Copy", theme::accent()),
             (None, Some(_)) => return vec![refresh],
         };
         vec![action, refresh]

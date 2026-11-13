@@ -1,6 +1,7 @@
-//! Game editor: title, SteamGridDB ID, notes, targets, save paths and artwork
+//! Game editor: title, SteamGridDB ID, notes, targets, Proton, save paths and artwork
 //! of one game, with auto-detection, artwork fetching and `game.json` saving.
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::mpsc::{channel, Receiver};
 
@@ -9,14 +10,14 @@ use macroquad::prelude::*;
 use super::covers::{self, ImageLoader};
 use super::dialog::{self, Dialog};
 use super::engine::input::Action;
-use super::engine::theme;
+use super::engine::theme::{self, Tone};
 use super::form::{Event as FormEvent, Field, Form};
 use super::{open_external, Hint, Ui};
 use crate::core::config::Config;
-use crate::core::models::{Game, ImageSlot, Images, Install, SavePath, Target};
+use crate::core::models::{is_env_name, Game, ImageSlot, Images, Install, SavePath, Target};
 use crate::core::platform::{arch_tag, os_tag};
 use crate::core::sgdb::{self, SearchHit};
-use crate::core::{detector, paths, persister, scanner};
+use crate::core::{detector, paths, persister, proton, scanner};
 
 const OS_OPTIONS: &[&str] = &["linux", "windows", "macos", "android", "web", "any"];
 const ARCH_OPTIONS: &[&str] = &["x64", "arm64", "any"];
@@ -62,9 +63,65 @@ pub struct Editor {
     dialog: Option<(Pending, Dialog)>,
     fetch: Option<Receiver<FetchResult>>,
     search: Option<Receiver<Vec<SearchHit>>>,
-    message: Option<(String, Color)>,
+    message: Option<(String, Tone)>,
     art: [Option<Texture2D>; 5],
     art_loader: Option<ImageLoader>,
+    /// Steam names of the Proton builds installed here.
+    proton_tools: Vec<String>,
+}
+
+/// `KEY=value` pairs separated by spaces; anything else is skipped.
+fn parse_env(text: &str) -> BTreeMap<String, String> {
+    text.split_whitespace()
+        .filter_map(|pair| pair.split_once('='))
+        .filter(|(key, _)| is_env_name(key))
+        .map(|(key, value)| (key.to_string(), value.to_string()))
+        .collect()
+}
+
+fn env_text(env: &BTreeMap<String, String>) -> String {
+    let pairs: Vec<String> = env.iter().map(|(k, v)| format!("{k}={v}")).collect();
+    pairs.join(" ")
+}
+
+/// (value, label) choices for the Proton build: the default, the installed
+/// builds, and the current one even when it isn't installed here.
+fn version_options(current: &str, tools: &[String]) -> Vec<(String, String)> {
+    let default = (String::new(), "Default (Steam)".to_string());
+    let missing =
+        (!current.is_empty() && !tools.iter().any(|t| t == current)).then(|| current.to_string());
+    let builds = tools.iter().cloned().chain(missing).map(|t| (t.clone(), t));
+    std::iter::once(default).chain(builds).collect()
+}
+
+fn installed_proton_tools() -> Vec<String> {
+    let Some(root) = proton::steam_root() else {
+        return Vec::new();
+    };
+    proton::installed_tools(&root)
+        .into_iter()
+        .map(|tool| tool.name)
+        .collect()
+}
+
+/// How a Windows game runs with Proton.
+fn proton_fields(game: &Game, tools: &[String]) -> Vec<Field> {
+    let p = &game.proton;
+    vec![
+        Field::section("PROTON"),
+        Field::choice_labelled(
+            "proton.version",
+            "Proton version",
+            &p.version,
+            version_options(&p.version, tools),
+        )
+        .with_help("Proton build for this game; default: Steam's default, else the newest Proton."),
+        Field::text("proton.winetricks", "Winetricks", &p.winetricks.join(" ")).with_help(
+            "Packages installed into the game's prefix before it starts, e.g. d3dx9 vcrun2019.",
+        ),
+        Field::text("proton.env", "Environment", &env_text(&p.env))
+            .with_help("KEY=value pairs, e.g. PROTON_USE_WINED3D=1 WINEDLLOVERRIDES=ddraw=n,b"),
+    ]
 }
 
 /// The game as it would be saved: rows without a target / path are dropped.
@@ -80,7 +137,7 @@ fn slot_label(slot: ImageSlot) -> String {
     name[..1].to_uppercase() + &name[1..]
 }
 
-fn fields(game: &Game) -> Vec<Field> {
+fn fields(game: &Game, proton_tools: &[String]) -> Vec<Field> {
     let dir = &game.dir;
     let sgdb = game
         .steamgriddb_id
@@ -101,9 +158,9 @@ fn fields(game: &Game) -> Vec<Field> {
             } else {
                 ""
             },
-            theme::BLUE,
+            theme::info(),
         ),
-        Field::button("find_sgdb", "Find match on SteamGridDB", "by title", theme::BLUE).with_help(
+        Field::button("find_sgdb", "Find match on SteamGridDB", "by title", theme::info()).with_help(
             "Search SteamGridDB for the title above and pick the right game: its title, year, ID and artwork replace these (asks first).",
         ),
         Field::section("TARGETS"),
@@ -145,15 +202,18 @@ fn fields(game: &Game) -> Vec<Field> {
                 &format!("t{i}.del"),
                 &format!("Remove target #{n}"),
                 "",
-                theme::RED,
+                theme::danger(),
             ),
         ]);
     }
     out.extend([
-        Field::button("add_target", "Add target", "", theme::ACCENT),
-        Field::button("detect_targets", "Auto-detect targets", "", theme::BLUE),
-        Field::section("SAVE PATHS"),
+        Field::button("add_target", "Add target", "", theme::accent()),
+        Field::button("detect_targets", "Auto-detect targets", "", theme::info()),
     ]);
+    if game.targets.iter().any(|t| t.os == "windows") {
+        out.extend(proton_fields(game, proton_tools));
+    }
+    out.push(Field::section("SAVE PATHS"));
     for (i, s) in game.save_paths.iter().enumerate() {
         let n = i + 1;
         out.extend([
@@ -161,17 +221,17 @@ fn fields(game: &Game) -> Vec<Field> {
             Field::path(&format!("s{i}.path"), &format!("#{n} Folder"), &s.path, true, dir).with_help(
                 "Windows paths (%APPDATA%, C:/...) map into the Proton prefix on Linux. Variables: ${steamappid}, ${proton_c}.",
             ),
-            Field::button(&format!("s{i}.open"), &format!("Open save folder #{n}"), "", theme::BLUE),
-            Field::button(&format!("s{i}.del"), &format!("Remove save path #{n}"), "", theme::RED),
+            Field::button(&format!("s{i}.open"), &format!("Open save folder #{n}"), "", theme::info()),
+            Field::button(&format!("s{i}.del"), &format!("Remove save path #{n}"), "", theme::danger()),
         ]);
     }
     out.extend([
-        Field::button("add_save", "Add save path", "", theme::ACCENT),
+        Field::button("add_save", "Add save path", "", theme::accent()),
         Field::button(
             "detect_saves",
             "Auto-detect saves (Proton)",
             "",
-            theme::BLUE,
+            theme::info(),
         ),
         Field::section("ARTWORK"),
     ]);
@@ -182,7 +242,7 @@ fn fields(game: &Game) -> Vec<Field> {
             _ => "(none)".to_string(),
         };
         out.push(
-            Field::button(&format!("art.{i}"), &slot_label(slot), &note, theme::TEXT)
+            Field::button(&format!("art.{i}"), &slot_label(slot), &note, theme::text())
                 .with_help("Select to remove this image."),
         );
     }
@@ -190,21 +250,21 @@ fn fields(game: &Game) -> Vec<Field> {
         "fetch_art",
         "Fetch all artwork",
         "replaces existing",
-        theme::BLUE,
+        theme::info(),
     )
     .with_help(
         "Download every image from SteamGridDB (needs an API key and the SteamGridDB ID).",
     )]);
     if game.install == Install::Installed {
         out.push(
-            Field::button("pack", "Create a package", "one file", theme::AMBER).with_help(
+            Field::button("pack", "Create a package", "one file", theme::secondary()).with_help(
                 "Pack this game into games/<name>.cartridge.tar, to share or back it up.",
             ),
         );
     }
     out.extend([
         Field::section(""),
-        Field::button("save", "Save", "", theme::ACCENT),
+        Field::button("save", "Save", "", theme::accent()),
     ]);
     out
 }
@@ -222,17 +282,19 @@ impl Editor {
     }
 
     pub fn new(game: &Game, cfg: &Config) -> Editor {
+        let proton_tools = installed_proton_tools();
         let mut editor = Editor {
             game: game.clone(),
             saved_json: cleaned(game).to_json(),
             cfg: cfg.clone(),
-            form: Form::new(fields(game)),
+            form: Form::new(fields(game, &proton_tools)),
             dialog: None,
             fetch: None,
             search: None,
             message: None,
             art: Default::default(),
             art_loader: None,
+            proton_tools,
         };
         editor.load_art();
         editor
@@ -247,25 +309,25 @@ impl Editor {
         cleaned(&self.game).to_json() != self.saved_json
     }
 
-    fn say(&mut self, message: &str, color: Color) {
-        self.message = Some((message.to_string(), color));
+    fn say(&mut self, message: &str, tone: Tone) {
+        self.message = Some((message.to_string(), tone));
     }
 
     fn rebuild(&mut self) {
-        self.form.set_fields(fields(&self.game));
+        self.form.set_fields(fields(&self.game, &self.proton_tools));
     }
 
     fn save(&mut self) -> Option<Event> {
         let mut game = cleaned(&self.game);
         if let Err(e) = persister::write_game_json(&mut game) {
-            self.say(&format!("Error: {e}"), theme::RED);
+            self.say(&format!("Error: {e}"), Tone::Danger);
             return None;
         }
         log::info!("Saved {}", game.game_json_path().display());
         self.saved_json = game.to_json();
         self.game = game;
         self.rebuild();
-        self.say("Saved.", theme::ACCENT);
+        self.say("Saved.", Tone::Accent);
         Some(Event::Saved)
     }
 
@@ -278,11 +340,16 @@ impl Editor {
             "sgdb" => match value.parse::<i64>() {
                 Ok(n) => self.game.steamgriddb_id = Some(n),
                 Err(_) => {
-                    self.say("The SteamGridDB ID must be a number.", theme::RED);
+                    self.say("The SteamGridDB ID must be a number.", Tone::Danger);
                     self.rebuild();
                 }
             },
             "notes" => self.game.notes = value,
+            "proton.version" => self.game.proton.version = value,
+            "proton.winetricks" => {
+                self.game.proton.winetricks = value.split_whitespace().map(str::to_string).collect()
+            }
+            "proton.env" => self.game.proton.env = parse_env(&value),
             _ => self.apply_row_change(id, value),
         }
         self.rebuild();
@@ -322,7 +389,7 @@ impl Editor {
     fn detect_targets(&mut self) {
         let detected = detector::collect_targets(&self.game.dir);
         if detected.is_empty() {
-            return self.say("No executables detected.", theme::AMBER);
+            return self.say("No executables detected.", Tone::Secondary);
         }
         let before = self.game.targets.len();
         for t in detected {
@@ -336,19 +403,19 @@ impl Editor {
             }
         }
         match self.game.targets.len() - before {
-            0 => self.say("No new targets found.", theme::AMBER),
-            n => self.say(&format!("Detected {n} new target(s)."), theme::ACCENT),
+            0 => self.say("No new targets found.", Tone::Secondary),
+            n => self.say(&format!("Detected {n} new target(s)."), Tone::Accent),
         }
         self.rebuild();
     }
 
     fn detect_saves(&mut self) {
         let Some(exe) = self.current_exe() else {
-            return self.say("No executable found to get the app ID.", theme::AMBER);
+            return self.say("No executable found to get the app ID.", Tone::Secondary);
         };
         let found = detector::detect_proton_save_paths(&self.game.title, &exe);
         if found.is_empty() {
-            return self.say("No saves found in the Proton prefix.", theme::AMBER);
+            return self.say("No saves found in the Proton prefix.", Tone::Secondary);
         }
         let before = self.game.save_paths.len();
         for sp in found {
@@ -362,8 +429,8 @@ impl Editor {
             }
         }
         match self.game.save_paths.len() - before {
-            0 => self.say("Save path(s) already listed.", theme::AMBER),
-            n => self.say(&format!("Detected {n} new save path(s)."), theme::ACCENT),
+            0 => self.say("Save path(s) already listed.", Tone::Secondary),
+            n => self.say(&format!("Detected {n} new save path(s)."), Tone::Accent),
         }
         self.rebuild();
     }
@@ -391,12 +458,12 @@ impl Editor {
         if !path.exists() {
             return self.say(
                 &format!("Not found on disk: {}", path.display()),
-                theme::AMBER,
+                Tone::Secondary,
             );
         }
         match open_external(&paths::lossy(&path)) {
-            Ok(()) => self.say("Opened the file browser.", theme::ACCENT),
-            Err(e) => self.say(&e, theme::RED),
+            Ok(()) => self.say("Opened the file browser.", Tone::Accent),
+            Err(e) => self.say(&e, Tone::Danger),
         }
     }
 
@@ -404,10 +471,10 @@ impl Editor {
     /// kept where the match has none).
     fn start_fetch(&mut self, base: Images) {
         let Some(id) = self.game.steamgriddb_id else {
-            return self.say("No SteamGridDB ID set.", theme::AMBER);
+            return self.say("No SteamGridDB ID set.", Tone::Secondary);
         };
         if sgdb::api_key(&self.cfg).is_none() {
-            return self.say("No API key configured (Settings).", theme::AMBER);
+            return self.say("No API key configured (Settings).", Tone::Secondary);
         }
         let (tx, rx) = channel();
         let (cfg, mut game) = (self.cfg.clone(), self.game.clone());
@@ -426,7 +493,7 @@ impl Editor {
             let _ = tx.send(result);
         });
         self.fetch = Some(rx);
-        self.say("Fetching artwork...", theme::MUTED);
+        self.say("Fetching artwork...", Tone::Muted);
     }
 
     fn poll_fetch(&mut self) -> Option<Event> {
@@ -437,11 +504,11 @@ impl Editor {
                 self.game.images = images;
                 self.load_art();
                 let saved = self.save();
-                self.say("Artwork updated.", theme::ACCENT);
+                self.say("Artwork updated.", Tone::Accent);
                 saved
             }
             Err(message) => {
-                self.say(&message, theme::AMBER);
+                self.say(&message, Tone::Secondary);
                 None
             }
         }
@@ -449,12 +516,12 @@ impl Editor {
 
     fn start_search(&mut self) {
         let Some(key) = sgdb::api_key(&self.cfg) else {
-            return self.say("No API key configured (Settings).", theme::AMBER);
+            return self.say("No API key configured (Settings).", Tone::Secondary);
         };
         let title = self.game.title.clone();
         self.say(
             &format!("Searching SteamGridDB for {title}..."),
-            theme::MUTED,
+            Tone::Muted,
         );
         let (tx, rx) = channel();
         std::thread::spawn(move || {
@@ -474,7 +541,7 @@ impl Editor {
         self.search = None;
         if hits.is_empty() {
             let message = format!("No match on SteamGridDB for {}.", self.game.title);
-            return self.say(&message, theme::AMBER);
+            return self.say(&message, Tone::Secondary);
         }
         self.message = None;
         let hits: Vec<SearchHit> = hits.into_iter().take(MAX_MATCHES).collect();
@@ -484,8 +551,8 @@ impl Editor {
             .collect();
         let options: Vec<(&str, Color)> = labels
             .iter()
-            .map(|label| (label.as_str(), theme::TEXT))
-            .chain([("Cancel", theme::MUTED)])
+            .map(|label| (label.as_str(), theme::text()))
+            .chain([("Cancel", theme::muted())])
             .collect();
         let dialog = Dialog::new(
             "SteamGridDB matches",
@@ -499,7 +566,7 @@ impl Editor {
         let dialog = Dialog::new(
             &format!("Use {}?", match_label(&hit, None)),
             "Its title, year, SteamGridDB ID and artwork replace this game's, then the game is saved.",
-            &[("Replace", theme::ACCENT), ("Cancel", theme::MUTED)],
+            &[("Replace", theme::accent()), ("Cancel", theme::muted())],
         );
         self.dialog = Some((Pending::ConfirmMatch(hit), dialog));
     }
@@ -539,7 +606,7 @@ impl Editor {
                 if let Some(n) = self.game.steamgriddb_id {
                     if let Err(e) = open_external(&format!("https://www.steamgriddb.com/game/{n}"))
                     {
-                        self.say(&e, theme::RED);
+                        self.say(&e, Tone::Danger);
                     }
                 }
             }
@@ -598,9 +665,9 @@ impl Editor {
                 &format!("Remove the {} image?", slot.name()),
                 "The entry is removed from game.json. The file can be kept or deleted.",
                 &[
-                    ("Delete entry only", theme::AMBER),
-                    ("Delete entry + file", theme::RED),
-                    ("Cancel", theme::MUTED),
+                    ("Delete entry only", theme::secondary()),
+                    ("Delete entry + file", theme::danger()),
+                    ("Cancel", theme::muted()),
                 ],
             );
             self.dialog = Some((Pending::DeleteImage(slot), dialog));
@@ -663,9 +730,9 @@ impl Editor {
                 "Unsaved changes",
                 "Save the changes to game.json before closing?",
                 &[
-                    ("Save and close", theme::ACCENT),
-                    ("Discard changes", theme::RED),
-                    ("Keep editing", theme::MUTED),
+                    ("Save and close", theme::accent()),
+                    ("Discard changes", theme::danger()),
+                    ("Keep editing", theme::muted()),
                 ],
             );
             self.dialog = Some((Pending::Discard, dialog));
@@ -694,7 +761,12 @@ impl Editor {
         let (form_area, preview) = Editor::layout(ui, area);
         if let Some(preview) = preview {
             let slot = ImageSlot::ALL[self.preview_slot()];
-            ui.text(&slot_label(slot), preview.x, preview.y + 18.0, theme::AMBER);
+            ui.text(
+                &slot_label(slot),
+                preview.x,
+                preview.y + 18.0,
+                theme::secondary(),
+            );
             if self.art[self.preview_slot()].is_none() {
                 let note = if self.game.images.get(slot).is_some() && self.art_loader.is_some() {
                     "loading..."
@@ -705,7 +777,7 @@ impl Editor {
                     note,
                     preview.center().x - ui.measure(note) / 2.0,
                     preview.center().y,
-                    theme::MUTED,
+                    theme::muted(),
                 );
             }
         }
@@ -714,7 +786,7 @@ impl Editor {
         } else {
             ""
         };
-        let (message, color) = self.message.clone().unwrap_or_default();
+        let (message, tone) = self.message.clone().unwrap_or_default();
         let status = if message.is_empty() {
             dirty.trim().to_string()
         } else {
@@ -725,9 +797,9 @@ impl Editor {
             area.x,
             area.bottom() - 4.0,
             if message.is_empty() {
-                theme::AMBER
+                theme::secondary()
             } else {
-                color
+                tone.color()
             },
         );
         self.form.draw(ui, form_area);
@@ -758,7 +830,7 @@ impl Editor {
         }
         let mut hints = self.form.hints(ui);
         if !self.form.has_modal() {
-            hints.push(ui.hint(Action::Back, "Close", theme::AMBER));
+            hints.push(ui.hint(Action::Back, "Close", theme::secondary()));
         }
         hints
     }
@@ -782,5 +854,47 @@ mod tests {
         assert_eq!(match_label(&celeste, None), "Celeste (2018)");
         assert_eq!(match_label(&celeste, Some(7)), "Celeste (2018) - current");
         assert_eq!(match_label(&hit(8, None, None), Some(7)), "?");
+    }
+
+    #[test]
+    fn environment_reads_key_value_pairs_and_skips_the_rest() {
+        let env = parse_env("PROTON_USE_WINED3D=1  WINEDLLOVERRIDES=d3d9=n;dxgi=n junk =x");
+        assert_eq!(
+            env.into_iter().collect::<Vec<_>>(),
+            [
+                ("PROTON_USE_WINED3D".to_string(), "1".to_string()),
+                ("WINEDLLOVERRIDES".to_string(), "d3d9=n;dxgi=n".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn environment_skips_names_that_are_not_plain_words() {
+        assert_eq!(
+            parse_env("A-B=1 9X=1 OK=1").keys().collect::<Vec<_>>(),
+            ["OK"]
+        );
+    }
+
+    #[test]
+    fn environment_text_round_trips() {
+        let text = "A=1 B=x=y";
+        assert_eq!(env_text(&parse_env(text)), text);
+    }
+
+    #[test]
+    fn version_choices_offer_the_default_installed_builds_and_the_current_one() {
+        let tools = ["proton_10".to_string(), "GE-Proton11-5".into()];
+        let values = |current| -> Vec<String> {
+            version_options(current, &tools)
+                .into_iter()
+                .map(|(value, _)| value)
+                .collect()
+        };
+        assert_eq!(values(""), ["", "proton_10", "GE-Proton11-5"]);
+        assert_eq!(
+            values("proton_8"),
+            ["", "proton_10", "GE-Proton11-5", "proton_8"]
+        );
     }
 }

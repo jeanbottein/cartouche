@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-•cartridge (French for "cartridge") is a Rust app for managing DRM-free games on Linux (primarily Steam Deck). One binary: a retro macroquad UI by default, terminal mode with `-t`. The backend is a pipeline of phases over an in-memory game list.
+•cartridge (French for "cartridge") is a Rust app for managing DRM-free games on Linux (primarily Steam Deck). One binary: a themed macroquad UI by default, terminal mode with `-t`. The backend is a pipeline of phases over an in-memory game list.
 
 ## Pipeline
 
@@ -41,6 +41,7 @@ src/
     share/               # LAN sharing: server.rs (HTTP, GET only), discovery.rs (UDP broadcast), client.rs
     vdf.rs               # Binary (shortcuts.vdf) + text (config.vdf) KeyValues
     steam.rs steam_self.rs manifest.rs bps.rs saver.rs commands.rs
+    proton.rs            # Windows games with Steam's Proton + runtime, in the shortcut's compatdata prefix; winetricks
     patcher.rs mods.rs   # mod file engine (state/apply/restore) + mod model (list, on/off)
     pipeline.rs init.rs logging.rs
   ui/                    # macroquad UI
@@ -49,8 +50,10 @@ src/
     form.rs list.rs keyboard.rs browser.rs dialog.rs   # widgets
     network.rs jobs.rs info.rs   # Network tab, background transfers, shared info panel
     mods.rs              # MODS tab: mods with status, A turns one on/off
-    covers.rs launcher.rs music.rs engine/ (canvas, input, text, theme)
-assets/                  # Embedded: font, icon, steam-art, config-default.txt, games_locations.json
+    style.rs             # Shared look: backdrop, cards, highlight, panels, bars, toasts, chips, badges
+    covers.rs launcher.rs music.rs
+    engine/              # canvas (design px, drawn at native res), input, text, shape, theme
+assets/                  # Embedded: fonts (VT323, Barlow), icon, steam-art, config-default.txt, games_locations.json
 testdata/                # Golden fixtures produced by the former Python implementation
 ```
 
@@ -74,6 +77,8 @@ Packages: a plain tar of `Foo/` with `.cartridge/package.json` first and `.cartr
 - **Compatibility is the contract:** game.json (4-space JSON), shortcuts.vdf, AppIDs (`crc32(exe+title) | 0x80000000`), path normalization and save layout must stay byte-compatible with existing workspaces. Golden tests in `testdata/` guard this.
 - **Fixed layout, no path settings:** `games/`, `mods/`, `saves-copies/`, `saves-links/` sit next to `system/` (`core::app::FOLDERS`, `Config::games_dir()`/`mods_dir()`/...). Users who want a folder elsewhere replace it with a symlink. `RUN_AFTER_*` commands still get `${FREEGAMES_PATH}`, `${PATCHES_PATH}`, `${SAVESCOPY_PATH}`, `${SAVESLINK_PATH}` as read-only folder variables.
 - **`Config`** keeps raw values (Settings editor) and resolved values (only `BACKUP_*` sources are paths, resolved against the cartridge folder).
+- **UI look:** layout is in design pixels (432 px tall canvas), rendered at the window's native resolution, so 480p and 4K share one layout. Screens draw through `ui::style` and `theme::*()` colors, never raw colors; `THEME` (Settings > DISPLAY) swaps palette, typeface and corners, never positions. Add a theme to `engine::theme::THEMES`. `WINDOW_MODE`: borderless (fullscreen, default) or a resizable window; gamescope is always fullscreen.
+- **Windows games:** the UI runs them itself with Steam's Proton (`core::proton`), the way Steam runs the shortcut (runtime `_v2-entry-point` → `proton waitforexitandrun`, `STEAM_COMPAT_DATA_PATH=compatdata/<shortcut appid>`), so prefix and saves are shared with the Steam shortcut. Per-game settings: `"proton": {version, winetricks, env}` in game.json. Build: game.json `version` → the shortcut's own `CompatToolMapping` entry → Steam's default (`0`) → newest Proton (`proton::Installed::tool_for`), so Steam and cartridge share the prefix's build. A non-empty `env` (plain names only: Steam runs LaunchOptions in a shell) owns the shortcut's LaunchOptions; otherwise options set in Steam are kept. `version` pins the shortcut's compat tool only when installed. winetricks downloads: `W_CACHE` is `system/winetricks` with `PROTON_KEEP_DOWNLOADS`, else the user cache with links to what `system/winetricks` holds.
 - Flags: `is_true` for opt-in keys (STEAM_ADD_SELF, SHARE_ENABLED, ...), `is_not_false` for opt-out keys (MANIFEST_EXPORT, MUSIC_ENABLED).
 - **Steam, per game:** the user adds/removes each game (Library, Y), remembered in `system/steam.json`; the pipeline keeps exactly those shortcuts current. Ownership tag `cartridge:<id>` (`system/cartridge-id`) plus the folder-name label as a visible tag; the self-shortcut (`STEAM_ADD_SELF`, first SETTINGS option) uses `<owner tag>-self` and is applied as soon as it's toggled. Steam reads shortcuts at startup: the UI says "restart Steam" when it runs.
 - **Logging:** `log` macros; `core::logging` prints to stderr and mirrors to the UI Status log.

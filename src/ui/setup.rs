@@ -39,8 +39,8 @@ fn fields(dir: &Path) -> Vec<Field> {
     );
     vec![
         Field::section(&format!("WELCOME TO {DISPLAY_NAME}")),
-        Field::button("create", "Create the cartridge here", "", theme::ACCENT).with_help(&help),
-        Field::button("quit", "Quit", "", theme::MUTED),
+        Field::button("create", "Create the cartridge here", "", theme::accent()).with_help(&help),
+        Field::button("quit", "Quit", "", theme::muted()),
     ]
 }
 
@@ -94,14 +94,18 @@ impl Setup {
                 &ui.truncate(message, area.w),
                 area.x,
                 area.bottom() - 4.0,
-                theme::RED,
+                theme::danger(),
             );
         }
         let form_area = self.form_area(ui, area);
         self.form.draw(ui, form_area);
         let mut y = form_area.bottom() + 24.0;
         for (line, warning) in self.advice_lines(ui, area.w) {
-            let color = if warning { theme::AMBER } else { theme::MUTED };
+            let color = if warning {
+                theme::secondary()
+            } else {
+                theme::muted()
+            };
             ui.text(&line, area.x, y, color);
             y += LINE;
         }

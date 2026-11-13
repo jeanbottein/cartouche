@@ -5,8 +5,9 @@
 use macroquad::prelude::*;
 
 use super::engine::input::Action;
+use super::engine::shape::{fill_rounded, stroke_rounded};
 use super::engine::theme;
-use super::{centered, panel, stroke_rect, Hint, Ui};
+use super::{centered, style, Hint, Ui};
 
 const ROWS: [&str; 4] = [
     "1234567890-=",
@@ -150,7 +151,7 @@ impl Keyboard {
 
     fn frame(&self, area: Rect) -> Rect {
         let rows = ROWS.len() as f32 + 1.0;
-        centered(area, 460.0, 76.0 + rows * (KEY_H + GAP))
+        centered(area, 480.0, 76.0 + rows * (KEY_H + GAP))
     }
 
     fn key_rects(&self, area: Rect) -> Vec<(usize, usize, Rect)> {
@@ -181,16 +182,16 @@ impl Keyboard {
 
     pub fn draw(&self, ui: &Ui, area: Rect) {
         let frame = self.frame(area);
-        panel(frame, theme::ACCENT);
+        style::panel(ui, frame, theme::accent());
         ui.text(
             &ui.truncate(&self.title, frame.w - 24.0),
             frame.x + 12.0,
             frame.y + 22.0,
-            theme::AMBER,
+            theme::secondary(),
         );
 
         let field = Rect::new(frame.x + 12.0, frame.y + 32.0, frame.w - 24.0, 26.0);
-        stroke_rect(field, 1.0, theme::BORDER);
+        style::well(field);
         let shown = if self.secret {
             "*".repeat(self.value.chars().count())
         } else {
@@ -202,7 +203,7 @@ impl Keyboard {
             " "
         };
         let line = ui.truncate_start(&format!("{shown}{caret}"), field.w - 12.0);
-        ui.text(&line, field.x + 6.0, field.y + 19.0, theme::TEXT);
+        ui.text(&line, field.x + 6.0, field.y + 19.0, theme::text());
 
         for (row, col, r) in self.key_rects(area) {
             let focused = (row, col) == (self.row, self.col);
@@ -211,18 +212,19 @@ impl Keyboard {
                 None => SPECIALS[col].to_string(),
             };
             let active = label == "SHIFT" && self.shift;
-            if focused {
-                draw_rectangle(r.x, r.y, r.w, r.h, theme::PANEL);
-            }
-            let border = if focused {
-                theme::ACCENT
-            } else if active {
-                theme::AMBER
-            } else {
-                theme::BORDER
+            let t = theme::current();
+            let (fill, border, width) = match (focused, active) {
+                (true, _) => (t.surface_hi, t.accent, t.focus_width),
+                (false, true) => (t.surface, t.secondary, 1.0),
+                (false, false) => (t.surface, t.border, 1.0),
             };
-            stroke_rect(r, if focused { 2.0 } else { 1.0 }, border);
-            let color = if focused { theme::TEXT } else { theme::MUTED };
+            fill_rounded(r, t.radius.min(4.0), fill);
+            stroke_rounded(r, t.radius.min(4.0), width, border);
+            let color = if focused {
+                theme::text()
+            } else {
+                theme::muted()
+            };
             let label = ui.truncate(&label, r.w - 4.0);
             ui.text(
                 &label,
@@ -236,17 +238,17 @@ impl Keyboard {
     pub fn hints(&self, ui: &Ui) -> Vec<Hint> {
         if !ui.input.gamepad_last() {
             return vec![
-                Hint::new("ENTER", "OK", theme::ACCENT),
-                Hint::new("ESC", "Cancel", theme::AMBER),
-                Hint::new("BKSP", "Delete", theme::BORDER),
+                Hint::new("ENTER", "OK", theme::accent()),
+                Hint::new("ESC", "Cancel", theme::secondary()),
+                Hint::new("BKSP", "Delete", theme::muted()),
             ];
         }
         vec![
-            Hint::new("A", "Type", theme::ACCENT),
-            Hint::new("B", "Delete", theme::AMBER),
-            Hint::new("X", "Space", theme::BORDER),
-            Hint::new("Y", "Shift", theme::BORDER),
-            Hint::new("START", "OK", theme::ACCENT),
+            Hint::new("A", "Type", theme::accent()),
+            Hint::new("B", "Delete", theme::secondary()),
+            Hint::new("X", "Space", theme::muted()),
+            Hint::new("Y", "Shift", theme::muted()),
+            Hint::new("START", "OK", theme::accent()),
         ]
     }
 }

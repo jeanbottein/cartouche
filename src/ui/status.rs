@@ -13,9 +13,9 @@ use macroquad::prelude::*;
 
 use super::engine::canvas::Layout;
 use super::engine::input::Action;
-use super::engine::theme;
+use super::engine::theme::{self, Tone};
 use super::list::List;
-use super::{stroke_rect, Hint, Ui};
+use super::{style, Hint, Ui};
 use crate::core::config::Config;
 use crate::core::logging::Line;
 use crate::core::pipeline::{self, Group, Phase, Pipeline};
@@ -62,7 +62,7 @@ pub struct Status {
     log_offset: usize,
     run: Option<Run>,
     phases: Vec<(Phase, PhaseState)>,
-    state: (String, Color),
+    state: (String, Tone),
     last_run: Option<Instant>,
 }
 
@@ -78,7 +78,7 @@ impl Status {
                 .iter()
                 .map(|&p| (p, PhaseState::Pending))
                 .collect(),
-            state: ("Ready.".into(), theme::MUTED),
+            state: ("Ready.".into(), Tone::Muted),
             last_run: None,
         }
     }
@@ -108,7 +108,7 @@ impl Status {
             .iter()
             .map(|&p| (p, PhaseState::Pending))
             .collect();
-        self.state = (format!("Running '{}'...", group.name()), theme::AMBER);
+        self.state = (format!("Running '{}'...", group.name()), Tone::Secondary);
         self.log_offset = 0;
         let cancel = Arc::new(AtomicBool::new(false));
         let (tx, rx) = channel();
@@ -148,11 +148,11 @@ impl Status {
         self.run = None;
         self.last_run = Some(Instant::now());
         self.state = match outcome {
-            Some(true) => ("Completed.".into(), theme::ACCENT),
-            Some(false) => ("Cancelled.".into(), theme::AMBER),
+            Some(true) => ("Completed.".into(), Tone::Accent),
+            Some(false) => ("Cancelled.".into(), Tone::Secondary),
             None => (
                 "Error: the run stopped unexpectedly (see log).".into(),
-                theme::RED,
+                Tone::Danger,
             ),
         };
         Some(Finished)
@@ -231,11 +231,11 @@ impl Status {
         }
         match (ACTIONS[self.list.cursor].1, cfg) {
             (Some(group), Some(cfg)) => self.start(group, cfg),
-            (Some(_), None) => self.state = ("No configuration loaded.".into(), theme::RED),
+            (Some(_), None) => self.state = ("No configuration loaded.".into(), Tone::Danger),
             (None, _) => {
                 if let Some(run) = &self.run {
                     run.cancel.store(true, Ordering::Relaxed);
-                    self.state = ("Cancelling after this phase...".into(), theme::AMBER);
+                    self.state = ("Cancelling after this phase...".into(), Tone::Secondary);
                 }
             }
         }
@@ -251,13 +251,13 @@ impl Status {
             &ui.truncate(&format!("{game_count} game(s), {last_run}"), left.w),
             left.x,
             left.y + 18.0,
-            theme::MUTED,
+            theme::muted(),
         );
         ui.text(
             &ui.truncate(&self.state.0, left.w),
             left.x,
             left.y + 40.0,
-            self.state.1,
+            self.state.1.color(),
         );
 
         for (i, r) in self
@@ -269,15 +269,14 @@ impl Status {
             let disabled =
                 (group.is_some() && self.run.is_some()) || (group.is_none() && self.run.is_none());
             if focused {
-                draw_rectangle(r.x, r.y, r.w, r.h - 2.0, theme::PANEL);
-                draw_rectangle(r.x, r.y, 3.0, r.h - 2.0, theme::ACCENT);
+                style::highlight(r, theme::accent());
             }
             let color = if disabled {
-                theme::BORDER
+                theme::disabled()
             } else if focused {
-                theme::TEXT
+                theme::text()
             } else {
-                theme::MUTED
+                theme::muted()
             };
             ui.text(label, r.x + 10.0, r.y + 16.0, color);
         }
@@ -298,16 +297,18 @@ impl Status {
             .iter()
             .filter(|(_, s)| *s == PhaseState::Done)
             .count();
-        let bar = Rect::new(area.x, area.y, area.w, 8.0);
-        stroke_rect(bar, 1.0, theme::BORDER);
-        let fill = (bar.w - 2.0) * done as f32 / self.phases.len().max(1) as f32;
-        draw_rectangle(bar.x + 1.0, bar.y + 1.0, fill, bar.h - 2.0, theme::ACCENT);
+        let fraction = done as f32 / self.phases.len().max(1) as f32;
+        style::bar(
+            Rect::new(area.x, area.y, area.w, 6.0),
+            fraction,
+            theme::accent(),
+        );
         let rows = ((area.h - 16.0) / LOG_LINE) as usize;
         for (i, (phase, state)) in self.phases.iter().take(rows).enumerate() {
             let (mark, color) = match state {
-                PhaseState::Pending => ("  ", theme::BORDER),
-                PhaseState::Running => ("> ", theme::AMBER),
-                PhaseState::Done => ("* ", theme::ACCENT),
+                PhaseState::Pending => ("  ", theme::disabled()),
+                PhaseState::Running => ("> ", theme::secondary()),
+                PhaseState::Done => ("* ", theme::accent()),
             };
             ui.text(
                 &format!("{mark}{}", phase.label()),
@@ -319,13 +320,13 @@ impl Status {
     }
 
     fn draw_log(&self, ui: &Ui, area: Rect) {
-        stroke_rect(area, 1.0, theme::BORDER);
+        style::well(area);
         let inner_w = area.w - 12.0;
         let capacity = ((area.h - 8.0) / LOG_LINE) as usize;
         let color_of = |level: Level| match level {
-            Level::Error => theme::RED,
-            Level::Warn => theme::AMBER,
-            _ => theme::TEXT,
+            Level::Error => theme::danger(),
+            Level::Warn => theme::secondary(),
+            _ => theme::text(),
         };
         // Newest at the bottom: wrap from the end until the panel is full.
         let mut rows: Vec<(String, Color)> = Vec::new();
@@ -353,15 +354,15 @@ impl Status {
                 &note,
                 area.right() - 6.0 - ui.measure(&note),
                 area.y + 18.0,
-                theme::BLUE,
+                theme::info(),
             );
         }
     }
 
     pub fn hints(&self, ui: &Ui) -> Vec<Hint> {
         vec![
-            ui.hint(Action::Confirm, "Select", theme::ACCENT),
-            ui.hint(Action::Left, "Scroll log", theme::BORDER),
+            ui.hint(Action::Confirm, "Select", theme::accent()),
+            ui.hint(Action::Left, "Scroll log", theme::muted()),
         ]
     }
 }

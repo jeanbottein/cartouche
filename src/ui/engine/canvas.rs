@@ -1,13 +1,14 @@
 //! Virtual canvas, scaling and layouts.
 //!
-//! Everything is drawn into a low-resolution offscreen render target, then
-//! blitted to the window with **nearest-neighbor** filtering.
-//!
 //! Resolution independent: the canvas is measured in design pixels, never in
 //! screen pixels. It is the smallest canvas of its shape that covers the
-//! window, scaled up to fill it (×2.5 at 1080p, ×5 at 4K), so the UI looks the
-//! same at any resolution. Windows smaller than that get a 1:1 canvas instead,
-//! so text stays legible.
+//! window, scaled up to fill it (×1.1 at 480p, ×2.5 at 1080p, ×5 at 4K), so
+//! the layout is the same at any resolution. Windows smaller than that get a
+//! 1:1 canvas instead, so text stays legible.
+//!
+//! Drawing happens at the window's own resolution, into an offscreen target
+//! (design pixels × scale): bigger screens get sharper text and curves, not a
+//! different layout.
 //!
 //! Two shapes:
 //! * wide — [`DESIGN_HEIGHT`] tall, at least 3:2, as wide as the window
@@ -21,7 +22,42 @@
 
 use macroquad::prelude::*;
 
-use super::theme;
+use std::cell::OnceCell;
+
+use super::{shape, text, theme};
+
+/// Blits the canvas as opaque: translucent shapes lower the target's alpha,
+/// which would otherwise let the letterbox color show through on screen.
+const OPAQUE_FRAGMENT: &str = r#"#version 100
+varying lowp vec2 uv;
+
+uniform sampler2D Texture;
+
+void main() {
+    gl_FragColor = vec4(texture2D(Texture, uv).rgb, 1.0);
+}"#;
+
+thread_local! {
+    static OPAQUE: OnceCell<Material> = const { OnceCell::new() };
+}
+
+fn with_opaque(draw: impl FnOnce()) {
+    OPAQUE.with(|cell| {
+        let material = cell.get_or_init(|| {
+            load_material(
+                ShaderSource::Glsl {
+                    vertex: text::VERTEX,
+                    fragment: OPAQUE_FRAGMENT,
+                },
+                MaterialParams::default(),
+            )
+            .expect("canvas blit shader failed to compile")
+        });
+        gl_use_material(material);
+        draw();
+        gl_use_default_material();
+    });
+}
 
 /// Canvas height (in canvas pixels) the layout is designed for.
 pub const DESIGN_HEIGHT: f32 = 432.0;
@@ -138,6 +174,11 @@ impl Canvas {
         self.fit.layout
     }
 
+    /// Screen pixels per design pixel.
+    pub fn scale(&self) -> f32 {
+        self.fit.scale
+    }
+
     pub fn set_widescreen(&mut self, widescreen: Widescreen) {
         if widescreen == self.widescreen {
             return;
@@ -156,8 +197,9 @@ impl Canvas {
         }
         self.fitted_to = window;
         let fit = fit_window(window, self.widescreen);
-        if (fit.w, fit.h) != self.size() {
-            self.target = new_target(fit.w, fit.h);
+        if target_size(fit) != target_size(self.fit) {
+            let (w, h) = target_size(fit);
+            self.target = new_target(w, h);
         }
         self.fit = fit;
     }
@@ -183,8 +225,10 @@ impl Canvas {
         (local.x >= 0.0 && local.y >= 0.0 && local.x <= w && local.y <= h).then_some(local)
     }
 
-    /// Begin drawing into the virtual canvas (origin top-left, y down).
+    /// Begin drawing into the virtual canvas (origin top-left, y down, in
+    /// design pixels).
     pub fn begin(&self) {
+        shape::set_scale(self.fit.scale);
         let (w, h) = self.size();
         set_camera(&Camera2D {
             zoom: vec2(2.0 / w, 2.0 / h),
@@ -192,7 +236,7 @@ impl Canvas {
             render_target: Some(self.target.clone()),
             ..Default::default()
         });
-        clear_background(theme::BG);
+        clear_background(theme::bg());
     }
 
     /// Finish canvas drawing.
@@ -200,26 +244,36 @@ impl Canvas {
         set_default_camera();
     }
 
-    /// Blit the virtual canvas to the window (pure-black letterbox).
+    /// Blit the canvas to the window, pixel for pixel (letterbox in the
+    /// theme's background).
     pub fn present(&self) {
-        clear_background(theme::BG);
-        let (scale, offset) = self.present_transform();
-        let (w, h) = self.size();
-        draw_texture_ex(
-            &self.target.texture,
-            offset.x,
-            offset.y,
-            WHITE,
-            DrawTextureParams {
-                dest_size: Some(vec2(w * scale, h * scale)),
-                ..Default::default()
-            },
-        );
+        clear_background(theme::bg());
+        let (_, offset) = self.present_transform();
+        let (w, h) = target_size(self.fit);
+        let dpi = screen_dpi_scale();
+        with_opaque(|| {
+            draw_texture_ex(
+                &self.target.texture,
+                offset.x,
+                offset.y,
+                WHITE,
+                DrawTextureParams {
+                    dest_size: Some(vec2(w, h) / dpi),
+                    ..Default::default()
+                },
+            );
+        });
     }
+}
+
+/// Size of the offscreen target in screen pixels.
+fn target_size(fit: Fit) -> (f32, f32) {
+    ((fit.w * fit.scale).round(), (fit.h * fit.scale).round())
 }
 
 fn new_target(w: f32, h: f32) -> RenderTarget {
     let target = render_target(w as u32, h as u32);
+    // Blitted 1:1: filtering only matters for the sub-pixel rounding.
     target.texture.set_filter(FilterMode::Nearest);
     target
 }

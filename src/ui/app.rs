@@ -8,9 +8,11 @@ use macroquad::prelude::*;
 
 use super::dialog::{Dialog, Outcome as DialogOutcome};
 use super::editor::{self, Editor};
-use super::engine::canvas::{Canvas, Widescreen};
-use super::engine::input::{Action, Input};
-use super::engine::{text, theme};
+use super::engine::canvas::Widescreen;
+use super::engine::input::Action;
+use super::engine::shape::fill_rounded;
+use super::engine::text::Fonts;
+use super::engine::theme::{self, fade};
 use super::jobs::{Jobs, Kind};
 use super::launcher::Session;
 use super::library::{self, Library};
@@ -20,7 +22,7 @@ use super::network::{self, Network};
 use super::settings::Settings;
 use super::setup::{self, Setup};
 use super::status::Status;
-use super::{Hint, Ui};
+use super::{style, wants_fullscreen, Hint, Ui};
 use crate::core::app::{exe_dir, find_app_dir};
 use crate::core::config::Config;
 use crate::core::logging::{self, Line};
@@ -29,9 +31,15 @@ use crate::core::{init, migrations};
 use crate::core::{package, steam, steam_self};
 
 const MARGIN: f32 = 16.0;
-const HEADER_H: f32 = 34.0;
-const CONTENT_TOP: f32 = HEADER_H + 2.0;
-const FOOTER_H: f32 = 22.0;
+const HEADER_H: f32 = 36.0;
+/// Air between the header line and the content, and the content and the footer line.
+const LINE_GAP: f32 = 8.0;
+const CONTENT_TOP: f32 = HEADER_H + LINE_GAP;
+const FOOTER_H: f32 = 28.0;
+/// Footer badges, from the footer line.
+const BADGE_TOP: f32 = 7.0;
+/// Room around a tab's name in the header.
+const TAB_PAD: f32 = 7.0;
 
 /// Holding Back this long on the Library quits the app.
 const HOLD_TO_QUIT_SECS: f64 = 1.0;
@@ -99,19 +107,16 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(cli_dir: Option<PathBuf>) -> App {
+    /// `fullscreen`: how the window was opened (see `WINDOW_MODE`).
+    pub fn new(cli_dir: Option<PathBuf>, fullscreen: bool) -> App {
         let (tx, logs) = channel();
         logging::attach(tx);
         let mut app = App {
-            ui: Ui {
-                canvas: Canvas::new(Widescreen::Auto),
-                input: Input::new(),
-                font: text::load_pixel_font(),
-            },
+            ui: Ui::new(Fonts::load(theme::current().typeface)),
             config: None,
             setup: None,
             tab: Tab::Library,
-            fullscreen: true, // see window_conf
+            fullscreen,
             library: Library::default(),
             network: Network::default(),
             mods: ModsScreen::default(),
@@ -146,12 +151,35 @@ impl App {
         if let Some(dir) = cfg.games_dir() {
             migrations::run_all(&dir);
         }
+        // The theme first: screens built below keep some of its colors.
+        self.ui.set_theme(theme::find(cfg.get("THEME")));
         self.library.load(&cfg);
         self.settings = Some(Settings::new(&cfg));
         self.config = Some(cfg);
         self.sync_server();
         self.sync_music();
         self.apply_widescreen();
+    }
+
+    /// Dress the UI in `THEME` (on open and when it changes).
+    fn apply_theme(&mut self) {
+        let Some(cfg) = &self.config else { return };
+        self.ui.set_theme(theme::find(cfg.get("THEME")));
+    }
+
+    /// Borderless fullscreen or a window, as `WINDOW_MODE` says (when it changes).
+    fn apply_window_mode(&mut self) {
+        let Some(cfg) = &self.config else { return };
+        let fullscreen = wants_fullscreen(cfg.get("WINDOW_MODE"), super::under_gamescope());
+        if fullscreen != self.fullscreen {
+            self.set_fullscreen(fullscreen);
+        }
+    }
+
+    fn set_fullscreen(&mut self, fullscreen: bool) {
+        self.fullscreen = fullscreen;
+        macroquad::window::set_fullscreen(fullscreen);
+        self.ui.input.hold_until_released();
     }
 
     /// Lay the UI out as `WIDESCREEN` says (on open and when it changes).
@@ -231,7 +259,7 @@ impl App {
             MARGIN,
             CONTENT_TOP,
             w - 2.0 * MARGIN,
-            h - FOOTER_H - 6.0 - CONTENT_TOP,
+            h - FOOTER_H - LINE_GAP - CONTENT_TOP,
         )
     }
 
@@ -256,11 +284,23 @@ impl App {
             self.reload_library();
         }
 
-        if self.session.as_ref().is_some_and(|s| !s.running()) {
-            self.session = None;
+        if let Some(ended) = self.session.take_if(|s| !s.running()) {
+            if let Some(message) = ended.error() {
+                self.library.toast(&message, theme::danger());
+            }
+            if ended.cancelled() {
+                self.library.toast("Launch cancelled.", theme::muted());
+            }
             self.input_resume_at = get_time() + RESUME_GRACE_SECS;
         }
-        if self.session.is_some() || get_time() < self.input_resume_at {
+        if let Some(session) = self.session.as_ref().filter(|s| s.preparing()) {
+            // Nothing runs yet: B abandons a preparation that takes too long.
+            self.ui.input.update();
+            if self.ui.action(Action::Back) {
+                session.cancel();
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        } else if self.session.is_some() || get_time() < self.input_resume_at {
             // The game owns the controller (gilrs reads devices regardless of
             // window focus): track input without acting on it, also briefly
             // after it exits, to swallow the press that quit the game.
@@ -289,7 +329,11 @@ impl App {
         let games_dir = self.config.as_ref().and_then(Config::games_dir);
         self.network.recheck_local(games_dir.as_deref());
         for done in finished {
-            let color = if done.ok { theme::ACCENT } else { theme::RED };
+            let color = if done.ok {
+                theme::accent()
+            } else {
+                theme::danger()
+            };
             self.library.toast(&done.message, color);
             self.network.toast(&done.message, color);
         }
@@ -305,8 +349,7 @@ impl App {
 
     fn handle_global(&mut self) {
         if is_key_pressed(KeyCode::F) {
-            self.fullscreen = !self.fullscreen;
-            macroquad::window::set_fullscreen(self.fullscreen);
+            self.set_fullscreen(!self.fullscreen);
         }
         if self.modal_open() {
             return;
@@ -347,7 +390,10 @@ impl App {
         self.quit_dialog = Some(Dialog::new(
             "Steam shortcuts changed",
             "Steam shows the change after it restarts.",
-            &[("Restart Steam", theme::ACCENT), ("Ignore", theme::MUTED)],
+            &[
+                ("Restart Steam", theme::accent()),
+                ("Ignore", theme::muted()),
+            ],
         ));
     }
 
@@ -410,8 +456,11 @@ impl App {
                     if key == "DEBUG_NO_STEAM" {
                         self.reload_library();
                     }
-                    if key == "WIDESCREEN" {
-                        self.apply_widescreen();
+                    match key.as_str() {
+                        "WIDESCREEN" => self.apply_widescreen(),
+                        "THEME" => self.apply_theme(),
+                        "WINDOW_MODE" => self.apply_window_mode(),
+                        _ => {}
                     }
                 }
             }
@@ -504,7 +553,7 @@ impl App {
         let message = format!("{} {done} Steam", cfg.label());
         self.steam_changed = true;
         if let Some(settings) = &mut self.settings {
-            settings.note(&message, theme::ACCENT);
+            settings.note(&message, theme::Tone::Accent);
         }
     }
 
@@ -529,9 +578,9 @@ impl App {
             Err(e) => e.clone(),
         };
         let color = if result.is_ok() {
-            theme::ACCENT
+            theme::accent()
         } else {
-            theme::RED
+            theme::danger()
         };
         self.reload_library();
         self.library.toast(&message, color);
@@ -578,6 +627,8 @@ impl App {
         // Screen content first; header/footer are drawn last with an opaque
         // background so they mask list rows scrolled past the edges.
         self.ui.canvas.begin();
+        let (w, h) = self.ui.canvas.size();
+        style::backdrop(Rect::new(0.0, 0.0, w, h), h);
         match (&self.setup, self.tab, &self.editor) {
             (Some(setup), _, _) => setup.draw(&self.ui, area),
             (None, Tab::Library, Some(editor)) => editor.draw(&self.ui, area),
@@ -615,8 +666,8 @@ impl App {
     }
 
     fn draw_header(&self) {
-        let (w, _) = self.ui.canvas.size();
-        draw_rectangle(0.0, 0.0, w, CONTENT_TOP, theme::BG);
+        let (w, h) = self.ui.canvas.size();
+        style::backdrop(Rect::new(0.0, 0.0, w, CONTENT_TOP), h);
         let tabs: Vec<(&str, bool)> = match &self.setup {
             Some(_) => vec![("SETUP", true)],
             None => TABS
@@ -626,20 +677,22 @@ impl App {
         };
         let mut x = MARGIN;
         for (name, active) in tabs {
-            self.ui.text(
-                name,
-                x,
-                23.0,
-                if active { theme::ACCENT } else { theme::MUTED },
-            );
             let width = self.ui.measure(name);
             if active {
-                draw_rectangle(x, 27.0, width, 2.0, theme::ACCENT);
+                let pill = Rect::new(x - TAB_PAD, 7.0, width + 2.0 * TAB_PAD, 22.0);
+                fill_rounded(pill, theme::current().radius, fade(theme::accent(), 0.16));
+                draw_rectangle(pill.x, pill.bottom() - 2.0, pill.w, 2.0, theme::accent());
             }
-            x += width + 18.0;
+            let color = if active {
+                theme::accent()
+            } else {
+                theme::muted()
+            };
+            self.ui.text(name, x, 23.0, color);
+            x += width + 2.0 * TAB_PAD + 6.0;
         }
         self.draw_indicators(x, w);
-        draw_rectangle(0.0, HEADER_H, w, 1.0, theme::BORDER);
+        draw_rectangle(0.0, HEADER_H, w, 1.0, theme::border());
     }
 
     /// Right side of the header: the cartridge's name, then the pipeline run,
@@ -662,10 +715,10 @@ impl App {
             x -= 14.0;
         };
         if let Some(cfg) = &self.config {
-            indicator(&cfg.label(), theme::MUTED, false);
+            indicator(&cfg.label(), theme::muted(), false);
         }
         if self.status.is_running() {
-            indicator("RUNNING", theme::AMBER, true);
+            indicator("RUNNING", theme::secondary(), true);
         }
         match self.jobs.running() {
             [] => {}
@@ -675,19 +728,19 @@ impl App {
                     job.kind.verb().to_uppercase(),
                     job.fraction() * 100.0
                 ),
-                theme::AMBER,
+                theme::secondary(),
                 true,
             ),
             jobs => indicator(
                 &format!("{} COPIES {:.0}%", jobs.len(), self.jobs.fraction() * 100.0),
-                theme::AMBER,
+                theme::secondary(),
                 true,
             ),
         }
         if let Some(server) = &self.server {
             match server.sending() {
-                0 => indicator("SHARING", theme::BLUE, false),
-                n => indicator(&format!("SENDING {n}"), theme::BLUE, true),
+                0 => indicator("SHARING", theme::info(), false),
+                n => indicator(&format!("SENDING {n}"), theme::info(), true),
             }
         }
     }
@@ -713,7 +766,7 @@ impl App {
                     progress: self.quit_progress(),
                     // A hold gesture: a click would quit too easily.
                     action: None,
-                    ..ui.hint(Action::Back, "Hold: Quit", theme::AMBER)
+                    ..ui.hint(Action::Back, "Hold: Quit", theme::secondary())
                 });
                 hints
             }
@@ -726,9 +779,9 @@ impl App {
             },
         };
         if self.tab != Tab::Library {
-            hints.push(ui.hint(Action::Back, "Library", theme::AMBER));
+            hints.push(ui.hint(Action::Back, "Library", theme::secondary()));
         }
-        hints.push(ui.hint(Action::TabNext, "Tabs", theme::BORDER));
+        hints.push(ui.hint(Action::TabNext, "Tabs", theme::muted()));
         hints
     }
 
@@ -739,9 +792,9 @@ impl App {
         let mut x = MARGIN;
         let mut out = Vec::new();
         for hint in self.hints() {
-            let key_w = self.ui.measure(hint.key).ceil() + 8.0;
-            let label_w = self.ui.measure(&hint.label).ceil();
-            let width = key_w + 4.0 + label_w;
+            let key_w = style::badge_width(&self.ui, hint.key);
+            let label_w = self.ui.measure_small(&hint.label).ceil();
+            let width = key_w + 5.0 + label_w;
             if x + width > w - MARGIN {
                 break; // out of room (4:3 layouts)
             }
@@ -767,20 +820,21 @@ impl App {
     fn draw_footer(&self) {
         let (w, h) = self.ui.canvas.size();
         let top = h - FOOTER_H;
-        draw_rectangle(0.0, top, w, FOOTER_H, theme::BG);
-        draw_rectangle(0.0, top, w, 1.0, theme::BORDER);
+        style::backdrop(Rect::new(0.0, top, w, FOOTER_H), h);
+        draw_rectangle(0.0, top, w, 1.0, theme::border());
         for (hint, rect) in self.footer_layout() {
             let mut x = rect.x;
-            let key_w = self.ui.measure(hint.key).ceil() + 8.0;
-            let label_w = self.ui.measure(&hint.label).ceil();
-            draw_rectangle(x, top + 2.0, key_w, 18.0, hint.color);
-            self.ui.text(hint.key, x + 4.0, top + 17.0, theme::BG);
-            x += key_w + 4.0;
-            self.ui.text(&hint.label, x, top + 17.0, theme::MUTED);
+            let key_w = style::badge_width(&self.ui, hint.key);
+            let label_w = self.ui.measure_small(&hint.label).ceil();
+            let badge_top = top + BADGE_TOP;
+            style::badge(&self.ui, hint.key, x, badge_top, hint.color);
+            x += key_w + 5.0;
+            let baseline = badge_top + 13.0;
+            self.ui.small_text(&hint.label, x, baseline, theme::text());
             if hint.progress > 0.0 {
                 draw_rectangle(
                     x,
-                    top + 19.0,
+                    baseline + 2.0,
                     (label_w * hint.progress).round(),
                     2.0,
                     hint.color,
@@ -794,26 +848,40 @@ impl App {
         let Some(session) = &self.session else { return };
         let ui = &self.ui;
         let (w, h) = ui.canvas.size();
-        draw_rectangle(0.0, 0.0, w, h, theme::BG);
+        style::backdrop(Rect::new(0.0, 0.0, w, h), h);
         let title = ui.truncate_heading(&session.title, w - 2.0 * MARGIN);
         ui.text(
             "NOW PLAYING",
             (w - ui.measure("NOW PLAYING")) / 2.0,
             h / 2.0 - 36.0,
-            theme::MUTED,
+            theme::muted(),
         );
         ui.heading(
             &title,
             (w - ui.measure_heading(&title)) / 2.0,
             h / 2.0 + 8.0,
-            theme::ACCENT,
+            theme::accent(),
         );
-        let hint = ui.truncate("Controls return when the game exits", w - 2.0 * MARGIN);
+        let step = session.step();
+        let hint = ui.truncate(
+            step.as_deref()
+                .unwrap_or("Controls return when the game exits"),
+            w - 2.0 * MARGIN,
+        );
         ui.text(
             &hint,
             (w - ui.measure(&hint)) / 2.0,
             h / 2.0 + 40.0,
-            theme::MUTED,
+            theme::muted(),
         );
+        if step.is_some() {
+            let cancel = format!("{}: cancel", ui.key(Action::Back));
+            ui.small_text(
+                &cancel,
+                (w - ui.measure_small(&cancel)) / 2.0,
+                h / 2.0 + 62.0,
+                theme::muted(),
+            );
+        }
     }
 }

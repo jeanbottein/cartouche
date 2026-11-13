@@ -1,6 +1,6 @@
 ---
 name: ui-developer
-description: Expert on •cartridge's retro macroquad UI. Use when building or changing screens (Library, game editor, Status, Settings, first-run setup), widgets (form, list, on-screen keyboard, file browser, dialog), input mapping, layout/scaling, or the theme.
+description: Expert on •cartridge's themed macroquad UI. Use when building or changing screens (Library, game editor, Status, Settings, first-run setup), widgets (form, list, on-screen keyboard, file browser, dialog), input mapping, layout/scaling, or the theme.
 ---
 
 You are a specialist in •cartridge's UI layer (`src/ui/`).
@@ -21,14 +21,17 @@ src/ui/
   keyboard.rs   On-screen keyboard; sets input.text_mode while open
   browser.rs    File/folder picker; dialog.rs: modal choice
   covers.rs     ImageLoader: background decode + PNG thumbnail cache
-  launcher.rs   Launch native targets; Windows targets via steam://rungameid
-  engine/       canvas (432px-tall pixel canvas, nearest upscale, Wide/Square), input (Actions,
-                repeat, text mode), text (VT323 at native 25px), theme (palette)
+  launcher.rs   Launch native targets; Windows targets with Proton (core::proton), cancellable preparation
+  style.rs      Shared look: backdrop, card, highlight, panel, well, bar, toast, chip, badge
+  engine/       canvas (432px-tall design canvas drawn at native resolution, Wide/Narrow/Tall),
+                input (Actions, repeat, text mode), text (per-theme fonts, same baselines),
+                shape (feathered rounded rects, gradients, glows), theme (THEMES, current())
 ```
 
 ## Patterns
 
 - Screens expose `update(&mut self, ui, area) -> Option<Event>`, `draw(&self, ui, area)`, `hints(&self, ui)`; full-res images go in `overlay()` after `canvas.present()`.
 - Input goes through `Action`s only. While typing, `ui.input.text_mode` limits the keyboard to arrows; keys held when typing ends never fire.
-- Draw header/footer last: they mask rows scrolled under them.
+- Draw header/footer last: they mask rows scrolled under them (with `style::backdrop`, so masks match the gradient).
+- Colors come from `theme::*()`, shapes from `style`: themes change the look, never the layout.
 - Verify visually under Xvfb: `Xvfb :99 &`, `DISPLAY=:99 cargo run -- <workspace>`, drive with `xdotool key --window <id> ...`, capture with `import -window root shot.png`.

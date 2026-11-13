@@ -6,7 +6,7 @@ use macroquad::prelude::*;
 
 use super::engine::theme;
 use super::jobs::Job;
-use super::{stroke_rect, Ui};
+use super::{style, Ui};
 use crate::core::models::Target;
 use crate::core::scanner::{self, Compatibility};
 
@@ -40,10 +40,10 @@ pub fn split_panel(panel: Rect) -> (Rect, Rect) {
 
 fn compatibility_color(compatibility: Compatibility) -> Color {
     match compatibility {
-        Compatibility::Native => theme::ACCENT,
-        Compatibility::Proton => theme::BLUE,
-        Compatibility::Unsupported => theme::RED,
-        Compatibility::Unknown => theme::MUTED,
+        Compatibility::Native => theme::accent(),
+        Compatibility::Proton => theme::info(),
+        Compatibility::Unsupported => theme::danger(),
+        Compatibility::Unknown => theme::muted(),
     }
 }
 
@@ -55,18 +55,6 @@ fn players_label(players: &str) -> Option<String> {
     }
 }
 
-/// A thin progress bar.
-pub fn bar(area: Rect, fraction: f32, color: Color) {
-    draw_rectangle(area.x, area.y, area.w, area.h, theme::PANEL);
-    draw_rectangle(
-        area.x,
-        area.y,
-        (area.w * fraction.clamp(0.0, 1.0)).round(),
-        area.h,
-        color,
-    );
-}
-
 /// Verb, numbers and bar of a running job; returns the height used.
 fn draw_job(ui: &Ui, area: Rect, y: f32, job: &Job) -> f32 {
     let label = if job.cancelling() {
@@ -74,20 +62,22 @@ fn draw_job(ui: &Ui, area: Rect, y: f32, job: &Job) -> f32 {
     } else {
         format!("{} · {}", job.kind.verb(), job.summary())
     };
-    ui.text(&ui.truncate(&label, area.w), area.x, y, theme::AMBER);
-    let track = Rect::new(area.x, y + 6.0, area.w, 6.0);
-    bar(track, job.fraction(), theme::AMBER);
-    stroke_rect(track, 1.0, theme::BORDER);
+    ui.text(&ui.truncate(&label, area.w), area.x, y, theme::secondary());
+    style::bar(
+        Rect::new(area.x, y + 6.0, area.w, 6.0),
+        job.fraction(),
+        theme::secondary(),
+    );
     LINE + 12.0
 }
 
 pub fn draw(ui: &Ui, area: Rect, info: &Info, job: Option<&Job>) {
     let mut y = area.y + 24.0;
-    ui.heading(
-        &ui.truncate_heading(info.title, area.w),
+    ui.title(
+        &ui.truncate_title(info.title, area.w),
         area.x,
         y,
-        theme::TEXT,
+        theme::text(),
     );
     y += LINE + 8.0;
 
@@ -102,25 +92,24 @@ pub fn draw(ui: &Ui, area: Rect, info: &Info, job: Option<&Job>) {
             &ui.truncate(&facts.join(" · "), area.w),
             area.x,
             y,
-            theme::MUTED,
+            theme::muted(),
         );
         y += LINE;
     }
 
     let compatibility = scanner::compatibility(info.targets);
     let label = compatibility.label();
-    ui.text(label, area.x, y, compatibility_color(compatibility));
-    let label_w = ui.measure(label) + 12.0;
+    let label_w = style::chip(ui, label, area.x, y, compatibility_color(compatibility)) + 8.0;
     let platforms = scanner::platforms(info.targets).join(" · ");
     ui.text(
         &ui.truncate(&platforms, area.w - label_w),
         area.x + label_w,
         y,
-        theme::MUTED,
+        theme::muted(),
     );
     y += LINE;
 
-    ui.text(&ui.truncate(&info.status, area.w), area.x, y, theme::TEXT);
+    ui.text(&ui.truncate(&info.status, area.w), area.x, y, theme::text());
     y += LINE + 6.0;
 
     if let Some(job) = job {
@@ -136,6 +125,6 @@ pub fn draw(ui: &Ui, area: Rect, info: &Info, job: Option<&Job>) {
         } else {
             line.clone()
         };
-        ui.text(&text, area.x, y + i as f32 * LINE, theme::MUTED);
+        ui.text(&text, area.x, y + i as f32 * LINE, theme::muted());
     }
 }

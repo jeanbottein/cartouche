@@ -59,6 +59,17 @@ impl Map {
         }
     }
 
+    /// The map under `key`, matched in any case (as Steam treats KeyValues keys).
+    pub fn get_map_ignore_case(&self, key: &str) -> Option<&Map> {
+        self.0
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case(key))
+            .and_then(|(_, v)| match v {
+                Value::Map(m) => Some(m),
+                _ => None,
+            })
+    }
+
     /// The map under `key` (matched in any case, as Steam treats KeyValues
     /// keys), created or replacing a non-map value if needed.
     pub fn map_entry_ignore_case(&mut self, key: &str) -> &mut Map {
@@ -331,6 +342,16 @@ pub fn to_text(map: &Map) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn maps_can_be_looked_up_in_any_case() {
+        let data = parse_text(r#""Software" { "valve" { "x" "1" } }"#).unwrap();
+        let valve = data
+            .get_map("Software")
+            .unwrap()
+            .get_map_ignore_case("Valve");
+        assert_eq!(valve.and_then(|m| m.get_str("x")), Some("1"));
+    }
 
     /// Python `vdf.binary_dump` output for one shortcut, captured before the port.
     const GOLDEN: &[u8] = include_bytes!("../../testdata/shortcuts.vdf");

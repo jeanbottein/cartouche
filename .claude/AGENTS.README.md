@@ -6,6 +6,6 @@ Specialized agents for different areas of the codebase.
 - **steam-integration** — Shortcuts, artwork sync, Proton, AppIDs (`src/core/steam*.rs`, `vdf.rs`)
 - **save-manager** — Save backup/restore/symlinks (`src/core/saver.rs`)
 - **metadata-enricher** — SteamGridDB, artwork, cache (`src/core/sgdb.rs`, `persister.rs`)
-- **ui-developer** — Retro macroquad UI: screens, widgets, input (`src/ui/`)
+- **ui-developer** — Themed macroquad UI: screens, widgets, input (`src/ui/`)
 
 See `CLAUDE.md` for the architecture overview and conventions.

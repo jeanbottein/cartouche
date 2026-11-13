@@ -19,8 +19,8 @@ use log::{debug, error, info, warn};
 use super::app::APP_NAME;
 use super::config::Config;
 use super::models::{to_pretty_json, Game, ImageSlot};
-use super::paths;
 use super::vdf::{self, Map, Value};
+use super::{paths, proton};
 
 pub const PROTON_PREFIX: &str = "~/.local/share/Steam/steamapps/compatdata/{appid}/pfx/drive_c";
 const DEFAULT_COMPAT_PRIORITY: &str = "250";
@@ -262,7 +262,7 @@ fn game_mode_unit() -> Option<String> {
         .map(str::to_string)
 }
 
-fn on_path(program: &str) -> bool {
+pub fn on_path(program: &str) -> bool {
     std::env::var_os("PATH")
         .is_some_and(|paths| std::env::split_paths(&paths).any(|dir| dir.join(program).is_file()))
 }
@@ -658,35 +658,42 @@ fn export_to_user(
         let target = paths::lossy(&resolved.target);
         let start_in = paths::lossy(&resolved.start_in);
         let icon = icon_path(game, &grid, appid);
-        let entry = || {
+        let managed = managed_launch_options(game);
+        let entry = |options: &str| {
             make_shortcut(
                 &game.title,
                 &target,
                 &start_in,
-                &resolved.launch_options,
+                options,
                 &icon,
                 &[&owner.tag, &owner.label],
             )
         };
 
-        // (key, changed?) of the shortcut we already own for this exe.
+        // (key, launch options to keep, changed?) of the shortcut we already
+        // own for this exe. Options set in Steam stay unless the game's own
+        // Proton environment manages them.
         let owned = shortcuts.0.iter().find_map(|(k, v)| {
             let s = as_shortcut(v)
                 .filter(|s| has_ownership_tag(s, &owner.tag) && exe_of(s) == target)?;
+            let current = s.get_str("LaunchOptions").unwrap_or("");
+            let options = managed.clone().unwrap_or_else(|| current.to_string());
             let changed = appname(s) != game.title
                 || s.get_str("icon").unwrap_or("") != icon
-                || s.get("tags") != entry().get("tags");
-            Some((k.clone(), changed))
+                || options != current
+                || s.get("tags") != entry(&options).get("tags");
+            Some((k.clone(), options, changed))
         });
         match owned {
-            Some((_, false)) => {}
-            Some((key, true)) => {
-                shortcuts.insert(&key, Value::Map(entry()));
+            Some((_, _, false)) => {}
+            Some((key, options, true)) => {
+                shortcuts.insert(&key, Value::Map(entry(&options)));
                 updated += 1;
             }
             None => {
                 let key = next_index(&shortcuts);
-                shortcuts.insert(&key, Value::Map(entry()));
+                let options = managed.unwrap_or_else(|| resolved.launch_options.clone());
+                shortcuts.insert(&key, Value::Map(entry(&options)));
                 added += 1;
             }
         }
@@ -703,8 +710,38 @@ fn export_to_user(
     Ok((added, updated))
 }
 
-/// Create/update shortcuts for every game with a target, then set Proton for
-/// Windows games.
+/// Launch options cartridge owns on a shortcut: those of a Windows game with
+/// a Proton environment (`KEY=value %command% args`). Otherwise the
+/// shortcut's own options are left as they are.
+fn managed_launch_options(game: &Game) -> Option<String> {
+    let resolved = game.resolved.as_ref().filter(|r| r.os == "windows")?;
+    (!game.proton.env.is_empty())
+        .then(|| proton::shortcut_launch_options(&game.proton.env, &resolved.launch_options))
+}
+
+/// The Proton build for a Windows game's shortcut: the one its game.json
+/// names when it is installed here, else the default (only set when the
+/// shortcut has none). A build missing here is never forced on Steam.
+fn compat_tool(game: &Game, installed: Option<&proton::Installed>) -> CompatTool {
+    let default = installed
+        .and_then(proton::Installed::default_tool)
+        .map_or_else(|| proton::FALLBACK_TOOL.to_string(), |t| t.name.clone());
+    let pinned = game.proton.version.trim();
+    if pinned.is_empty() {
+        return CompatTool::Default(default);
+    }
+    match installed.and_then(|i| i.find(pinned)) {
+        Some(tool) => CompatTool::Pinned(tool.name.clone()),
+        None => {
+            warn!(
+                "{}: {pinned} is not installed, Steam keeps its build",
+                game.title
+            );
+            CompatTool::Default(default)
+        }
+    }
+}
+
 /// Write shortcuts (and Proton for Windows games) for `with_targets` into
 /// each Steam user's config. Returns (added, updated).
 fn export_games(
@@ -721,21 +758,22 @@ fn export_games(
                 .ok()
         })
         .fold((0, 0), |(a, u), (da, du)| (a + da, u + du));
-    let tool = cfg
-        .get("PROTON_VERSION")
-        .unwrap_or("proton_experimental")
-        .trim()
-        .to_string();
-    let windows_appids: Vec<u32> = with_targets
+    let windows: Vec<(&Game, u32)> = with_targets
         .iter()
         .filter(|(g, _)| g.resolved.as_ref().is_some_and(|r| r.os == "windows"))
-        .map(|&(_, appid)| appid)
+        .copied()
         .collect();
-    if !windows_appids.is_empty() {
-        config_dirs.iter().for_each(|dir| {
-            set_compat_tools(&windows_appids, &tool, dir);
-        });
+    if windows.is_empty() {
+        return counts;
     }
+    let installed = proton::Installed::read();
+    let wanted: Vec<(u32, CompatTool)> = windows
+        .iter()
+        .map(|&(game, appid)| (appid, compat_tool(game, installed.as_ref())))
+        .collect();
+    config_dirs.iter().for_each(|dir| {
+        set_compat_tools(&wanted, dir);
+    });
     counts
 }
 
@@ -799,8 +837,18 @@ fn steam_root(config_dir: &Path) -> Option<PathBuf> {
     root.join("config").is_dir().then(|| root.to_path_buf())
 }
 
-/// Map each AppID without a compat tool to `tool` in `config.vdf`. Returns how many were added.
-pub fn set_compat_tools(appids: &[u32], tool: &str, config_dir: &Path) -> usize {
+/// The Proton build wanted for a Windows game's shortcut.
+#[derive(Clone, Debug, PartialEq)]
+pub enum CompatTool {
+    /// The build used when the game names none: set only when the shortcut
+    /// has none, so a build picked in Steam stays.
+    Default(String),
+    /// Named in the game's game.json: always set.
+    Pinned(String),
+}
+
+/// Map AppIDs to their Proton build in `config.vdf`. Returns how many changed.
+pub fn set_compat_tools(wanted: &[(u32, CompatTool)], config_dir: &Path) -> usize {
     let Some(root) = steam_root(config_dir) else {
         warn!(
             "Could not determine Steam root from {}",
@@ -833,14 +881,21 @@ pub fn set_compat_tools(appids: &[u32], tool: &str, config_dir: &Path) -> usize 
     ]
     .iter()
     .fold(&mut data, |map, key| map.map_entry_ignore_case(key));
-    let missing: Vec<String> = appids
+    let changes: Vec<(String, &str)> = wanted
         .iter()
-        .map(u32::to_string)
-        .filter(|id| !mapping.contains(id))
+        .filter_map(|(appid, tool)| {
+            let id = appid.to_string();
+            let current = mapping.get_map(&id).and_then(|m| m.get_str("name"));
+            match tool {
+                CompatTool::Default(_) if mapping.contains(&id) => None,
+                CompatTool::Pinned(name) if current == Some(name.as_str()) => None,
+                CompatTool::Default(name) | CompatTool::Pinned(name) => Some((id, name.as_str())),
+            }
+        })
         .collect();
-    for appid in &missing {
+    for (appid, tool) in &changes {
         let entry = [
-            ("name", tool),
+            ("name", *tool),
             ("config", ""),
             ("priority", DEFAULT_COMPAT_PRIORITY),
         ]
@@ -849,7 +904,7 @@ pub fn set_compat_tools(appids: &[u32], tool: &str, config_dir: &Path) -> usize 
         .collect();
         mapping.insert(appid, Value::Map(Map(entry)));
     }
-    if missing.is_empty() {
+    if changes.is_empty() {
         return 0;
     }
     if let Err(e) = std::fs::write(&path, vdf::to_text(&data)) {
@@ -857,10 +912,10 @@ pub fn set_compat_tools(appids: &[u32], tool: &str, config_dir: &Path) -> usize 
         return 0;
     }
     info!(
-        "Set {tool} for {} Windows game(s) in config.vdf",
-        missing.len()
+        "Set Proton for {} Windows game(s) in config.vdf",
+        changes.len()
     );
-    missing.len()
+    changes.len()
 }
 
 #[cfg(test)]
@@ -1068,8 +1123,12 @@ mod tests {
             "Steam/config/config.vdf",
             b"\"InstallConfigStore\"\n{\n\t\"Software\"\n\t{\n\t\t\"valve\"\n\t\t{\n\t\t\t\"Steam\"\n\t\t\t{\n\t\t\t\t\"Other\"\t\t\"1\"\n\t\t\t}\n\t\t}\n\t}\n}\n",
         );
-        assert_eq!(set_compat_tools(&[123, 456], "proton_9", &config_dir), 2);
-        assert_eq!(set_compat_tools(&[123], "proton_9", &config_dir), 0);
+        let default = |appid| (appid, CompatTool::Default("proton_9".into()));
+        assert_eq!(
+            set_compat_tools(&[default(123), default(456)], &config_dir),
+            2
+        );
+        assert_eq!(set_compat_tools(&[default(123)], &config_dir), 0);
         let data = vdf::parse_text(&std::fs::read_to_string(vdf_path).unwrap()).unwrap();
         let steam = data
             .get_map("InstallConfigStore")
@@ -1085,6 +1144,119 @@ mod tests {
         assert_eq!(
             mapping.get_map("456").unwrap().get_str("name"),
             Some("proton_9")
+        );
+    }
+
+    #[test]
+    fn a_game_pinned_build_replaces_the_shortcut_build() {
+        let dir = TempDir::new();
+        let config_dir = dir.mkdir("Steam/userdata/1/config");
+        dir.write("Steam/config/config.vdf", b"\"InstallConfigStore\" { }");
+        let default = [(123, CompatTool::Default("proton_9".into()))];
+        let pinned = [(123, CompatTool::Pinned("proton_10".into()))];
+        assert_eq!(set_compat_tools(&default, &config_dir), 1);
+        assert_eq!(set_compat_tools(&pinned, &config_dir), 1);
+        assert_eq!(set_compat_tools(&pinned, &config_dir), 0);
+        assert_eq!(set_compat_tools(&default, &config_dir), 0);
+    }
+
+    #[test]
+    fn windows_shortcuts_carry_the_game_environment() {
+        let dir = TempDir::new();
+        let config_dir = dir.mkdir("userdata/1/config");
+        let mut game = Game::skeleton(&dir.mkdir("games/Rayman"));
+        game.title = "Rayman".into();
+        game.resolved = Some(Resolved {
+            target: "/g/rayman.exe".into(),
+            start_in: "/g".into(),
+            launch_options: "-w".into(),
+            os: "windows".into(),
+        });
+        let appid = generate_appid("Rayman", "/g/rayman.exe");
+        let owner = Owner {
+            tag: "cartridge:1".into(),
+            label: "games".into(),
+        };
+        let options = || {
+            let saved = load_shortcuts(&shortcuts_path(&config_dir)).unwrap();
+            let entry = as_shortcut(saved.values().next().unwrap()).unwrap().clone();
+            entry.get_str("LaunchOptions").unwrap().to_string()
+        };
+
+        export_to_user(&config_dir, &[(&game, appid)], &owner).unwrap();
+        assert_eq!(options(), "-w");
+        game.proton
+            .env
+            .insert("PROTON_USE_WINED3D".into(), "1".into());
+        assert_eq!(
+            export_to_user(&config_dir, &[(&game, appid)], &owner).unwrap(),
+            (0, 1)
+        );
+        assert_eq!(options(), "PROTON_USE_WINED3D=1 %command% -w");
+    }
+
+    #[test]
+    fn launch_options_set_in_steam_survive_updates() {
+        let dir = TempDir::new();
+        let config_dir = dir.mkdir("userdata/1/config");
+        let mut game = Game::skeleton(&dir.mkdir("games/Celeste"));
+        game.title = "Celeste".into();
+        game.resolved = Some(Resolved {
+            target: "/g/celeste".into(),
+            start_in: "/g".into(),
+            ..Default::default()
+        });
+        let appid = generate_appid("Celeste", "/g/celeste");
+        let owner = Owner {
+            tag: "cartridge:1".into(),
+            label: "games".into(),
+        };
+        let path = shortcuts_path(&config_dir);
+        export_to_user(&config_dir, &[(&game, appid)], &owner).unwrap();
+        let mut saved = load_shortcuts(&path).unwrap();
+        if let Some((_, Value::Map(entry))) = saved.0.first_mut() {
+            entry.insert("LaunchOptions", Value::Str("gamemoderun %command%".into()));
+        }
+        save_shortcuts(&path, saved).unwrap();
+
+        assert_eq!(
+            export_to_user(&config_dir, &[(&game, appid)], &owner).unwrap(),
+            (0, 0)
+        );
+        game.title = "Celeste DX".into();
+        assert_eq!(
+            export_to_user(&config_dir, &[(&game, appid)], &owner).unwrap(),
+            (0, 1)
+        );
+        let saved = load_shortcuts(&path).unwrap();
+        let entry = as_shortcut(saved.values().next().unwrap()).unwrap();
+        assert_eq!(
+            entry.get_str("LaunchOptions"),
+            Some("gamemoderun %command%")
+        );
+    }
+
+    fn windows_game_pinned(version: &str) -> Game {
+        let mut game = Game::skeleton(Path::new("/g/Rayman"));
+        game.proton.version = version.into();
+        game
+    }
+
+    #[test]
+    fn only_an_installed_pinned_build_is_forced_on_steam() {
+        let steam = TempDir::new();
+        steam.write("steamapps/common/Proton 10.0/proton", b"");
+        let installed = proton::Installed::read_from(steam.path());
+        let tool = |version| compat_tool(&windows_game_pinned(version), Some(&installed));
+        assert_eq!(tool("Proton 10.0"), CompatTool::Pinned("proton_10".into()));
+        assert_eq!(
+            tool("GE-Proton9-20"),
+            CompatTool::Default("proton_10".into())
+        );
+        assert_eq!(tool(""), CompatTool::Default("proton_10".into()));
+        assert_eq!(
+            compat_tool(&windows_game_pinned("proton_9"), None),
+            CompatTool::Default(proton::FALLBACK_TOOL.into())
         );
     }
 

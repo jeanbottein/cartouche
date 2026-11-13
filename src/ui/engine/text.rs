@@ -1,19 +1,23 @@
-//! Pixel-font text rendering.
+//! Text rendering at the screen's resolution.
 //!
-//! Uses VT323 (a bitmap-style TrueType, OFL). Its outlines sit on a 40-unit grid
-//! (1000 units/em), so glyphs only land on whole pixels at 25 px: one font pixel =
-//! one canvas pixel. Any other size makes strokes uneven, so glyphs are always
-//! rasterized at that native size and enlarged by whole-number `font_scale` with
-//! **nearest** filtering — only [`NORMAL`] (×1) and [`LARGE`] (×2) are used.
-//! The atlas still carries faint anti-aliasing from tiny outline notches, so text
-//! is drawn through a material that thresholds coverage to fully on/off.
+//! Positions and sizes are in design pixels; glyphs are rasterized at that
+//! size × the canvas scale, so text gets sharper on bigger screens without
+//! moving. Every typeface sits on the same baselines: VT323 fills its 14 px
+//! cap height, the smooth faces are a touch smaller (12.6 px caps) so they
+//! breathe in the same rows.
+//!
+//! * Pixel (VT323): a bitmap-style TrueType whose outlines sit on a 40-unit
+//!   grid. Its faint anti-aliasing is thresholded to fully on/off pixels.
+//! * Smooth (Barlow): anti-aliased; medium weight for body
+//!   text, semibold for headings.
 
 use std::cell::OnceCell;
 
 use macroquad::miniquad::{BlendFactor, BlendState, BlendValue, Equation};
 use macroquad::prelude::*;
 
-const VERTEX: &str = r#"#version 100
+/// macroquad's standard vertex shader, for custom materials.
+pub(super) const VERTEX: &str = r#"#version 100
 attribute vec3 position;
 attribute vec2 texcoord;
 attribute vec4 color0;
@@ -44,23 +48,100 @@ void main() {
     gl_FragColor = vec4(color.rgb * texel.rgb, color.a);
 }"#;
 
-/// Native VT323 size: one font pixel per canvas pixel.
-const NATIVE: u16 = 25;
-/// Body text (×1).
-pub const NORMAL: u16 = NATIVE;
-/// Headings (×2).
-pub const LARGE: u16 = NATIVE * 2;
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Typeface {
+    Pixel,
+    Barlow,
+}
 
-/// Whole-number enlargement for a requested size (multiples of [`NATIVE`]).
-fn scale_for(size: u16) -> f32 {
-    (size as f32 / NATIVE as f32).round().max(1.0)
+#[derive(Clone, Copy)]
+pub enum Size {
+    /// Button hints (0.8 × body).
+    Small,
+    /// Body text.
+    Normal,
+    /// Panel titles (1.4 × body).
+    Title,
+    /// Headings (twice the body size).
+    Large,
+}
+
+/// The fonts of one typeface, loaded.
+pub struct Fonts {
+    typeface: Typeface,
+    body: Font,
+    heading: Font,
+}
+
+impl Fonts {
+    pub fn load(typeface: Typeface) -> Fonts {
+        let (body, heading) = match typeface {
+            Typeface::Pixel => {
+                let mut font = load(include_bytes!("../../../assets/VT323-Regular.ttf"));
+                font.set_filter(FilterMode::Nearest);
+                (font.clone(), font)
+            }
+            Typeface::Barlow => (
+                load(include_bytes!("../../../assets/Barlow-Medium.ttf")),
+                load(include_bytes!("../../../assets/Barlow-SemiBold.ttf")),
+            ),
+        };
+        Fonts {
+            typeface,
+            body,
+            heading,
+        }
+    }
+
+    pub fn typeface(&self) -> Typeface {
+        self.typeface
+    }
+
+    fn font(&self, size: Size) -> &Font {
+        match size {
+            Size::Small | Size::Normal => &self.body,
+            Size::Title | Size::Large => &self.heading,
+        }
+    }
+
+    /// Font size in design pixels: VT323 at its native 25 px (one font pixel
+    /// per design pixel), the others at 18 px.
+    fn design_px(&self, size: Size) -> f32 {
+        let body = match self.typeface {
+            Typeface::Pixel => 25.0,
+            Typeface::Barlow => 18.0,
+        };
+        match size {
+            Size::Small => body * 0.8,
+            Size::Normal => body,
+            Size::Title => body * 1.4,
+            Size::Large => body * 2.0,
+        }
+    }
+
+    /// Parameters drawing `size` text at `scale` screen pixels per design pixel.
+    fn params(&self, size: Size, scale: f32, color: Color) -> TextParams<'_> {
+        let px = self.design_px(size);
+        let raster = (px * scale).round().max(1.0);
+        TextParams {
+            font: Some(self.font(size)),
+            font_size: raster as u16,
+            font_scale: px / raster,
+            color,
+            ..Default::default()
+        }
+    }
+}
+
+fn load(bytes: &[u8]) -> Font {
+    load_ttf_font_from_bytes(bytes).expect("embedded font failed to load")
 }
 
 thread_local! {
     static HARD_EDGE: OnceCell<Material> = const { OnceCell::new() };
 }
 
-/// Lazily-built material that turns anti-aliased glyph coverage into hard pixels.
+/// Draw with a material that turns anti-aliased glyph coverage into hard pixels.
 fn with_hard_edge(draw: impl FnOnce()) {
     HARD_EDGE.with(|cell| {
         let material = cell.get_or_init(|| {
@@ -89,47 +170,39 @@ fn with_hard_edge(draw: impl FnOnce()) {
     });
 }
 
-/// Load the embedded VT323 pixel font with nearest-neighbor filtering.
-pub fn load_pixel_font() -> Font {
-    let mut font = load_ttf_font_from_bytes(include_bytes!("../../../assets/VT323-Regular.ttf"))
-        .expect("embedded VT323 font failed to load");
-    font.set_filter(FilterMode::Nearest);
-    font
+/// `v` design pixels, snapped to whole screen pixels.
+fn snap(v: f32, scale: f32) -> f32 {
+    (v * scale).round() / scale
 }
 
-/// Draw text in the pixel font at a baseline of `(x, y)`. `size` should be
-/// [`NORMAL`] or [`LARGE`].
-pub fn text(s: &str, x: f32, y: f32, size: u16, color: Color, font: &Font) {
-    // Snap the baseline to whole canvas pixels so glyphs land on the pixel grid.
-    let (x, y) = (x.round(), y.round());
-    with_hard_edge(|| {
-        draw_text_ex(
-            s,
-            x,
-            y,
-            TextParams {
-                font: Some(font),
-                font_size: NATIVE,
-                font_scale: scale_for(size),
-                color,
-                ..Default::default()
-            },
-        );
-    });
+/// Draw text with its baseline at `(x, y)`, `scale` screen pixels per design pixel.
+pub fn text(s: &str, x: f32, y: f32, size: Size, color: Color, fonts: &Fonts, scale: f32) {
+    // Glyphs land on whole screen pixels: sharp, and no shimmer while scrolling.
+    let (x, y) = (snap(x, scale), snap(y, scale));
+    let params = fonts.params(size, scale, color);
+    match fonts.typeface {
+        Typeface::Pixel => with_hard_edge(|| {
+            draw_text_ex(s, x, y, params);
+        }),
+        _ => {
+            draw_text_ex(s, x, y, params);
+        }
+    }
 }
 
-/// Width in pixels of `s` rendered in the pixel font at `size`.
-pub fn measure(s: &str, size: u16, font: &Font) -> f32 {
-    measure_text(s, Some(font), NATIVE, scale_for(size)).width
+/// Width of `s` in design pixels.
+pub fn measure(s: &str, size: Size, fonts: &Fonts, scale: f32) -> f32 {
+    let params = fonts.params(size, scale, WHITE);
+    measure_text(s, params.font, params.font_size, params.font_scale).width
 }
 
-/// Join `segments` with `sep`, wrapping to new lines so each stays within `max_w`.
+/// Join `segments` with `sep`, wrapping to new lines so each stays within
+/// `max_w` as measured by `width`.
 pub fn wrap_segments(
     segments: &[&str],
     sep: &str,
     max_w: f32,
-    size: u16,
-    font: &Font,
+    width: impl Fn(&str) -> f32,
 ) -> Vec<String> {
     let mut lines = Vec::new();
     let mut cur = String::new();
@@ -139,7 +212,7 @@ pub fn wrap_segments(
         } else {
             format!("{cur}{sep}{seg}")
         };
-        if measure(&trial, size, font) > max_w && !cur.is_empty() {
+        if width(&trial) > max_w && !cur.is_empty() {
             lines.push(std::mem::take(&mut cur));
             cur = (*seg).to_string();
         } else {
@@ -150,4 +223,29 @@ pub fn wrap_segments(
         lines.push(cur);
     }
     lines
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn chars(s: &str) -> f32 {
+        s.chars().count() as f32
+    }
+
+    #[test]
+    fn wrap_breaks_between_segments() {
+        assert_eq!(
+            wrap_segments(&["aa", "bb", "cc"], " ", 5.0, chars),
+            vec!["aa bb", "cc"]
+        );
+    }
+
+    #[test]
+    fn wrap_keeps_an_overlong_segment_on_its_own_line() {
+        assert_eq!(
+            wrap_segments(&["aaaaaaa", "b"], " ", 5.0, chars),
+            vec!["aaaaaaa", "b"]
+        );
+    }
 }

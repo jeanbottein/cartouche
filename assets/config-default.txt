@@ -21,6 +21,17 @@
 # Default: auto
 #WIDESCREEN=auto
 
+# Look of the interface: midnight or retro
+# (colors, font and shapes; the layout stays the same)
+# Default: midnight
+#THEME=midnight
+
+# Window mode: borderless or window
+# borderless: fullscreen at the display's native resolution
+# window: a window you can resize (under gamescope it fills the screen anyway)
+# Default: borderless
+#WINDOW_MODE=borderless
+
 
 # ==========================================
 # 2. SAVE BACKUP & SYNC
@@ -56,9 +67,11 @@
 # Optionally target a specific Steam user ID (leave commented to update all users)
 #STEAM_USERID=
 
-# Proton compatibility tool for Windows games added as non-Steam shortcuts
-# Common values: proton_experimental, proton_9-0-4, proton_8-0
-#PROTON_VERSION=proton_experimental
+# Windows games run with Steam's Proton: the build their game.json names
+# ("proton"), else Steam's default, else the newest one installed.
+# Keep what winetricks downloads for them in system/winetricks, so this
+# cartridge brings it to other machines (always used when it is there)
+#PROTON_KEEP_DOWNLOADS=False
 
 # Add this cartridge itself to Steam under its folder name (optional), with retro
 # artwork, or your own: cover.png, wide.png, hero.png, logo.png, icon.png in system/

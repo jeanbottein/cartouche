@@ -10,7 +10,7 @@ use macroquad::prelude::*;
 use super::engine::input::Action;
 use super::engine::theme;
 use super::list::List;
-use super::{draw_spinner, stroke_rect, Hint, Ui};
+use super::{draw_spinner, style, Hint, Ui};
 use crate::core::config::Config;
 use crate::core::mods::{self, Mod, Status};
 
@@ -35,12 +35,12 @@ pub struct ModsScreen {
 
 fn status_label(status: &Status) -> (&'static str, Color) {
     match status {
-        Status::On => ("ON", theme::ACCENT),
-        Status::Off => ("OFF", theme::MUTED),
-        Status::Partial => ("PARTIAL", theme::AMBER),
-        Status::GameNotFound => ("NO GAME", theme::MUTED),
-        Status::GameUpdated => ("GAME UPDATED", theme::AMBER),
-        Status::Broken(_) => ("BROKEN", theme::RED),
+        Status::On => ("ON", theme::accent()),
+        Status::Off => ("OFF", theme::muted()),
+        Status::Partial => ("PARTIAL", theme::secondary()),
+        Status::GameNotFound => ("NO GAME", theme::muted()),
+        Status::GameUpdated => ("GAME UPDATED", theme::secondary()),
+        Status::Broken(_) => ("BROKEN", theme::danger()),
     }
 }
 
@@ -85,7 +85,7 @@ impl ModsScreen {
         };
         let turning_on = !is_on(&m);
         if let Some(why) = blocked(&m).filter(|_| turning_on) {
-            self.toast(&why, theme::AMBER);
+            self.toast(&why, theme::secondary());
             return;
         }
         let cfg = cfg.clone();
@@ -125,7 +125,7 @@ impl ModsScreen {
                 self.list.select(cursor, self.mods.len(), |_| true);
             }
             Done::Toggled { message, ok } => {
-                self.toast(&message, if ok { theme::ACCENT } else { theme::RED });
+                self.toast(&message, if ok { theme::accent() } else { theme::danger() });
                 if let Some(cfg) = cfg {
                     self.refresh(cfg);
                 }
@@ -167,35 +167,36 @@ impl ModsScreen {
         }
         self.draw_details(ui, Rect::new(area.x, list.bottom() + 6.0, area.w, 50.0));
         self.draw_busy(ui, area);
-        self.draw_toast(ui, list);
+        style::toast(ui, list, &self.toast);
     }
 
     fn draw_row(&self, ui: &Ui, i: usize, frame: Rect) {
         let m = &self.mods[i];
         let focused = i == self.list.cursor;
-        if focused {
-            draw_rectangle(frame.x, frame.y, frame.w, frame.h, theme::PANEL);
-        }
         let (label, color) = status_label(&m.status);
-        draw_rectangle(frame.x, frame.y, 5.0, frame.h, color);
-        let (border, th) = if focused {
-            (theme::ACCENT, 2.0)
-        } else {
-            (theme::BORDER, 1.0)
-        };
-        stroke_rect(frame, th, border);
-        let label_w = ui.measure(label) + 12.0;
-        ui.text(label, frame.right() - label_w, frame.y + 18.0, color);
+        style::card(frame, color, focused);
+        let label_w = ui.measure(label).ceil() + 10.0 + 12.0;
+        style::chip(
+            ui,
+            label,
+            frame.right() - label_w + 6.0,
+            frame.y + 18.0,
+            color,
+        );
         let games = m.games.join(", ");
         let games_w = (frame.w * 0.35).min(ui.measure(&games) + 12.0);
         ui.text(
             &ui.truncate(&games, games_w - 12.0),
             frame.right() - label_w - games_w,
             frame.y + 18.0,
-            theme::MUTED,
+            theme::muted(),
         );
         let name_w = frame.w - 18.0 - label_w - games_w;
-        let name_color = if focused { theme::TEXT } else { theme::MUTED };
+        let name_color = if focused {
+            theme::text()
+        } else {
+            theme::muted()
+        };
         ui.text(
             &ui.truncate(&m.id, name_w),
             frame.x + 12.0,
@@ -217,7 +218,7 @@ impl ModsScreen {
         });
         let mut y = area.y + 16.0;
         for line in ui.wrap(&detail, area.w).into_iter().take(2) {
-            ui.text(&line, area.x, y, theme::MUTED);
+            ui.text(&line, area.x, y, theme::muted());
             y += 20.0;
         }
     }
@@ -225,11 +226,11 @@ impl ModsScreen {
     fn draw_empty(&self, ui: &Ui, area: Rect, cfg: Option<&Config>) {
         let y = area.y + 30.0;
         if self.is_busy() {
-            draw_spinner(area.x + 6.0, y - 5.0, 6.0, theme::ACCENT);
-            ui.text("Reading mods...", area.x + 20.0, y, theme::TEXT);
+            draw_spinner(area.x + 6.0, y - 5.0, 6.0, theme::accent());
+            ui.text("Reading mods...", area.x + 20.0, y, theme::text());
             return;
         }
-        ui.text("No mods.", area.x, y, theme::TEXT);
+        ui.text("No mods.", area.x, y, theme::text());
         let folder = cfg.map_or("mods/".into(), |c| c.mods_dir().display().to_string());
         let help = [
             "Put each mod in its own folder in".to_string(),
@@ -238,7 +239,7 @@ impl ModsScreen {
         ];
         for (i, line) in help.iter().enumerate() {
             let text = ui.truncate_start(line, area.w);
-            ui.text(&text, area.x, y + 30.0 + i as f32 * 20.0, theme::MUTED);
+            ui.text(&text, area.x, y + 30.0 + i as f32 * 20.0, theme::muted());
         }
     }
 
@@ -247,37 +248,24 @@ impl ModsScreen {
             return;
         }
         let (cx, cy) = (area.right() - 10.0, area.bottom() - 10.0);
-        draw_spinner(cx, cy, 6.0, theme::ACCENT);
+        draw_spinner(cx, cy, 6.0, theme::accent());
         let label = "working...";
-        ui.text(label, cx - 12.0 - ui.measure(label), cy + 5.0, theme::MUTED);
-    }
-
-    fn draw_toast(&self, ui: &Ui, list: Rect) {
-        let Some((message, color, until)) = &self.toast else {
-            return;
-        };
-        if get_time() > *until {
-            return;
-        }
-        let y = list.bottom() - 26.0;
-        draw_rectangle(list.x, y, list.w, 24.0, theme::BG);
-        stroke_rect(Rect::new(list.x, y, list.w, 24.0), 1.0, *color);
         ui.text(
-            &ui.truncate(message, list.w - 16.0),
-            list.x + 8.0,
-            y + 18.0,
-            *color,
+            label,
+            cx - 12.0 - ui.measure(label),
+            cy + 5.0,
+            theme::muted(),
         );
     }
 
     pub fn hints(&self, ui: &Ui) -> Vec<Hint> {
-        let refresh = ui.hint(Action::Alt, "Refresh", theme::BLUE);
+        let refresh = ui.hint(Action::Alt, "Refresh", theme::info());
         let Some(m) = self.mods.get(self.list.cursor).filter(|_| !self.is_busy()) else {
             return vec![refresh];
         };
         let toggle = match (is_on(m), blocked(m)) {
-            (true, _) => Some(ui.hint(Action::Confirm, "Turn off", theme::AMBER)),
-            (false, None) => Some(ui.hint(Action::Confirm, "Turn on", theme::ACCENT)),
+            (true, _) => Some(ui.hint(Action::Confirm, "Turn off", theme::secondary())),
+            (false, None) => Some(ui.hint(Action::Confirm, "Turn on", theme::accent())),
             (false, Some(_)) => None,
         };
         toggle.into_iter().chain([refresh]).collect()

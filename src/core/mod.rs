@@ -18,6 +18,7 @@ pub mod paths;
 pub mod persister;
 pub mod pipeline;
 pub mod platform;
+pub mod proton;
 pub mod saver;
 pub mod scanner;
 pub mod sgdb;

@@ -6,6 +6,7 @@
 //! steady rate); buttons fire on the press edge only. Tunables match the former
 //! Dear PyGui controller layer.
 
+use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 
 #[cfg(feature = "gamepad")]
@@ -147,9 +148,8 @@ impl Input {
 
         for action in ALL_ACTIONS {
             if down.contains(&action) {
-                if !self.down_since.contains_key(&action) {
-                    // press edge
-                    self.down_since.insert(action, now);
+                if let Entry::Vacant(press_edge) = self.down_since.entry(action) {
+                    press_edge.insert(now);
                     self.fired.insert(action);
                     self.armed.insert(action);
                     if is_repeatable(action) {
@@ -177,6 +177,14 @@ impl Input {
     pub fn update_suspended(&mut self) {
         self.update();
         self.fired.clear();
+        self.armed.clear();
+    }
+
+    /// Keys held now stop repeating until released and pressed again. For
+    /// window changes: a fullscreen transition can swallow the key release
+    /// (macOS), and a "held" arrow would keep toggling the setting.
+    pub fn hold_until_released(&mut self) {
+        self.next_repeat.clear();
         self.armed.clear();
     }
 

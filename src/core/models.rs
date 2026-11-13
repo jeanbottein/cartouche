@@ -55,6 +55,74 @@ pub struct SavePath {
     pub path: String,
 }
 
+/// Text entries of a JSON list; anything else is skipped.
+fn texts<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<String>, D::Error> {
+    Ok(match Value::deserialize(d)? {
+        Value::Array(items) => items
+            .into_iter()
+            .filter_map(|item| item.as_str().map(str::to_string))
+            .collect(),
+        _ => Vec::new(),
+    })
+}
+
+/// A plain environment variable name (`[A-Za-z_][A-Za-z0-9_]*`): safe in a
+/// shell line such as Steam's launch options.
+pub fn is_env_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    chars
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+/// Environment variables: scalar values as text; `null`, other values and
+/// names that are not plain words are skipped.
+fn env_vars<'de, D: Deserializer<'de>>(d: D) -> Result<BTreeMap<String, String>, D::Error> {
+    let Value::Object(vars) = Value::deserialize(d)? else {
+        return Ok(BTreeMap::new());
+    };
+    Ok(vars
+        .into_iter()
+        .filter(|(name, value)| is_env_name(name) && !value.is_null())
+        .filter(|(_, value)| !value.is_object() && !value.is_array())
+        .map(|(name, value)| (name, scalar_text(value)))
+        .collect())
+}
+
+/// How a Windows game runs under Proton (`"proton"` in game.json).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Proton {
+    /// Steam compatibility tool (`proton_9`, `GE-Proton9-20`); empty means
+    /// Steam's default, else the newest Proton.
+    #[serde(
+        default,
+        skip_serializing_if = "String::is_empty",
+        deserialize_with = "nullable"
+    )]
+    pub version: String,
+    /// winetricks verbs installed into the prefix (`d3dx9`, `vcrun2019`).
+    #[serde(
+        default,
+        skip_serializing_if = "Vec::is_empty",
+        deserialize_with = "texts"
+    )]
+    pub winetricks: Vec<String>,
+    /// Environment variables (`PROTON_USE_WINED3D`, `WINEDLLOVERRIDES`).
+    #[serde(
+        default,
+        skip_serializing_if = "BTreeMap::is_empty",
+        deserialize_with = "env_vars"
+    )]
+    pub env: BTreeMap<String, String>,
+}
+
+impl Proton {
+    pub fn is_empty(&self) -> bool {
+        *self == Proton::default()
+    }
+}
+
 /// Artwork filenames stored in `.cartridge/`.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Images {
@@ -189,6 +257,7 @@ pub struct Game {
     pub dir: PathBuf,
     pub title: String,
     pub targets: Vec<Target>,
+    pub proton: Proton,
     pub save_paths: Vec<SavePath>,
     pub steamgriddb_id: Option<i64>,
     pub images: Images,
@@ -216,6 +285,8 @@ struct GameFileOut<'a> {
     schema_version: u32,
     title: &'a str,
     targets: &'a [Target],
+    #[serde(skip_serializing_if = "no_proton")]
+    proton: &'a Proton,
     #[serde(rename = "savePaths")]
     save_paths: &'a [SavePath],
     images: &'a Images,
@@ -233,11 +304,16 @@ struct GameFileOut<'a> {
     size: Option<u64>,
 }
 
+fn no_proton(proton: &&Proton) -> bool {
+    proton.is_empty()
+}
+
 #[derive(Deserialize, Default)]
 #[serde(default)]
 struct GameFileIn {
     title: Value,
     targets: Value,
+    proton: Value,
     #[serde(rename = "savePaths")]
     save_paths: Value,
     images: Value,
@@ -287,6 +363,7 @@ impl Game {
             folder_name,
             dir: dir.to_path_buf(),
             targets: entries(file.targets),
+            proton: serde_json::from_value(file.proton).unwrap_or_default(),
             save_paths: entries(file.save_paths),
             steamgriddb_id: as_id(&file.steamgriddb_id),
             images: serde_json::from_value(file.images).unwrap_or_default(),
@@ -306,6 +383,7 @@ impl Game {
             schema_version: SCHEMA_VERSION,
             title: &self.title,
             targets: &self.targets,
+            proton: &self.proton,
             save_paths: &self.save_paths,
             images: &self.images,
             steamgriddb_id: self.steamgriddb_id,
@@ -463,6 +541,83 @@ mod tests {
             ),
             (Some(2018), "1-4", "A climb.", Some(123))
         );
+    }
+
+    #[test]
+    fn round_trips_proton_settings() {
+        let text = r#"{
+    "schema_version": 2,
+    "title": "Rayman",
+    "targets": [],
+    "proton": {
+        "version": "proton_9",
+        "winetricks": [
+            "d3dx9",
+            "vcrun2019"
+        ],
+        "env": {
+            "PROTON_USE_WINED3D": "1"
+        }
+    },
+    "savePaths": [],
+    "images": {}
+}"#;
+        let game = Game::from_json(Path::new("/g/Rayman"), text).unwrap();
+        assert_eq!(game.proton.version, "proton_9");
+        assert_eq!(game.proton.winetricks, ["d3dx9", "vcrun2019"]);
+        assert_eq!(game.to_json(), text);
+    }
+
+    #[test]
+    fn omits_empty_proton_settings() {
+        let mut game = Game::skeleton(Path::new("/g/X"));
+        game.proton.env.insert("A".into(), "1".into());
+        game.proton.env.clear();
+        assert!(!game.to_json().contains("proton"));
+    }
+
+    #[test]
+    fn proton_settings_tolerate_nulls() {
+        let game = Game::from_json(
+            Path::new("/g/X"),
+            r#"{"proton": {"version": null, "winetricks": ["d3dx9", 3]}}"#,
+        )
+        .unwrap();
+        assert_eq!(game.proton.version, "");
+        assert_eq!(game.proton.winetricks, ["d3dx9"]);
+    }
+
+    #[test]
+    fn a_loose_env_value_keeps_the_other_proton_settings() {
+        let game = Game::from_json(
+            Path::new("/g/X"),
+            r#"{"proton": {"version": "proton_9", "env": {"A": 1, "B": true, "C": null, "D": "x"}}}"#,
+        )
+        .unwrap();
+        assert_eq!(game.proton.version, "proton_9");
+        assert_eq!(
+            game.proton.env.into_iter().collect::<Vec<_>>(),
+            [
+                ("A".to_string(), "1".to_string()),
+                ("B".to_string(), "true".to_string()),
+                ("D".to_string(), "x".to_string()),
+            ]
+        );
+        let null_env = Game::from_json(
+            Path::new("/g/X"),
+            r#"{"proton": {"version": "v", "env": null}}"#,
+        );
+        assert_eq!(null_env.unwrap().proton.version, "v");
+    }
+
+    #[test]
+    fn env_names_that_are_not_plain_words_are_dropped() {
+        let game = Game::from_json(
+            Path::new("/g/X"),
+            r#"{"proton": {"env": {"X=1; curl h|sh; Y": "1", "OK_1": "v", "1BAD": "v", "": "v"}}}"#,
+        )
+        .unwrap();
+        assert_eq!(game.proton.env.keys().collect::<Vec<_>>(), ["OK_1"]);
     }
 
     #[test]

@@ -7,7 +7,7 @@ use macroquad::prelude::*;
 use super::engine::input::Action;
 use super::engine::theme;
 use super::list::List;
-use super::{centered, panel, Hint, Ui};
+use super::{centered, style, Hint, Ui};
 use crate::core::paths;
 
 const ROW: f32 = 22.0;
@@ -152,34 +152,33 @@ impl Browser {
 
     pub fn draw(&self, ui: &Ui, area: Rect) {
         let frame = Browser::frame(area);
-        panel(frame, theme::ACCENT);
+        style::panel(ui, frame, theme::accent());
         ui.text(
             &ui.truncate(&self.title, frame.w - 20.0),
             frame.x + 10.0,
             frame.y + 22.0,
-            theme::AMBER,
+            theme::secondary(),
         );
         ui.text(
             &ui.truncate_start(&paths::lossy(&self.dir), frame.w - 20.0),
             frame.x + 10.0,
             frame.y + 44.0,
-            theme::MUTED,
+            theme::muted(),
         );
 
         let list = Browser::list_area(area);
         for (i, r) in self.list.visible(self.entries.len(), list, ROW) {
             let focused = i == self.list.cursor;
             if focused {
-                draw_rectangle(r.x, r.y, r.w, r.h - 2.0, theme::PANEL);
-                draw_rectangle(r.x, r.y, 3.0, r.h - 2.0, theme::ACCENT);
+                style::highlight(r, theme::accent());
             }
             let (label, color) = match &self.entries[i] {
-                Entry::UseThisFolder => ("[ Use this folder ]".to_string(), theme::ACCENT),
-                Entry::Parent => ("..".to_string(), theme::MUTED),
-                Entry::Dir(n) => (format!("{n}/"), theme::BLUE),
-                Entry::File(n) => (n.clone(), theme::TEXT),
+                Entry::UseThisFolder => ("[ Use this folder ]".to_string(), theme::accent()),
+                Entry::Parent => ("..".to_string(), theme::muted()),
+                Entry::Dir(n) => (format!("{n}/"), theme::info()),
+                Entry::File(n) => (n.clone(), theme::text()),
             };
-            let color = if focused { theme::TEXT } else { color };
+            let color = if focused { theme::text() } else { color };
             ui.text(
                 &ui.truncate(&label, r.w - 16.0),
                 r.x + 8.0,
@@ -188,7 +187,7 @@ impl Browser {
             );
         }
         if self.entries.is_empty() {
-            ui.text("(empty)", list.x + 8.0, list.y + 16.0, theme::MUTED);
+            ui.text("(empty)", list.x + 8.0, list.y + 16.0, theme::muted());
         }
     }
 
@@ -198,9 +197,9 @@ impl Browser {
             _ => "Select",
         };
         vec![
-            ui.hint(Action::Confirm, pick, theme::ACCENT),
-            ui.hint(Action::Back, "Cancel", theme::AMBER),
-            ui.hint(Action::Left, "Up / Open", theme::BORDER),
+            ui.hint(Action::Confirm, pick, theme::accent()),
+            ui.hint(Action::Back, "Cancel", theme::secondary()),
+            ui.hint(Action::Left, "Up / Open", theme::muted()),
             ui.hint(
                 Action::Alt,
                 if self.show_hidden {
@@ -208,7 +207,7 @@ impl Browser {
                 } else {
                     "Show hidden"
                 },
-                theme::BORDER,
+                theme::muted(),
             ),
         ]
     }

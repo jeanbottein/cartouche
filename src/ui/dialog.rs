@@ -5,7 +5,7 @@ use macroquad::prelude::*;
 use super::engine::input::Action;
 use super::engine::theme;
 use super::list::List;
-use super::{centered, panel, Hint, Ui};
+use super::{centered, style, Hint, Ui};
 
 const ROW: f32 = 24.0;
 
@@ -67,41 +67,40 @@ impl Dialog {
 
     pub fn draw(&self, ui: &Ui, area: Rect) {
         let (frame, lines, list) = self.layout(ui, area);
-        panel(frame, theme::AMBER);
+        style::panel(ui, frame, theme::secondary());
         ui.text(
             &ui.truncate(&self.title, frame.w - 24.0),
             frame.x + 12.0,
             frame.y + 24.0,
-            theme::AMBER,
+            theme::secondary(),
         );
         for (i, line) in lines.iter().enumerate() {
             ui.text(
                 line,
                 frame.x + 12.0,
                 frame.y + 46.0 + i as f32 * 20.0,
-                theme::TEXT,
+                theme::text(),
             );
         }
         for (i, r) in self.list.visible(self.options.len(), list, ROW) {
             let (label, color) = &self.options[i];
             let focused = i == self.list.cursor;
             if focused {
-                draw_rectangle(r.x, r.y, r.w, r.h - 2.0, theme::PANEL);
-                draw_rectangle(r.x, r.y, 3.0, r.h - 2.0, *color);
+                style::highlight(r, *color);
             }
             ui.text(
                 &ui.truncate(label, r.w - 14.0),
                 r.x + 10.0,
                 r.y + 17.0,
-                if focused { theme::TEXT } else { *color },
+                if focused { theme::text() } else { *color },
             );
         }
     }
 
     pub fn hints(&self, ui: &Ui) -> Vec<Hint> {
         vec![
-            ui.hint(Action::Confirm, "Choose", theme::ACCENT),
-            ui.hint(Action::Back, "Cancel", theme::AMBER),
+            ui.hint(Action::Confirm, "Choose", theme::accent()),
+            ui.hint(Action::Back, "Cancel", theme::secondary()),
         ]
     }
 }

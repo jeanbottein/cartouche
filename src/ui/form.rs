@@ -11,7 +11,7 @@ use super::engine::input::Action;
 use super::engine::theme;
 use super::keyboard::{self, Keyboard};
 use super::list::List;
-use super::{Hint, Ui};
+use super::{style, Hint, Ui};
 use crate::core::paths;
 
 const ROW: f32 = 24.0;
@@ -75,7 +75,10 @@ impl Field {
     }
 
     pub fn choice(id: &str, label: &str, value: &str, options: &[&str]) -> Field {
-        let pairs = options.iter().map(|o| (o.to_string(), o.to_string())).collect();
+        let pairs = options
+            .iter()
+            .map(|o| (o.to_string(), o.to_string()))
+            .collect();
         Field::choice_labelled(id, label, value, pairs)
     }
 
@@ -322,7 +325,7 @@ impl Form {
 
         if let Some(field) = self.focused().filter(|f| !f.help.is_empty()) {
             let top = area.bottom() - HELP_H + 6.0;
-            draw_rectangle(area.x, top - 4.0, area.w, 1.0, theme::BORDER);
+            draw_rectangle(area.x, top - 4.0, area.w, 1.0, theme::border());
             for (n, line) in ui
                 .wrap(&field.help, area.w - 8.0)
                 .iter()
@@ -333,7 +336,7 @@ impl Form {
                     line,
                     area.x + 4.0,
                     top + 15.0 + n as f32 * 18.0,
-                    theme::MUTED,
+                    theme::muted(),
                 );
             }
         }
@@ -348,23 +351,27 @@ impl Form {
     fn draw_row(&self, ui: &Ui, field: &Field, r: Rect, label_w: f32, focused: bool) {
         let baseline = r.y + 17.0;
         if let Kind::Section = field.kind {
-            ui.text(&ui.truncate(&field.label, r.w), r.x, baseline, theme::AMBER);
-            draw_rectangle(r.x, r.y + r.h - 3.0, r.w, 1.0, theme::BORDER);
+            ui.text(
+                &ui.truncate(&field.label, r.w),
+                r.x,
+                baseline,
+                theme::secondary(),
+            );
+            draw_rectangle(r.x, r.y + r.h - 3.0, r.w, 1.0, theme::border());
             return;
         }
         if focused {
-            draw_rectangle(r.x, r.y, r.w, r.h - 2.0, theme::PANEL);
-            draw_rectangle(r.x, r.y, 3.0, r.h - 2.0, theme::ACCENT);
+            style::highlight(r, theme::accent());
         }
         let value = field.display_value();
         let value_color = match field.kind {
-            Kind::Flag { .. } if field.is_on() => theme::ACCENT,
-            _ if field.value.is_empty() => theme::MUTED,
+            Kind::Flag { .. } if field.is_on() => theme::accent(),
+            _ if field.value.is_empty() => theme::muted(),
             _ => {
                 if focused {
-                    theme::TEXT
+                    theme::text()
                 } else {
-                    theme::BLUE
+                    theme::info()
                 }
             }
         };
@@ -374,7 +381,7 @@ impl Form {
                 &label,
                 r.x + 8.0,
                 baseline,
-                if focused { theme::TEXT } else { color },
+                if focused { theme::text() } else { color },
             );
             let note_x = r.x + 16.0 + ui.measure(&label);
             let note = ui.truncate_start(&value, r.right() - note_x - 6.0);
@@ -382,14 +389,14 @@ impl Form {
                 &note,
                 r.right() - 6.0 - ui.measure(&note),
                 baseline,
-                theme::MUTED,
+                theme::muted(),
             );
             return;
         }
         let label_color = match (field.disabled, focused) {
-            (true, _) => theme::DISABLED,
-            (false, true) => theme::TEXT,
-            (false, false) => theme::MUTED,
+            (true, _) => theme::disabled(),
+            (false, true) => theme::text(),
+            (false, false) => theme::muted(),
         };
         ui.text(
             &ui.truncate(&field.label, label_w - 14.0),
@@ -402,7 +409,11 @@ impl Form {
             Kind::Path { .. } => ui.truncate_start(&value, value_w),
             _ => ui.truncate(&value, value_w),
         };
-        let value_color = if field.disabled { theme::DISABLED } else { value_color };
+        let value_color = if field.disabled {
+            theme::disabled()
+        } else {
+            value_color
+        };
         ui.text(&shown, r.x + label_w, baseline, value_color);
     }
 
@@ -417,14 +428,14 @@ impl Form {
         };
         match field.kind {
             Kind::Section => Vec::new(),
-            Kind::Button(_) => vec![ui.hint(Action::Confirm, "Select", theme::ACCENT)],
-            Kind::Flag { .. } => vec![ui.hint(Action::Confirm, "Toggle", theme::ACCENT)],
-            Kind::Choice(_) => vec![ui.hint(Action::Left, "Change", theme::ACCENT)],
+            Kind::Button(_) => vec![ui.hint(Action::Confirm, "Select", theme::accent())],
+            Kind::Flag { .. } => vec![ui.hint(Action::Confirm, "Toggle", theme::accent())],
+            Kind::Choice(_) => vec![ui.hint(Action::Left, "Change", theme::accent())],
             Kind::Path { .. } => vec![
-                ui.hint(Action::Confirm, "Browse", theme::ACCENT),
-                ui.hint(Action::Edit, "Type", theme::BLUE),
+                ui.hint(Action::Confirm, "Browse", theme::accent()),
+                ui.hint(Action::Edit, "Type", theme::info()),
             ],
-            Kind::Text | Kind::Secret => vec![ui.hint(Action::Confirm, "Edit", theme::ACCENT)],
+            Kind::Text | Kind::Secret => vec![ui.hint(Action::Confirm, "Edit", theme::accent())],
         }
     }
 }

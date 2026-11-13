@@ -16,6 +16,7 @@ Every game carries a `.cartridge/` folder with its metadata and artwork, and a f
 - **Detect** — auto-detects executables when metadata is missing
 - **Enrich** — fetches official names and artwork from [SteamGridDB](https://www.steamgriddb.com/)
 - **Steam sync** — adds games to Steam as non-Steam shortcuts, complete with artwork, and sets Proton for Windows games
+- **Windows games** — play them from the app with Steam's own Proton, in the same prefix as their Steam shortcut; each game can name its Proton version, winetricks packages and environment in `game.json`
 - **Self shortcut** — `STEAM_ADD_SELF=True` adds the cartridge itself to Steam under its label, with retro artwork (or yours: drop `cover.png`, `hero.png`, ... into `system/`)
 - **Patch** — applies BPS patches or file replacements via `patch.json`
 - **Save backup** — backs up (or restores) save files, with multiple save paths per game, plus a symlink tree for Syncthing
@@ -40,6 +41,22 @@ For example, this `game.json` entry works for both Windows native and Linux Prot
 If you do need to write an explicit `linux` path overriding Proton, you can use the built-in variables:
 - **`${steamappid}`**: Replaced with the unique AppID Steam assigns to the non-Steam shortcut.
 - **`${proton_c}`**: A shorthand for `~/.local/share/Steam/steamapps/compatdata/${steamappid}/pfx/drive_c`
+
+### Windows games (Proton)
+
+On Linux, Windows games start from the app with the Proton builds Steam installed (`steamapps/common`, `compatibilitytools.d`), inside the Steam Linux Runtime, exactly as Steam starts their shortcut: the prefix is the shortcut's `compatdata/<appid>`, so saves and settings are the same from Steam or from the app. What a game needs travels with it in `game.json` (also editable in the game editor):
+
+```json
+"proton": {
+    "version": "proton_9",
+    "winetricks": ["d3dx9", "vcrun2019"],
+    "env": {"PROTON_USE_WINED3D": "1", "WINEDLLOVERRIDES": "ddraw=n,b"}
+}
+```
+
+- **`version`**: Steam's name (`proton_9`, `proton_experimental`, `GE-Proton11-5`) or folder name (`Proton 9.0`). Default: the build Steam has for the game's shortcut, else Steam's default Proton, else the newest one installed (a build that isn't installed is never forced on Steam).
+- **`winetricks`**: packages installed into the prefix before the first launch (B cancels). Needs `winetricks`, or the Protontricks Flatpak. What they download is taken from `system/winetricks` when it is there; turn on **Keep Proton downloads** (`PROTON_KEEP_DOWNLOADS`) to download into it, so the cartridge brings those files to other machines.
+- **`env`**: environment variables (plain `NAME`s), also written into the Steam shortcut's launch options (`KEY=value %command%`). Without them, launch options you set in Steam are left alone.
 
 ## Getting started
 

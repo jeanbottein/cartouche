@@ -1,8 +1,7 @@
-//! Library: a vertical list of game "boxes" with smooth scrolling. A panel
+//! Library: a vertical list of game cards with smooth scrolling. A panel
 //! beside the list (widescreen) or below it (portrait) shows the cover and the game's info
 //! (year, players, platforms, install state, size, description). Covers load in the
-//! background and are drawn at full window resolution over the pixel canvas,
-//! so photos stay crisp while the UI keeps its retro look.
+//! background and are drawn over the presented canvas, at the window's resolution.
 
 use std::collections::BTreeSet;
 
@@ -14,9 +13,10 @@ use super::engine::theme;
 use super::info::{self, Info};
 use super::jobs::Jobs;
 use super::launcher::{self, Session};
-use super::{draw_spinner, stroke_rect, Hint, Ui};
+use super::{draw_spinner, style, Hint, Ui};
 use crate::core::config::Config;
 use crate::core::models::{Game, Install};
+use crate::core::proton::Downloads;
 use crate::core::scanner;
 use crate::core::{sizer, steam};
 
@@ -47,6 +47,8 @@ pub struct Library {
     in_steam: BTreeSet<String>,
     /// Steam is installed here: otherwise its buttons and flags stay hidden.
     steam_detected: bool,
+    /// Where winetricks downloads go, for Windows games.
+    downloads: Downloads,
     covers: Vec<Option<Texture2D>>,
     loader: Option<ImageLoader>,
     cursor: usize,
@@ -70,6 +72,7 @@ impl Library {
             .map(|g| Some(std::fs::metadata(g.package()?).ok()?.len()))
             .collect();
         self.steam_detected = steam::detected(cfg);
+        self.downloads = Downloads::of(cfg);
         self.in_steam = if self.steam_detected {
             steam::games_in_steam(cfg, &self.games)
         } else {
@@ -160,7 +163,7 @@ impl Library {
                 (true, _) => Some(Event::Cancel(id)),
                 (false, true) => Some(Event::Edit(self.cursor)),
                 (false, false) => {
-                    self.toast("Packaged game: unpack it to edit.", theme::AMBER);
+                    self.toast("Packaged game: unpack it to edit.", theme::secondary());
                     None
                 }
             };
@@ -172,16 +175,16 @@ impl Library {
             return None;
         }
         if busy {
-            self.toast("Wait for the transfer to finish.", theme::AMBER);
+            self.toast("Wait for the transfer to finish.", theme::secondary());
             return None;
         }
         if !installed {
             return Some(Event::Unpack(self.cursor));
         }
-        match launcher::launch(&self.games[self.cursor]) {
+        match launcher::launch(&self.games[self.cursor], &self.downloads) {
             Ok(session) => Some(Event::Launched(session)),
             Err(message) => {
-                self.toast(&message, theme::AMBER);
+                self.toast(&message, theme::secondary());
                 None
             }
         }
@@ -189,7 +192,7 @@ impl Library {
 
     pub fn draw(&self, ui: &Ui, area: Rect, jobs: &Jobs) {
         if self.games.is_empty() {
-            ui.text("No games found.", area.x, area.y + 30.0, theme::TEXT);
+            ui.text("No games found.", area.x, area.y + 30.0, theme::text());
             ui.text(
                 &ui.truncate(
                     "Set the games folder in SETTINGS, then run the pipeline in STATUS.",
@@ -197,7 +200,7 @@ impl Library {
                 ),
                 area.x,
                 area.y + 54.0,
-                theme::MUTED,
+                theme::muted(),
             );
             return;
         }
@@ -212,9 +215,9 @@ impl Library {
             {
                 ui.text(
                     "loading...",
-                    cover.center().x - 40.0,
+                    cover.center().x - ui.measure("loading...") / 2.0,
                     cover.center().y,
-                    theme::MUTED,
+                    theme::muted(),
                 );
             }
             let info = Info {
@@ -228,7 +231,7 @@ impl Library {
             info::draw(ui, info_area, &info, jobs.for_game(&focused.folder_name));
         }
         self.draw_loading(ui, list);
-        self.draw_toast(ui, list);
+        style::toast(ui, list, &self.toast);
     }
 
     /// `with_sizes`: show each game's size on its row (no panel shows it).
@@ -240,34 +243,16 @@ impl Library {
             // Whole canvas pixels keep 1px borders crisp at sub-pixel scroll offsets.
             let y = (list.y - self.scroll_y + i as f32 * ROW_STEP).round();
             let focused = i == self.cursor;
-            if focused {
-                draw_rectangle(list.x, y, list.w, ROW_H, theme::PANEL);
-            }
-            // Cartridge-style accent stripe on the leading edge.
-            draw_rectangle(
-                list.x,
-                y,
-                5.0,
-                ROW_H,
-                if focused { theme::ACCENT } else { theme::AMBER },
-            );
-            let (border, th) = if focused {
-                (theme::ACCENT, 2.0)
+            let frame = Rect::new(list.x, y, list.w, ROW_H);
+            let stripe = if focused {
+                theme::accent()
             } else {
-                (theme::BORDER, 1.0)
+                theme::secondary()
             };
-            stroke_rect(Rect::new(list.x, y, list.w, ROW_H), th, border);
-            // In Steam: a discreet blue flag inside the right edge (inside the
-            // border, so it looks the same on the focused row).
+            style::card(frame, stripe, focused);
             let flag_w = if self.is_in_steam(&self.games[i]) {
-                draw_rectangle(
-                    list.right() - th - 4.0,
-                    y + th,
-                    4.0,
-                    ROW_H - 2.0 * th,
-                    theme::BLUE,
-                );
-                6.0
+                style::steam_flag(frame, focused);
+                8.0
             } else {
                 0.0
             };
@@ -275,24 +260,29 @@ impl Library {
             let tag_w = if tag.is_empty() {
                 0.0
             } else {
-                ui.measure(&tag) + 12.0
+                let chip_x = list.right() - flag_w - 6.0 - ui.measure(&tag).ceil() - 10.0;
+                style::chip(ui, &tag, chip_x, y + 18.0, tag_color) + 10.0
             };
-            ui.text(&tag, list.right() - flag_w - tag_w, y + 18.0, tag_color);
             let title = ui.truncate(&self.games[i].title, list.w - 18.0 - flag_w - tag_w);
             ui.text(
                 &title,
                 list.x + 12.0,
                 y + 18.0,
-                if focused { theme::TEXT } else { theme::MUTED },
+                if focused {
+                    theme::text()
+                } else {
+                    theme::muted()
+                },
             );
             if let Some(job) = jobs.for_game(&self.games[i].folder_name) {
-                let track = Rect::new(list.x + 6.0, y + ROW_H - 5.0, list.w - 8.0, 3.0);
-                info::bar(track, job.fraction(), theme::AMBER);
+                let track = Rect::new(list.x + 8.0, y + ROW_H - 5.0, list.w - 16.0, 3.0);
+                style::bar(track, job.fraction(), theme::secondary());
             }
         }
-        // Mask partial rows that spilled below the list edge.
+        // Mask partial rows that spilled below the list edge (a focus glow
+        // reaches a few pixels further).
         let (w, h) = ui.canvas.size();
-        draw_rectangle(0.0, list.bottom(), w, h - list.bottom(), theme::BG);
+        style::backdrop(Rect::new(0.0, list.bottom() + 1.0, w, h - list.bottom()), h);
     }
 
     /// Whether the game is one the user put in Steam.
@@ -305,9 +295,9 @@ impl Library {
     fn row_tag(&self, index: usize, with_size: bool) -> (String, Color) {
         let game = &self.games[index];
         let (tag, color) = match game.install {
-            Install::Packaged { .. } => ("PKG", theme::AMBER),
+            Install::Packaged { .. } => ("PKG", theme::secondary()),
             // A kept package shows only in the side panel, to keep the list calm.
-            _ => ("", theme::MUTED),
+            _ => ("", theme::muted()),
         };
         let text = match game.size.filter(|_| with_size) {
             Some(size) if tag.is_empty() => sizer::human(size),
@@ -337,31 +327,13 @@ impl Library {
         let Some(loader) = &self.loader else { return };
         let (done, total) = loader.progress();
         let (cx, cy) = (list.right() - 10.0, list.bottom() - 10.0);
-        draw_spinner(cx, cy, 6.0, theme::ACCENT);
+        draw_spinner(cx, cy, 6.0, theme::accent());
         let label = format!("{done}/{total}");
         ui.text(
             &label,
             cx - 12.0 - ui.measure(&label),
             cy + 5.0,
-            theme::MUTED,
-        );
-    }
-
-    fn draw_toast(&self, ui: &Ui, list: Rect) {
-        let Some((message, color, until)) = &self.toast else {
-            return;
-        };
-        if get_time() > *until {
-            return;
-        }
-        let y = list.bottom() - 26.0;
-        draw_rectangle(list.x, y, list.w, 24.0, theme::BG);
-        stroke_rect(Rect::new(list.x, y, list.w, 24.0), 1.0, *color);
-        ui.text(
-            &ui.truncate(message, list.w - 16.0),
-            list.x + 8.0,
-            y + 18.0,
-            *color,
+            theme::muted(),
         );
     }
 
@@ -389,10 +361,10 @@ impl Library {
             return Vec::new();
         };
         if jobs.for_game(&game.folder_name).is_some() {
-            return vec![ui.hint(Action::Edit, "Cancel", theme::RED)];
+            return vec![ui.hint(Action::Edit, "Cancel", theme::danger())];
         }
         if !game.is_installed() {
-            return vec![ui.hint(Action::Confirm, "Unpack", theme::ACCENT)];
+            return vec![ui.hint(Action::Confirm, "Unpack", theme::accent())];
         }
         let steam = if self.is_in_steam(game) {
             "Remove from Steam"
@@ -400,11 +372,11 @@ impl Library {
             "Add to Steam"
         };
         let mut hints = vec![
-            ui.hint(Action::Confirm, "Play", theme::ACCENT),
-            ui.hint(Action::Edit, "Edit", theme::BLUE),
+            ui.hint(Action::Confirm, "Play", theme::accent()),
+            ui.hint(Action::Edit, "Edit", theme::info()),
         ];
         if self.steam_detected {
-            hints.push(ui.hint(Action::Alt, steam, theme::BLUE));
+            hints.push(ui.hint(Action::Alt, steam, theme::info()));
         }
         hints
     }

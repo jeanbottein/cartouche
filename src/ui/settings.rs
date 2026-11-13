@@ -5,18 +5,19 @@ use std::collections::BTreeMap;
 
 use macroquad::prelude::*;
 
-use super::engine::theme;
+use super::engine::theme::{self, Tone, THEMES};
 use super::form::{Event as FormEvent, Field, Form};
 use super::{Hint, Ui};
 use crate::core::config::{self, Config};
 use crate::core::steam;
 
 /// Settings that mean nothing without Steam.
-const STEAM_KEYS: [&str; 3] = [SELF_SHORTCUT, "STEAM_USERID", "PROTON_VERSION"];
+const STEAM_KEYS: [&str; 3] = [SELF_SHORTCUT, "STEAM_USERID", "PROTON_KEEP_DOWNLOADS"];
 /// Labelled with the cartridge folder's name, as it appears in Steam.
 const SELF_SHORTCUT: &str = "STEAM_ADD_SELF";
 const STRATEGIES: &[&str] = &["backup", "sync", "restore"];
 const WIDESCREEN: &[&str] = &["auto", "on", "off"];
+const WINDOW_MODES: &[&str] = &["borderless", "window"];
 
 enum Kind {
     Text,
@@ -26,6 +27,8 @@ enum Kind {
     Choice(&'static [&'static str]),
     /// A Steam account on this machine; empty means all of them.
     SteamUser,
+    /// One of the UI themes; empty means the default.
+    Theme,
 }
 
 struct Setting {
@@ -44,16 +47,20 @@ const fn s(key: &'static str, label: &'static str, kind: Kind, help: &'static st
     }
 }
 
-const SCHEMA: [(&str, &[Setting]); 4] = [
+const SCHEMA: [(&str, &[Setting]); 5] = [
     ("GENERAL", &[
         s(SELF_SHORTCUT, "in Steam", Kind::Flag(false), "Add this cartridge to Steam under its folder name, with retro artwork (or your cover.png, hero.png... in system/). Applied right away."),
         s("SAVESCOPY_STRATEGY", "Save strategy", Kind::Choice(STRATEGIES), "backup: copy saves into saves-copies/. restore: copy them back over the saves, every run (careful!)."),
         s("MUSIC_ENABLED", "Background music", Kind::Flag(true), "Shuffle the audio files in the workspace's system/ folder (mp3, flac, ogg, wav, m4a). Fades out while a game runs."),
+    ]),
+    ("DISPLAY", &[
+        s("THEME", "Theme", Kind::Theme, "Colors, font and shapes of the interface. The layout stays the same."),
+        s("WINDOW_MODE", "Window mode", Kind::Choice(WINDOW_MODES), "borderless: fullscreen at the screen's native resolution. window: a window you can resize (fullscreen anyway under gamescope). F toggles."),
         s("WIDESCREEN", "Widescreen", Kind::Choice(WIDESCREEN), "auto: side panels on screens 3:2 or wider, 4:3 otherwise (taller on portrait screens). on / off: always / never."),
     ]),
     ("STEAM & ARTWORK", &[
         s("STEAM_USERID", "Steam user", Kind::SteamUser, "Only update this Steam user. Default: all users."),
-        s("PROTON_VERSION", "Proton version", Kind::Text, "Compatibility tool for Windows games, e.g. proton_experimental."),
+        s("PROTON_KEEP_DOWNLOADS", "Keep Proton downloads", Kind::Flag(false), "Keep what winetricks downloads for Windows games in system/winetricks, so this cartridge brings it to other machines."),
         s("STEAMGRIDDB_API_KEY", "SteamGridDB API key", Kind::Secret, "For automatic artwork: steamgriddb.com/profile/preferences/api"),
         s("STEAMGRIDDB_NSFW", "Artwork: NSFW", Kind::Flag(false), "Include adult content in artwork results."),
         s("STEAMGRIDDB_HUMOR", "Artwork: humor", Kind::Flag(false), "Include humor content in artwork results."),
@@ -69,6 +76,13 @@ const SCHEMA: [(&str, &[Setting]); 4] = [
         s("DEBUG_NO_STEAM", "Pretend Steam is missing", Kind::Flag(false), "Hide the Steam buttons and dim the Steam settings, as on a machine without Steam. Interface only."),
     ]),
 ];
+
+fn theme_options() -> Vec<(String, String)> {
+    THEMES
+        .iter()
+        .map(|t| (t.id.to_string(), t.name.to_string()))
+        .collect()
+}
 
 fn steam_user_options() -> Vec<(String, String)> {
     std::iter::once((String::new(), "All users".to_string()))
@@ -102,6 +116,10 @@ fn fields(cfg: &Config) -> Vec<Field> {
                     Kind::SteamUser => {
                         Field::choice_labelled(s.key, label, v, steam_user_options())
                     }
+                    Kind::Theme => {
+                        let v = theme::find(Some(v)).id;
+                        Field::choice_labelled(s.key, label, v, theme_options())
+                    }
                 };
                 field
                     .with_help(s.help)
@@ -114,7 +132,7 @@ fn fields(cfg: &Config) -> Vec<Field> {
 
 pub struct Settings {
     form: Form,
-    message: Option<(String, Color)>,
+    message: Option<(String, Tone)>,
 }
 
 impl Settings {
@@ -139,8 +157,8 @@ impl Settings {
     }
 
     /// Show a message under the form (e.g. what applying a setting did).
-    pub fn note(&mut self, message: &str, color: Color) {
-        self.message = Some((message.to_string(), color));
+    pub fn note(&mut self, message: &str, tone: Tone) {
+        self.message = Some((message.to_string(), tone));
     }
 
     /// The key saved to `config.txt`, if any (the app reloads it).
@@ -151,23 +169,23 @@ impl Settings {
         let value = self.form.value(&id).to_string();
         match config::update_file(&cfg.path, &BTreeMap::from([(id.clone(), value)])) {
             Ok(()) => {
-                self.message = Some((format!("Saved {id}."), theme::ACCENT));
+                self.message = Some((format!("Saved {id}."), Tone::Accent));
                 Some(id)
             }
             Err(e) => {
-                self.message = Some((format!("Could not save: {e}"), theme::RED));
+                self.message = Some((format!("Could not save: {e}"), Tone::Danger));
                 None
             }
         }
     }
 
     pub fn draw(&self, ui: &Ui, area: Rect) {
-        if let Some((message, color)) = &self.message {
+        if let Some((message, tone)) = &self.message {
             ui.text(
                 &ui.truncate(message, area.w),
                 area.x,
                 area.bottom() - 4.0,
-                *color,
+                tone.color(),
             );
         }
         self.form.draw(ui, Settings::form_area(area));
