@@ -254,7 +254,6 @@ mod tests {
 
     #[test]
     fn an_update_reaches_the_line_that_counts() {
-        // The last line of a key wins when parsing: the update must reach it.
         let updated = apply_updates(
             "THEME=midnight\nTHEME=retro\n",
             &BTreeMap::from([("THEME".to_string(), "midnight".to_string())]),
