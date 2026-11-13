@@ -20,7 +20,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
-use super::app::data_dir_name;
+use super::app::GAME_DATA_DIR;
 use super::models::{to_pretty_json, Game, GAME_JSON};
 use super::paths;
 
@@ -209,7 +209,7 @@ fn visit(root: &Path, rel: &Path, items: &mut Vec<Item>) -> io::Result<()> {
 }
 
 fn is_generated(rel: &Path) -> bool {
-    rel.parent() == Some(Path::new(&data_dir_name()))
+    rel.parent() == Some(Path::new(GAME_DATA_DIR))
         && GENERATED
             .iter()
             .any(|g| rel.file_name() == Some(g.as_ref()))
@@ -253,7 +253,7 @@ fn is_plain_name(name: &str) -> bool {
 
 /// The package id a game folder was unpacked from.
 pub fn unpacked_from(game_dir: &Path) -> Option<String> {
-    let path = game_dir.join(data_dir_name()).join(UNPACKED_FROM_JSON);
+    let path = game_dir.join(GAME_DATA_DIR).join(UNPACKED_FROM_JSON);
     let text = fs::read_to_string(path).ok()?;
     serde_json::from_str::<UnpackedFrom>(&text)
         .ok()
@@ -338,7 +338,7 @@ fn append_item<W: Write>(
 /// Stream `game` as a package into `out`. The total size is known before the
 /// first byte, so `progress` is exact from the start.
 pub fn pack_to(game: &Game, out: impl Write, progress: &Progress) -> Result<Manifest, String> {
-    let data = PathBuf::from(data_dir_name());
+    let data = PathBuf::from(GAME_DATA_DIR);
     let items: Vec<Item> = walk(&game.dir)
         .map_err(|e| format!("{}: {e}", game.dir.display()))?
         .into_iter()
@@ -426,7 +426,7 @@ fn read_manifest<R: Read>(entries: &mut Entries<'_, R>) -> Result<Manifest, Stri
         .ok_or_else(not_a_package)?
         .map_err(|e| e.to_string())?;
     let path = entry.path().map_err(|e| e.to_string())?.into_owned();
-    if !path.ends_with(Path::new(&data_dir_name()).join(PACKAGE_JSON)) {
+    if !path.ends_with(Path::new(GAME_DATA_DIR).join(PACKAGE_JSON)) {
         return Err(not_a_package());
     }
     let manifest: Manifest = serde_json::from_reader(&mut entry).map_err(|e| e.to_string())?;
@@ -434,7 +434,7 @@ fn read_manifest<R: Read>(entries: &mut Entries<'_, R>) -> Result<Manifest, Stri
         return Err(format!("Package format {} is too new", manifest.format));
     }
     let expected = Path::new(&manifest.folder_name)
-        .join(data_dir_name())
+        .join(GAME_DATA_DIR)
         .join(PACKAGE_JSON);
     if !is_plain_name(&manifest.folder_name) || path != expected {
         return Err(format!(
@@ -451,7 +451,7 @@ pub fn read_meta(package: &Path) -> Result<(Manifest, Option<String>), String> {
     let mut archive = tar::Archive::new(BufReader::new(file));
     let mut entries = archive.entries().map_err(|e| e.to_string())?;
     let manifest = read_manifest(&mut entries)?;
-    let data = Path::new(&manifest.folder_name).join(data_dir_name());
+    let data = Path::new(&manifest.folder_name).join(GAME_DATA_DIR);
     let game_json = data.join(GAME_JSON);
     for entry in entries {
         let mut entry = entry.map_err(|e| e.to_string())?;
@@ -474,7 +474,7 @@ pub fn read_data_file(package: &Path, file_name: &str) -> Option<Vec<u8>> {
     let mut archive = tar::Archive::new(BufReader::new(file));
     let mut entries = archive.entries().ok()?;
     let manifest = read_manifest(&mut entries).ok()?;
-    let data = Path::new(&manifest.folder_name).join(data_dir_name());
+    let data = Path::new(&manifest.folder_name).join(GAME_DATA_DIR);
     let wanted = data.join(file_name);
     for entry in entries {
         let mut entry = entry.ok()?;
@@ -562,7 +562,7 @@ fn for_each_checked<R: Read>(
     mut handle: impl FnMut(&Path, &mut tar::Entry<'_, R>) -> Result<Option<String>, String>,
 ) -> Result<(), String> {
     let prefix = Path::new(&manifest.folder_name);
-    let checksums_rel = Path::new(&data_dir_name()).join(CHECKSUMS_JSON);
+    let checksums_rel = Path::new(GAME_DATA_DIR).join(CHECKSUMS_JSON);
     let mut actual = BTreeMap::new();
     let mut expected: Option<BTreeMap<String, String>> = None;
     for entry in entries {
@@ -594,7 +594,7 @@ fn extract<R: Read>(
     staging: &Path,
     progress: &Progress,
 ) -> Result<u64, String> {
-    let data = PathBuf::from(data_dir_name());
+    let data = PathBuf::from(GAME_DATA_DIR);
     let mut game_bytes = 0;
     for_each_checked(entries, manifest, |rel, entry| {
         let dest = safe_join(staging, rel)?;
@@ -643,7 +643,7 @@ pub fn verify_from(input: impl Read, progress: &Progress) -> Result<Manifest, St
 
 /// Record the package id, and the measured size in `game.json` when present.
 fn finish(staging: &Path, dest: &Path, manifest: &Manifest, game_bytes: u64) -> io::Result<()> {
-    let data = staging.join(data_dir_name());
+    let data = staging.join(GAME_DATA_DIR);
     fs::create_dir_all(&data)?;
     let record = UnpackedFrom {
         id: manifest.id.clone(),
@@ -706,7 +706,7 @@ mod tests {
         let mut game = Game::skeleton(&root);
         game.title = "Celeste".into();
         dir.write(
-            &format!("games/Celeste/{}/{GAME_JSON}", data_dir_name()),
+            &format!("games/Celeste/{GAME_DATA_DIR}/{GAME_JSON}"),
             game.to_json().as_bytes(),
         );
         game
@@ -736,9 +736,9 @@ mod tests {
             (progress.done(), progress.total()),
             (manifest.size, manifest.size)
         );
-        let text = fs::read_to_string(dest.join(data_dir_name()).join(GAME_JSON)).unwrap();
+        let text = fs::read_to_string(dest.join(GAME_DATA_DIR).join(GAME_JSON)).unwrap();
         assert_eq!(Game::from_json(&dest, &text).unwrap().size, Some(3006));
-        assert!(!dest.join(data_dir_name()).join(CHECKSUMS_JSON).exists());
+        assert!(!dest.join(GAME_DATA_DIR).join(CHECKSUMS_JSON).exists());
     }
 
     #[test]

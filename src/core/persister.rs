@@ -6,7 +6,7 @@ use std::path::Path;
 
 use log::{error, info, warn};
 
-use super::app::data_dir_name;
+use super::app::GAME_DATA_DIR;
 use super::models::{Game, ImageSlot, GAME_JSON};
 use super::{paths, sgdb};
 
@@ -75,11 +75,7 @@ pub fn persist(games: &mut [Game]) {
     info!("Persisting {} game(s)", dirty.len());
     for game in dirty {
         match write_game_json(game) {
-            Ok(()) => info!(
-                "  Saved: {}/{}/{GAME_JSON}",
-                game.folder_name,
-                data_dir_name()
-            ),
+            Ok(()) => info!("  Saved: {}/{GAME_DATA_DIR}/{GAME_JSON}", game.folder_name),
             Err(e) => {
                 error!("  Failed to write {}: {e}", game.game_json_path().display());
                 continue;

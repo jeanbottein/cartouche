@@ -5,16 +5,16 @@ use std::path::Path;
 
 use log::{info, warn};
 
-use super::app::data_dir_name;
+use super::app::GAME_DATA_DIR;
 use super::models::Game;
 use super::package;
 
 /// Bytes of the game's own files (`.cartridge/` excluded); symlinks not followed.
 pub fn measure_game(dir: &Path) -> std::io::Result<u64> {
-    let data = Path::new(&data_dir_name()).to_path_buf();
+    let data = Path::new(GAME_DATA_DIR);
     Ok(package::walk(dir)?
         .iter()
-        .filter(|item| !item.rel.starts_with(&data))
+        .filter(|item| !item.rel.starts_with(data))
         .map(package::Item::file_size)
         .sum())
 }
@@ -73,7 +73,7 @@ mod tests {
         let dir = TempDir::new();
         dir.write("G/a.bin", &[0; 10]);
         dir.write("G/sub/b.bin", &[0; 5]);
-        dir.write(&format!("G/{}/cover.png", data_dir_name()), &[0; 100]);
+        dir.write(&format!("G/{GAME_DATA_DIR}/cover.png"), &[0; 100]);
         assert_eq!(measure_game(&dir.path().join("G")).unwrap(), 15);
     }
 
