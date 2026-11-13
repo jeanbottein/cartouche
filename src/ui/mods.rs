@@ -175,7 +175,7 @@ impl ModsScreen {
         let focused = i == self.list.cursor;
         let (label, color) = status_label(&m.status);
         style::card(frame, color, focused);
-        let label_w = ui.measure(label).ceil() + 10.0 + 12.0;
+        let label_w = style::chip_width(ui, label) + 12.0;
         style::chip(
             ui,
             label,

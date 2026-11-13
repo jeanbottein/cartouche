@@ -52,6 +52,8 @@ pub struct Library {
     covers: Vec<Option<Texture2D>>,
     loader: Option<ImageLoader>,
     cursor: usize,
+    /// When the cursor landed on its game: its long title scrolls from then.
+    focused_at: f64,
     scroll_y: f32,
     scroll_target: f32,
     /// Message, color, expiry time.
@@ -123,6 +125,7 @@ impl Library {
         }
         let n = self.games.len();
         let (list, _) = self.layout(ui, area);
+        let was_on = self.cursor;
         let mut nav = false;
         if ui.action(Action::Down) {
             self.cursor = (self.cursor + 1).min(n - 1);
@@ -145,6 +148,9 @@ impl Library {
             }
         }
 
+        if self.cursor != was_on {
+            self.focused_at = get_time();
+        }
         if nav {
             let top = self.cursor as f32 * ROW_STEP;
             self.scroll_target = self.scroll_target.min(top).max(top + ROW_H - list.h);
@@ -207,19 +213,7 @@ impl Library {
         let (list, preview) = self.layout(ui, area);
         self.draw_rows(ui, list, jobs, preview.is_none());
         if let Some(panel) = preview {
-            let (cover, info_area) = info::split_panel(panel);
             let focused = &self.games[self.cursor];
-            if self.covers[self.cursor].is_none()
-                && focused.images.cover.is_some()
-                && self.loader.is_some()
-            {
-                ui.text(
-                    "loading...",
-                    cover.center().x - ui.measure("loading...") / 2.0,
-                    cover.center().y,
-                    theme::muted(),
-                );
-            }
             let info = Info {
                 title: &focused.title,
                 year: focused.year,
@@ -227,8 +221,16 @@ impl Library {
                 targets: &focused.targets,
                 status: self.install_line(),
                 description: &focused.description,
+                cover_loading: self.covers[self.cursor].is_none()
+                    && focused.images.cover.is_some()
+                    && self.loader.is_some(),
             };
-            info::draw(ui, info_area, &info, jobs.for_game(&focused.folder_name));
+            info::draw(
+                ui,
+                &info::split_panel(panel),
+                &info,
+                jobs.for_game(&focused.folder_name),
+            );
         }
         self.draw_loading(ui, list);
         style::toast(ui, list, &self.toast);
@@ -260,10 +262,16 @@ impl Library {
             let tag_w = if tag.is_empty() {
                 0.0
             } else {
-                let chip_x = list.right() - flag_w - 6.0 - ui.measure(&tag).ceil() - 10.0;
+                let chip_x = list.right() - flag_w - 6.0 - style::chip_width(ui, &tag);
                 style::chip(ui, &tag, chip_x, y + 18.0, tag_color) + 10.0
             };
-            let title = ui.truncate(&self.games[i].title, list.w - 18.0 - flag_w - tag_w);
+            let title_w = list.w - 18.0 - flag_w - tag_w;
+            let title = &self.games[i].title;
+            let title = if focused {
+                ui.ticker(title, title_w, get_time() - self.focused_at)
+            } else {
+                ui.truncate(title, title_w)
+            };
             ui.text(
                 &title,
                 list.x + 12.0,
@@ -342,7 +350,7 @@ impl Library {
         let (_, Some(panel)) = self.layout(ui, area) else {
             return;
         };
-        let (preview, _) = info::split_panel(panel);
+        let preview = info::split_panel(panel).cover;
         if let Some(Some(tex)) = self.covers.get(self.cursor) {
             ui.draw_image_fit(
                 tex,

@@ -129,16 +129,20 @@ pub fn toast(ui: &Ui, list: Rect, toast: &Option<(String, Color, f64)>) {
     );
 }
 
+pub fn chip_width(ui: &Ui, label: &str) -> f32 {
+    ui.measure_small(label).ceil() + 10.0
+}
+
 /// A small tinted label with its text on `baseline`; returns its width.
 pub fn chip(ui: &Ui, label: &str, x: f32, baseline: f32, color: Color) -> f32 {
-    let w = ui.measure(label).ceil() + 10.0;
+    let w = chip_width(ui, label);
     let radius = theme::current().radius.min(4.0);
     fill_rounded(
-        Rect::new(x, baseline - 16.0, w, 19.0),
+        Rect::new(x, baseline - 13.0, w, 17.0),
         radius,
         fade(color, 0.16),
     );
-    ui.text(label, x + 5.0, baseline, color);
+    ui.small_text(label, x + 5.0, baseline, color);
     w
 }
 

@@ -225,6 +225,37 @@ pub fn wrap_segments(
     lines
 }
 
+/// `lines` kept to `max` lines, the overflow joined onto the last one (for
+/// the caller to cut with an ellipsis).
+pub fn fold_lines(mut lines: Vec<String>, max: usize) -> Vec<String> {
+    if max == 0 || lines.len() <= max {
+        return lines;
+    }
+    let rest = lines.split_off(max - 1).join(" ");
+    lines.push(rest);
+    lines
+}
+
+/// Seconds a ticker rests at each end of its text.
+const TICKER_PAUSE: f64 = 1.5;
+/// Seconds per character a ticker moves.
+const TICKER_STEP: f64 = 0.15;
+
+/// Characters a ticker has dropped from the start of its text, `elapsed`
+/// seconds after it started: it rests, moves one character per step until
+/// the last `steps` are dropped, rests on the end, and starts over.
+pub fn ticker_offset(steps: usize, elapsed: f64) -> usize {
+    if steps == 0 {
+        return 0;
+    }
+    let cycle = 2.0 * TICKER_PAUSE + steps as f64 * TICKER_STEP;
+    let moving = elapsed.rem_euclid(cycle) - TICKER_PAUSE;
+    if moving < 0.0 {
+        return 0;
+    }
+    ((moving / TICKER_STEP) as usize + 1).min(steps)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -239,6 +270,47 @@ mod tests {
             wrap_segments(&["aa", "bb", "cc"], " ", 5.0, chars),
             vec!["aa bb", "cc"]
         );
+    }
+
+    fn owned(lines: &[&str]) -> Vec<String> {
+        lines.iter().map(|l| l.to_string()).collect()
+    }
+
+    #[test]
+    fn lines_within_the_limit_are_kept() {
+        assert_eq!(fold_lines(owned(&["a", "b"]), 3), owned(&["a", "b"]));
+    }
+
+    #[test]
+    fn extra_lines_join_the_last_kept_one() {
+        assert_eq!(
+            fold_lines(owned(&["a", "b", "c", "d"]), 3),
+            owned(&["a", "b", "c d"])
+        );
+    }
+
+    #[test]
+    fn a_ticker_that_fits_never_moves() {
+        assert_eq!(ticker_offset(0, 12.0), 0);
+    }
+
+    #[test]
+    fn a_ticker_rests_before_moving() {
+        assert_eq!(ticker_offset(5, 0.0), 0);
+        assert_eq!(ticker_offset(5, TICKER_PAUSE - 0.01), 0);
+    }
+
+    #[test]
+    fn a_ticker_moves_one_character_per_step() {
+        assert_eq!(ticker_offset(5, TICKER_PAUSE + 0.01), 1);
+        assert_eq!(ticker_offset(5, TICKER_PAUSE + TICKER_STEP + 0.01), 2);
+    }
+
+    #[test]
+    fn a_ticker_rests_on_the_end_then_starts_over() {
+        let end = TICKER_PAUSE + 5.0 * TICKER_STEP;
+        assert_eq!(ticker_offset(5, end + 1.0), 5);
+        assert_eq!(ticker_offset(5, end + TICKER_PAUSE + 0.01), 0);
     }
 
     #[test]

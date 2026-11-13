@@ -333,18 +333,6 @@ impl Network {
         let Some(row) = self.rows.get(self.list.cursor) else {
             return;
         };
-        let (cover, info_area) = info::split_panel(panel);
-        if row.game.has_cover && self.covers[self.list.cursor].is_none() {
-            let loading = self.loader.as_ref().is_some_and(ImageLoader::loading);
-            if loading {
-                ui.text(
-                    "loading...",
-                    cover.center().x - ui.measure("loading...") / 2.0,
-                    cover.center().y,
-                    theme::muted(),
-                );
-            }
-        }
         let info = Info {
             title: &row.game.title,
             year: row.game.year,
@@ -352,8 +340,16 @@ impl Network {
             targets: &row.game.targets,
             status: Self::status_line(row),
             description: &row.game.description,
+            cover_loading: row.game.has_cover
+                && self.covers[self.list.cursor].is_none()
+                && self.loader.as_ref().is_some_and(ImageLoader::loading),
         };
-        info::draw(ui, info_area, &info, jobs.for_game(&row.game.id));
+        info::draw(
+            ui,
+            &info::split_panel(panel),
+            &info,
+            jobs.for_game(&row.game.id),
+        );
     }
 
     /// Full-resolution cover of the focused game (after the canvas is presented).
@@ -364,7 +360,7 @@ impl Network {
         let (_, Some(panel)) = Self::layout(ui, area) else {
             return;
         };
-        let (cover, _) = info::split_panel(panel);
+        let cover = info::split_panel(panel).cover;
         if let Some(Some(tex)) = self.covers.get(self.list.cursor) {
             ui.draw_image_fit(
                 tex,

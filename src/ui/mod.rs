@@ -154,8 +154,31 @@ impl Ui {
         self.text_sized(s, x, y, Size::Title, color);
     }
 
-    pub fn truncate_title(&self, s: &str, max_w: f32) -> String {
-        self.truncate_sized(s, max_w, Size::Title)
+    /// A title wrapped into at most `max_lines` lines of `max_w`, the last cut
+    /// with an ellipsis when the title is longer.
+    pub fn wrap_title(&self, s: &str, max_w: f32, max_lines: usize) -> Vec<String> {
+        let words: Vec<&str> = s.split(' ').collect();
+        let lines = text::wrap_segments(&words, " ", max_w, |s| self.measure_sized(s, Size::Title));
+        text::fold_lines(lines, max_lines)
+            .iter()
+            .map(|line| self.truncate_sized(line, max_w, Size::Title))
+            .collect()
+    }
+
+    pub fn truncate_small(&self, s: &str, max_w: f32) -> String {
+        self.truncate_sized(s, max_w, Size::Small)
+    }
+
+    /// `s` fitted to `max_w`: when it is too long, it scrolls one character
+    /// at a time, `elapsed` seconds after it started.
+    pub fn ticker(&self, s: &str, max_w: f32, elapsed: f64) -> String {
+        let chars: Vec<char> = s.chars().collect();
+        let tail = |from: usize| chars[from..].iter().collect::<String>();
+        let steps = (0..chars.len())
+            .find(|&from| self.measure(&tail(from)) <= max_w)
+            .unwrap_or(chars.len());
+        let shown = tail(text::ticker_offset(steps, elapsed));
+        self.truncate(shown.trim_start(), max_w)
     }
 
     fn text_sized(&self, s: &str, x: f32, y: f32, size: Size, color: Color) {
