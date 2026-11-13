@@ -242,7 +242,7 @@ fn collect_windows_host_targets(game_dir: &Path) -> Vec<Target> {
     let real_dir = real_game_dir(game_dir);
     (1..=MAX_DEPTH)
         .find_map(|depth| best_windows_exe(&real_dir, depth))
-        .map(|exe| vec![make_target("windows", arch_tag(), &exe, game_dir)])
+        .map(|exe| vec![make_target("windows", &arch_of(&exe), &exe, game_dir)])
         .unwrap_or_default()
 }
 
@@ -568,6 +568,21 @@ mod tests {
 
         let best = best_windows_exe(&game, 1).unwrap();
         assert_eq!(best.file_name().unwrap(), wanted);
+    }
+
+    #[test]
+    fn a_windows_host_target_has_the_arch_its_exe_is_built_for() {
+        let dir = TempDir::new();
+        let game = dir.mkdir("Game");
+        let (other_arch, machine) = if arch_tag() == "arm64" {
+            ("x64", 0x8664)
+        } else {
+            ("arm64", 0xAA64)
+        };
+        dir.write("Game/Game.exe", &pe(machine));
+
+        let targets = collect_windows_host_targets(&game);
+        assert_eq!(targets[0].arch, other_arch);
     }
 
     #[test]
