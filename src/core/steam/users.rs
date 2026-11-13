@@ -94,15 +94,18 @@ pub fn select_config_dirs(cfg: &Config) -> Vec<PathBuf> {
     else {
         return dirs;
     };
-    let needle = format!("/{uid}/");
-    let filtered: Vec<PathBuf> = dirs
-        .into_iter()
-        .filter(|d| paths::lossy(d).contains(&needle))
-        .collect();
+    let filtered = of_user(dirs, uid);
     if filtered.is_empty() {
         warn!("STEAM_USERID={uid} not found");
     }
     filtered
+}
+
+fn of_user(config_dirs: Vec<PathBuf>, uid: &str) -> Vec<PathBuf> {
+    config_dirs
+        .into_iter()
+        .filter(|dir| user_id(dir) == uid)
+        .collect()
 }
 
 /// Steam root from a `userdata/<id>/config` path.
@@ -136,6 +139,16 @@ mod tests {
         assert!(!is_account("0"));
         assert!(is_account("66213690"));
         assert!(is_account("10"));
+    }
+
+    #[test]
+    fn steam_userid_picks_the_userdata_folder_not_any_path_with_that_number() {
+        let dirs = vec![
+            PathBuf::from("/home/1234/.steam/steam/userdata/99/config"),
+            PathBuf::from("/home/1234/.steam/steam/userdata/1234/config"),
+        ];
+        assert_eq!(of_user(dirs.clone(), "1234"), [dirs[1].clone()]);
+        assert!(of_user(dirs, "12").is_empty());
     }
 
     #[test]
