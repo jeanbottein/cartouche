@@ -59,6 +59,16 @@ pub fn split_panel(panel: Rect) -> Panel {
     }
 }
 
+/// A side panel's cover at full resolution, inside its well (after the
+/// canvas is presented).
+pub fn draw_cover(ui: &Ui, panel: Rect, cover: &Texture2D) {
+    let well = split_panel(panel).cover;
+    ui.draw_image_fit(
+        cover,
+        Rect::new(well.x + 4.0, well.y + 4.0, well.w - 8.0, well.h - 8.0),
+    );
+}
+
 fn compatibility_color(compatibility: Compatibility) -> Color {
     match compatibility {
         Compatibility::Native => theme::accent(),

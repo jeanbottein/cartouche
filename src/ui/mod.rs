@@ -1,6 +1,6 @@
-//! The UI (macroquad): Library, game editor, Status (pipeline runs) and
-//! Settings, all playable with a gamepad, keyboard or mouse, in the theme
-//! picked in Settings.
+//! The UI (macroquad): Library and game editor, Network (games of other
+//! machines), Mods, Status (pipeline runs) and Settings, all playable with a
+//! gamepad, keyboard or mouse, in the theme picked in Settings.
 
 mod app;
 mod browser;
@@ -239,40 +239,20 @@ impl Ui {
 
     /// Button label for `a` on the device used last.
     pub fn key(&self, a: Action) -> &'static str {
-        let pad = self.input.gamepad_last();
-        match a {
-            Action::Confirm => {
-                if pad {
-                    "A"
-                } else {
-                    "ENTER"
-                }
-            }
-            Action::Back => {
-                if pad {
-                    "B"
-                } else {
-                    "ESC"
-                }
-            }
-            Action::Edit => "X",
-            Action::Alt => {
-                if pad {
-                    "Y"
-                } else {
-                    "H"
-                }
-            }
-            Action::Menu => "START",
-            Action::TabPrev | Action::TabNext => {
-                if pad {
-                    "LB RB"
-                } else {
-                    "Q E"
-                }
-            }
-            Action::Left | Action::Right => "< >",
-            _ => "",
+        let (pad, keyboard) = match a {
+            Action::Confirm => ("A", "ENTER"),
+            Action::Back => ("B", "ESC"),
+            Action::Edit => ("X", "X"),
+            Action::Alt => ("Y", "H"),
+            Action::Menu => ("START", "START"),
+            Action::TabPrev | Action::TabNext => ("LB RB", "Q E"),
+            Action::Left | Action::Right => ("< >", "< >"),
+            Action::Up | Action::Down => ("", ""),
+        };
+        if self.input.gamepad_last() {
+            pad
+        } else {
+            keyboard
         }
     }
 
