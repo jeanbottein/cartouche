@@ -23,17 +23,22 @@ fn entry(game: &Game) -> Option<Value> {
     Some(entry)
 }
 
+/// Write `output`, unless it already holds this list.
 pub fn write(games: &[Game], output: &Path) {
     let entries: Vec<Value> = games.iter().filter_map(entry).collect();
     if entries.is_empty() {
         info!("No games with targets to write to manifests.json");
         return;
     }
+    let text = to_pretty_json(&entries);
+    if std::fs::read_to_string(output).is_ok_and(|current| current == text) {
+        return;
+    }
     let result = output
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
         .map_or(Ok(()), std::fs::create_dir_all)
-        .and_then(|_| paths::write_atomic(output, to_pretty_json(&entries)));
+        .and_then(|_| paths::write_atomic(output, &text));
     match result {
         Ok(()) => info!(
             "Wrote manifests.json ({} games) to {}",
@@ -79,5 +84,21 @@ mod tests {
             written,
             json!([{"title": "Celeste", "target": "/g/c", "startIn": "/g", "launchOptions": "", "savePath": "/s/1", "steamgriddb_id": 9}])
         );
+    }
+
+    #[test]
+    fn an_unchanged_list_is_not_written_again() {
+        let dir = TempDir::new();
+        let game = Game {
+            resolved: Some(Resolved::default()),
+            ..Default::default()
+        };
+        let out = dir.path().join("manifests.json");
+        write(std::slice::from_ref(&game), &out);
+        let modified = || std::fs::metadata(&out).unwrap().modified().unwrap();
+        let first = modified();
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        write(&[game], &out);
+        assert_eq!(modified(), first);
     }
 }

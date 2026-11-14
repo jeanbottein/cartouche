@@ -1,16 +1,15 @@
 //! •cartridge: manage DRM-free games on Linux / Steam Deck. Opens the retro UI by
-//! default; `-t` runs the pipeline in the terminal instead.
+//! default; `--serve` runs the library without it.
 
 mod cli;
 mod core;
-mod terminal;
+mod headless;
 mod ui;
 
 use std::process::ExitCode;
 
 use cli::Mode;
-use core::pipeline::Group;
-use terminal::Copy;
+use headless::Copy;
 
 fn main() -> ExitCode {
     core::logging::init();
@@ -42,22 +41,20 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         Mode::Ui => {
-            log::info!("No display detected. Running in terminal mode.");
-            terminal::with_cartridge(dir, |cfg, _| terminal::run(cfg, Group::All))
+            eprintln!("error: no display detected; run `cartridge --serve` for a headless library");
+            ExitCode::FAILURE
         }
-        Mode::Terminal(group) => terminal::with_cartridge(dir, |cfg, _| terminal::run(cfg, group)),
-        Mode::DryRun => terminal::with_cartridge(dir, terminal::preview),
-        Mode::Pack(name) => terminal::with_cartridge(dir, |_, games| terminal::pack(games, &name)),
+        Mode::Pack(name) => headless::with_cartridge(dir, |_, games| headless::pack(games, &name)),
         Mode::Unpack(name) => {
-            terminal::with_cartridge(dir, |_, games| terminal::unpack(games, &name))
+            headless::with_cartridge(dir, |_, games| headless::unpack(games, &name))
         }
-        Mode::Serve => terminal::with_cartridge(dir, terminal::serve),
-        Mode::Peers => terminal::with_cartridge(dir, |cfg, _| terminal::peers(cfg)),
-        Mode::Download { peer, game } => terminal::with_cartridge(dir, |cfg, games| {
-            terminal::copy(cfg, games, &peer, &game, Copy::Download)
+        Mode::Serve => headless::with_cartridge(dir, headless::serve),
+        Mode::Peers => headless::with_cartridge(dir, |cfg, _| headless::peers(cfg)),
+        Mode::Download { peer, game } => headless::with_cartridge(dir, |cfg, games| {
+            headless::copy(cfg, games, &peer, &game, Copy::Download)
         }),
-        Mode::Install { peer, game } => terminal::with_cartridge(dir, |cfg, games| {
-            terminal::copy(cfg, games, &peer, &game, Copy::Install)
+        Mode::Install { peer, game } => headless::with_cartridge(dir, |cfg, games| {
+            headless::copy(cfg, games, &peer, &game, Copy::Install)
         }),
     }
 }

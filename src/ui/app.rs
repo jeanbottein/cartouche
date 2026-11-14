@@ -22,9 +22,9 @@ use super::music::{self, Music};
 use super::network::{self, Network};
 use super::settings::Settings;
 use super::setup::{self, Setup};
-use super::status::Status;
 use super::{style, wants_fullscreen, Hint, Ui};
 use crate::core::app::{exe_dir, find_system_dir};
+use crate::core::autopilot::Autopilot;
 use crate::core::config::{self, Config};
 use crate::core::logging::{self, Line};
 use crate::core::share::{self, client, server::Server};
@@ -42,6 +42,16 @@ const BADGE_TOP: f32 = 7.0;
 /// Room around a tab's name in the header.
 const TAB_PAD: f32 = 7.0;
 
+/// Settings the autopilot uses: changing one runs it again.
+const RUN_ON_CHANGE: [&str; 6] = [
+    "STEAM_USERID",
+    "STEAMGRIDDB_API_KEY",
+    "STEAMGRIDDB_NSFW",
+    "STEAMGRIDDB_HUMOR",
+    "STEAMGRIDDB_EPILEPSY",
+    "MANIFEST_EXPORT",
+];
+
 /// Holding Back this long on the Library quits the app.
 const HOLD_TO_QUIT_SECS: f64 = 1.0;
 /// Input stays suspended this long after a game exits, so the button press that
@@ -53,15 +63,13 @@ enum Tab {
     Library,
     Network,
     Mods,
-    Status,
     Settings,
 }
 
-const TABS: [(Tab, &str); 5] = [
+const TABS: [(Tab, &str); 4] = [
     (Tab::Library, "LIBRARY"),
     (Tab::Network, "NETWORK"),
     (Tab::Mods, "MODS"),
-    (Tab::Status, "STATUS"),
     (Tab::Settings, "SETTINGS"),
 ];
 
@@ -88,7 +96,8 @@ pub struct App {
     /// File transfers running in the background (unpack, pack, copies).
     jobs: Jobs,
     editor: Option<Editor>,
-    status: Status,
+    /// Keeps the library up to date (pipeline at launch and on folder changes).
+    autopilot: Option<Autopilot>,
     settings: Option<Settings>,
     logs: Receiver<Line>,
     /// The game currently running; UI input is suspended while it plays.
@@ -123,7 +132,7 @@ impl App {
             mods: ModsScreen::default(),
             jobs: Jobs::default(),
             editor: None,
-            status: Status::new(),
+            autopilot: None,
             settings: None,
             logs,
             session: None,
@@ -152,6 +161,7 @@ impl App {
         if let Some(dir) = cfg.games_dir() {
             migrations::run_all(&dir);
         }
+        self.autopilot = Some(Autopilot::start(cfg.clone()));
         self.config = Some(cfg);
         // The theme first: screens built below keep some of its colors.
         self.apply_theme();
@@ -251,7 +261,7 @@ impl App {
             .ok();
     }
 
-    /// Re-read `config.txt` (after Settings changed it or a pipeline run).
+    /// Re-read `config.txt` (after Settings changed it).
     fn reload_config(&mut self) {
         let Some(path) = self.config.as_ref().map(|c| c.path.clone()) else {
             return;
@@ -259,6 +269,9 @@ impl App {
         let cfg = Config::load(&path);
         if let Some(settings) = &mut self.settings {
             settings.refresh(&cfg);
+        }
+        if let Some(autopilot) = &self.autopilot {
+            autopilot.set_config(cfg.clone());
         }
         self.config = Some(cfg);
         self.sync_server();
@@ -291,9 +304,7 @@ impl App {
         if is_quit_requested() && self.quit_dialog.is_none() {
             self.request_quit();
         }
-        while let Ok(line) = self.logs.try_recv() {
-            self.status.push_log(line);
-        }
+        self.toast_problems();
         self.library.poll();
         self.network.poll(self.config.as_ref());
         self.mods.poll(self.config.as_ref());
@@ -301,10 +312,7 @@ impl App {
             music.update(get_frame_time(), self.session.is_some());
         }
         self.collect_jobs();
-        if self.status.poll().is_some() {
-            self.reload_config();
-            self.reload_library();
-        }
+        self.collect_runs();
 
         if let Some(ended) = self.session.take_if(|s| !s.running()) {
             if let Some(message) = ended.error() {
@@ -339,6 +347,48 @@ impl App {
             self.update_screen();
         }
         self.draw();
+    }
+
+    /// Warnings and errors logged anywhere (the details are in the terminal
+    /// or the journal).
+    fn toast_problems(&mut self) {
+        while let Ok(line) = self.logs.try_recv() {
+            let color = match line.level {
+                log::Level::Error => theme::danger(),
+                log::Level::Warn => theme::secondary(),
+                _ => continue,
+            };
+            self.library.toast.show(line.text.trim(), color);
+        }
+    }
+
+    /// Show what the autopilot's runs changed (reloading the library, covers
+    /// included, only when games changed); pause it while a game plays or the
+    /// editor is open (it must not write the game being edited).
+    fn collect_runs(&mut self) {
+        let Some(autopilot) = &self.autopilot else {
+            return;
+        };
+        autopilot.set_paused(self.session.is_some() || self.editor.is_some());
+        let runs = autopilot.finished();
+        if runs.is_empty() {
+            return;
+        }
+        self.steam_changed |= runs.iter().any(|run| run.steam_changed);
+        if runs.iter().any(|run| run.games_changed) {
+            self.reload_library();
+        }
+    }
+
+    fn updating(&self) -> bool {
+        self.autopilot.as_ref().is_some_and(Autopilot::is_running)
+    }
+
+    /// Ask for a run: a change the folder listing doesn't show.
+    fn request_run(&self) {
+        if let Some(autopilot) = &self.autopilot {
+            autopilot.request_run();
+        }
     }
 
     /// Toast finished transfers and show their result in both lists.
@@ -383,15 +433,9 @@ impl App {
             self.tab = Tab::Library;
             self.back_held_over = true; // the same press must not count toward hold-to-quit
         }
-        for (key, (tab, _)) in [
-            KeyCode::Key1,
-            KeyCode::Key2,
-            KeyCode::Key3,
-            KeyCode::Key4,
-            KeyCode::Key5,
-        ]
-        .iter()
-        .zip(TABS)
+        for (key, (tab, _)) in [KeyCode::Key1, KeyCode::Key2, KeyCode::Key3, KeyCode::Key4]
+            .iter()
+            .zip(TABS)
         {
             if is_key_pressed(*key) {
                 self.tab = tab;
@@ -465,10 +509,10 @@ impl App {
             Tab::Network => self.update_network(area),
             Tab::Mods => {
                 if let Some(cfg) = &self.config {
-                    self.mods.update(&self.ui, area, cfg);
+                    let updating = self.updating();
+                    self.mods.update(&self.ui, area, cfg, updating);
                 }
             }
-            Tab::Status => self.status.update(&self.ui, area, self.config.as_ref()),
             Tab::Settings => {
                 let (Some(settings), Some(cfg)) = (&mut self.settings, &self.config) else {
                     return;
@@ -483,6 +527,7 @@ impl App {
                     "WIDESCREEN" => self.apply_widescreen(),
                     "THEME" => self.apply_theme(),
                     "WINDOW_MODE" => self.apply_window_mode(),
+                    key if RUN_ON_CHANGE.contains(&key) => self.request_run(),
                     _ => {}
                 }
             }
@@ -496,7 +541,10 @@ impl App {
                     self.editor = None;
                     self.back_held_over = true;
                 }
-                Some(editor::Event::Saved) => self.reload_library(),
+                Some(editor::Event::Saved) => {
+                    self.reload_library();
+                    self.request_run(); // e.g. a new title for its Steam shortcut
+                }
                 Some(editor::Event::Pack) => {
                     let id = editor.folder_name().to_string();
                     self.editor = None;
@@ -516,7 +564,8 @@ impl App {
         if self.quit_progress() >= 1.0 && self.quit_dialog.is_none() {
             self.request_quit();
         }
-        let Some(event) = self.library.update(&self.ui, area, &self.jobs) else {
+        let updating = self.updating();
+        let Some(event) = self.library.update(&self.ui, area, &self.jobs, updating) else {
             return;
         };
         let games_dir = self.config.as_ref().and_then(Config::games_dir);
@@ -656,7 +705,6 @@ impl App {
                     .draw(&self.ui, area, self.config.as_ref(), &self.jobs)
             }
             (None, Tab::Mods, _) => self.mods.draw(&self.ui, area, self.config.as_ref()),
-            (None, Tab::Status, _) => self.status.draw(&self.ui, area, self.library.games.len()),
             (None, Tab::Settings, _) => {
                 if let Some(settings) = &self.settings {
                     settings.draw(&self.ui, area);
@@ -714,7 +762,7 @@ impl App {
     }
 
     /// Right side of the header: the cartridge's name, then music muted, the
-    /// pipeline run, transfers and sharing. Stops before running into the
+    /// library update, transfers and sharing. Stops before running into the
     /// tabs (which end at `tabs_end`).
     fn draw_indicators(&self, tabs_end: f32, w: f32) {
         let mut x = w - MARGIN;
@@ -738,8 +786,8 @@ impl App {
                 indicator("MUTED", theme::secondary(), false);
             }
         }
-        if self.status.is_running() {
-            indicator("RUNNING", theme::secondary(), true);
+        if self.updating() {
+            indicator("SCANNING", theme::secondary(), true);
         }
         match self.jobs.running() {
             [] => {}
@@ -792,7 +840,6 @@ impl App {
                 hints
             }
             (Tab::Mods, _) => self.mods.hints(ui),
-            (Tab::Status, _) => self.status.hints(ui),
             (Tab::Settings, _) => match &self.settings {
                 Some(settings) if settings.has_modal() => return settings.hints(ui),
                 Some(settings) => settings.hints(ui),

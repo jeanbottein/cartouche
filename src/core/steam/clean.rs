@@ -76,7 +76,7 @@ impl Kept {
     }
 }
 
-fn remove_stale(config_dir: &Path, kept: &Kept, owner_tag: &str) -> Result<(), String> {
+fn remove_stale(config_dir: &Path, kept: &Kept, owner_tag: &str) -> Result<usize, String> {
     let removed = remove_owned(config_dir, owner_tag, |exe| kept.is_stale(exe))?;
     if removed > 0 {
         info!(
@@ -84,22 +84,26 @@ fn remove_stale(config_dir: &Path, kept: &Kept, owner_tag: &str) -> Result<(), S
             user_id(config_dir)
         );
     }
-    Ok(())
+    Ok(removed)
 }
 
-/// Remove our shortcuts whose executable is no longer in the library.
-pub fn clean(games: &[Game], cfg: &Config) {
+/// Remove our shortcuts whose executable is no longer in the library;
+/// returns how many were removed.
+pub fn clean(games: &[Game], cfg: &Config) -> usize {
     let kept = Kept::of(
         games,
         &games_in_steam(cfg, games),
         cfg.games_dir().as_deref(),
     );
     let owner = Owner::of(cfg);
-    for config_dir in select_config_dirs(cfg) {
-        if let Err(e) = remove_stale(&config_dir, &kept, &owner.tag) {
-            error!("  Skipping Steam user {}: {e}", user_id(&config_dir));
-        }
-    }
+    select_config_dirs(cfg)
+        .iter()
+        .filter_map(|config_dir| {
+            remove_stale(config_dir, &kept, &owner.tag)
+                .map_err(|e| error!("  Skipping Steam user {}: {e}", user_id(config_dir)))
+                .ok()
+        })
+        .sum()
 }
 
 #[cfg(test)]

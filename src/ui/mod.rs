@@ -1,5 +1,5 @@
 //! The UI (macroquad): Library and game editor, Network (games of other
-//! machines), Mods, Status (pipeline runs) and Settings, all playable with a
+//! machines), Mods and Settings, all playable with a
 //! gamepad, keyboard or mouse, in the theme picked in Settings.
 
 mod app;
@@ -20,7 +20,6 @@ mod music;
 mod network;
 mod settings;
 mod setup;
-mod status;
 mod style;
 
 use std::path::{Path, PathBuf};

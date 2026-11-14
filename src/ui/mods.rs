@@ -1,5 +1,5 @@
 //! MODS: every mod under `mods/` with its target games and status. A turns
-//! the focused mod on (applied, kept applied by the pipeline) or off
+//! the focused mod on (applied, kept applied by the autopilot) or off
 //! (originals restored); mods that can't be used say why. Listing reads game
 //! files' checksums and toggling patches them, so both run on a thread.
 
@@ -130,7 +130,8 @@ impl ModsScreen {
         }
     }
 
-    pub fn update(&mut self, ui: &Ui, area: Rect, cfg: &Config) {
+    /// `updating`: the autopilot may be applying mods, so toggles wait.
+    pub fn update(&mut self, ui: &Ui, area: Rect, cfg: &Config, updating: bool) {
         if !self.listed {
             self.refresh(cfg);
         }
@@ -143,6 +144,9 @@ impl ModsScreen {
         }
         if ui.action(Action::Alt) {
             self.refresh(cfg);
+        } else if activated && updating {
+            self.toast
+                .show("Updating the library, one moment...", theme::secondary());
         } else if activated {
             self.toggle(cfg);
         }

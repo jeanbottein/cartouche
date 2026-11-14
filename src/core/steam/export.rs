@@ -217,8 +217,9 @@ fn with_appid(game: &Game) -> Option<(&Game, u32)> {
 }
 
 /// Pipeline step 6: create/update the shortcuts of the games the user put in
-/// Steam, then set Proton for the Windows ones.
-pub fn export(games: &[Game], cfg: &Config) {
+/// Steam, then set Proton for the Windows ones. Returns how many shortcuts
+/// were added or updated.
+pub fn export(games: &[Game], cfg: &Config) -> usize {
     let selected = games_in_steam(cfg, games);
     let with_targets = one_per_appid(
         games
@@ -229,7 +230,7 @@ pub fn export(games: &[Game], cfg: &Config) {
     );
     if with_targets.is_empty() {
         info!("No games to keep in Steam");
-        return;
+        return 0;
     }
     let (added, updated) = export_games(cfg, &select_config_dirs(cfg), &with_targets);
     if added + updated > 0 {
@@ -237,6 +238,7 @@ pub fn export(games: &[Game], cfg: &Config) {
     } else {
         info!("Steam shortcuts already up to date");
     }
+    added + updated
 }
 
 /// The other games of `library` with `game`'s AppID: a copied game folder
@@ -273,8 +275,7 @@ fn one_per_appid(games: Vec<(&Game, u32)>) -> Vec<(&Game, u32)> {
 /// Put one game in Steam now, and remember it. Its copies (same AppID) are
 /// taken out: turning one on turns the others off.
 pub fn add_game(cfg: &Config, library: &[Game], game: &Game) -> Result<(), String> {
-    let entry =
-        with_appid(game).ok_or("No executable found yet: run the pipeline from STATUS first")?;
+    let entry = with_appid(game).ok_or("No executable found yet: Edit, Auto-detect targets")?;
     let config_dirs = select_config_dirs(cfg);
     if config_dirs.is_empty() {
         return Err("Steam not found on this machine".into());

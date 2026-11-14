@@ -2,26 +2,22 @@
 
 use std::path::PathBuf;
 
-use crate::core::pipeline::Group;
-
 pub const USAGE: &str = "\
 Usage: cartridge [OPTIONS] [DIR]
 
-Manage DRM-free games: detect executables, fetch artwork, sync to Steam,
-apply patches and back up saves. Opens the UI unless told otherwise.
+Manage DRM-free games: detect executables, fetch artwork, sync to Steam and
+apply patches, by itself whenever the games folder changes. Opens the UI
+unless told otherwise.
 
 Arguments:
   [DIR]                Folder holding the system/ workspace
                        (default: next to the binary, then the current folder)
 
 Options:
-  -t, --terminal       Run the pipeline in the terminal, without the UI
-  -g, --group <NAME>   Phases to run in the terminal (implies -t):
-                       all (default), parse, steam, backup, patch
-  -n, --dry-run        Preview the Steam sync without changing Steam
+      --serve          Headless library, without the UI: keep the games up
+                       to date and share them on the LAN, logging what happens
       --pack <GAME>    Pack the game folder GAME into GAME.cartridge.tar
       --unpack <GAME>  Unpack GAME.cartridge.tar into the folder GAME
-      --serve          Share the games folder on the LAN, without the UI
       --peers          List •cartridge servers found on the LAN, with their games
       --download <PEER> <GAME>
                        Copy GAME from PEER as a package (GAME.cartridge.tar)
@@ -36,18 +32,18 @@ layout is fixed; replace a folder with a symbolic link to put it elsewhere.
 
 Files:
   DIR/system/config.txt          Settings, KEY=value. Created on first run (UI or
-                                 terminal wizard) with every key documented in
+                                 a terminal wizard) with every key documented in
                                  comments; also editable in the UI's SETTINGS tab.
   DIR/system/cartridge-id        This cartridge's identity (Steam ownership)
   DIR/system/*.png               Optional Steam art for the cartridge itself
   DIR/games/<Game>/              One folder per game
   DIR/games/<Game>/.cartridge/game.json
                                  Title, targets (os/arch/exe), savePaths, year,
-                                 players, description, size. Filled by `-g parse`.
+                                 players, description, size. Filled by itself.
   DIR/games/<Game>.cartridge.tar A packaged game: shared/copied, not playable
                                  until unpacked (--unpack or the UI).
   DIR/mods/                      Patches (folders with a patch.json)
-  DIR/saves-copies/              Save backups (`-g backup`)
+  DIR/saves-copies/              Save backups
   DIR/saves-links/               Links to live save folders (for Syncthing)
 
 Main settings:
@@ -67,18 +63,16 @@ Share games between machines:
 
 Examples:
   cartridge                      Open the UI (first run: setup)
-  cartridge -t                   Run every phase in the terminal
-  cartridge -g parse ~/Potato-games
-                                 Detect, measure and enrich that cartridge's games
-  cartridge -n                   Show what a Steam sync would change
+  cartridge --serve ~/Games      Run that cartridge without the UI (e.g. over SSH)
 
-Exit codes: 0 success, 1 failure (see the log on stderr), 2 bad arguments.";
+Logs go to stderr, or to the systemd journal when stderr is not a terminal
+(journalctl --user -t cartridge -f).
+
+Exit codes: 0 success, 1 failure (see the log), 2 bad arguments.";
 
 #[derive(Debug, PartialEq)]
 pub enum Mode {
     Ui,
-    Terminal(Group),
-    DryRun,
     Pack(String),
     Unpack(String),
     Serve,
@@ -97,8 +91,7 @@ pub struct Args {
 
 pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
     let mut args = args.into_iter();
-    let (mut terminal, mut dry_run, mut group, mut dir) = (false, false, None, None);
-    let mut command = None;
+    let (mut command, mut dir) = (None, None);
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "-h" | "--help" => {
@@ -112,16 +105,6 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
                     mode: Mode::Version,
                     dir: None,
                 })
-            }
-            "-t" | "--terminal" => terminal = true,
-            "-n" | "--dry-run" => dry_run = true,
-            "-g" | "--group" => {
-                let name = args.next().ok_or("--group needs a value")?;
-                group = Some(Group::from_name(&name).ok_or(format!("unknown group '{name}'"))?);
-            }
-            flag if flag.starts_with("--group=") => {
-                let name = &flag["--group=".len()..];
-                group = Some(Group::from_name(name).ok_or(format!("unknown group '{name}'"))?);
             }
             "--serve" => command = Some(Mode::Serve),
             "--peers" => command = Some(Mode::Peers),
@@ -150,13 +133,10 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
             extra => return Err(format!("unexpected argument '{extra}'")),
         }
     }
-    let mode = match (command, dry_run, terminal || group.is_some()) {
-        (Some(mode), _, _) => mode,
-        (None, true, _) => Mode::DryRun,
-        (None, false, true) => Mode::Terminal(group.unwrap_or(Group::All)),
-        (None, false, false) => Mode::Ui,
-    };
-    Ok(Args { mode, dir })
+    Ok(Args {
+        mode: command.unwrap_or(Mode::Ui),
+        dir,
+    })
 }
 
 #[cfg(test)]
@@ -177,20 +157,6 @@ mod tests {
             }
         );
         assert_eq!(parse_str("/ws").unwrap().dir, Some(PathBuf::from("/ws")));
-    }
-
-    #[test]
-    fn terminal_flags() {
-        assert_eq!(parse_str("-t").unwrap().mode, Mode::Terminal(Group::All));
-        assert_eq!(
-            parse_str("--group steam /ws").unwrap().mode,
-            Mode::Terminal(Group::Steam)
-        );
-        assert_eq!(
-            parse_str("--group=backup").unwrap().mode,
-            Mode::Terminal(Group::Backup)
-        );
-        assert_eq!(parse_str("-t --dry-run").unwrap().mode, Mode::DryRun);
     }
 
     #[test]
@@ -221,7 +187,7 @@ mod tests {
     #[test]
     fn rejects_bad_input() {
         assert!(parse_str("-x").is_err());
-        assert!(parse_str("-g nope").is_err());
+        assert!(parse_str("-t").is_err());
         assert!(parse_str("a b").is_err());
     }
 }

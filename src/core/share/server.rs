@@ -130,13 +130,6 @@ impl Server {
     pub fn sending(&self) -> usize {
         self.shared.sending.load(Ordering::Relaxed)
     }
-
-    /// Block until the process is killed (`--serve`).
-    pub fn wait(self) {
-        loop {
-            std::thread::park();
-        }
-    }
 }
 
 impl Drop for Server {
@@ -206,6 +199,9 @@ fn accept_loop(listener: TcpListener, shared: Arc<Shared>) {
 /// Read the request line, skip the headers (bounded), answer.
 fn handle(stream: TcpStream, shared: &Shared) -> io::Result<()> {
     stream.set_read_timeout(Some(READ_TIMEOUT))?;
+    let peer = stream
+        .peer_addr()
+        .map_or("a peer".to_string(), |a| a.ip().to_string());
     let mut reader = BufReader::new(stream.try_clone()?).take(MAX_HEAD);
     let mut request_line = String::new();
     reader.read_line(&mut request_line)?;
@@ -216,7 +212,7 @@ fn handle(stream: TcpStream, shared: &Shared) -> io::Result<()> {
     }
     let mut out = BufWriter::new(stream);
     match route(&request_line) {
-        Ok(route) => answer(route, shared, &mut out),
+        Ok(route) => answer(route, shared, &peer, &mut out),
         Err((status, message)) => send_error(&mut out, status, message),
     }?;
     out.flush()
@@ -230,7 +226,8 @@ fn find(shared: &Shared, id: &str) -> Option<Game> {
         .cloned()
 }
 
-fn answer(route: Route, shared: &Shared, out: &mut impl Write) -> io::Result<()> {
+/// `peer`: who asks, for the log.
+fn answer(route: Route, shared: &Shared, peer: &str, out: &mut impl Write) -> io::Result<()> {
     match route {
         Route::Info => send_json(out, shared.info()),
         Route::Games => {
@@ -243,6 +240,7 @@ fn answer(route: Route, shared: &Shared, out: &mut impl Write) -> io::Result<()>
         },
         Route::Package(id) => match find(shared, &id) {
             Some(game) => {
+                info!("Sending {} to {peer}", game.title);
                 shared.sending.fetch_add(1, Ordering::Relaxed);
                 let result = send_package(out, &game);
                 shared.sending.fetch_sub(1, Ordering::Relaxed);

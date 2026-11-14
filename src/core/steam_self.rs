@@ -155,14 +155,15 @@ fn register_for_user(config_dir: &Path, me: &SelfShortcut) -> Result<bool, Strin
     Ok(true)
 }
 
-/// Add/refresh the cartridge's own shortcut when `STEAM_ADD_SELF=True`.
-pub fn register(cfg: &Config) {
+/// Add/refresh the cartridge's own shortcut when `STEAM_ADD_SELF=True`;
+/// true when a shortcut changed.
+pub fn register(cfg: &Config) -> bool {
     if !cfg.is_true("STEAM_ADD_SELF") {
-        return;
+        return false;
     }
     let config_dirs = steam::select_config_dirs(cfg);
     if config_dirs.is_empty() {
-        return;
+        return false;
     }
     let owner = Owner::of(cfg);
     let exe = self_target();
@@ -173,7 +174,7 @@ pub fn register(cfg: &Config) {
             owner.label,
             exe.display()
         );
-        return;
+        return false;
     }
     let (exe, start_dir) = (paths::lossy(&exe), paths::lossy(&cfg.cartridge_dir()));
     let tag = self_tag(&owner);
@@ -196,6 +197,7 @@ pub fn register(cfg: &Config) {
     if changed == 0 {
         info!("{} shortcut already up to date", owner.label);
     }
+    changed > 0
 }
 
 /// Take the cartridge's own shortcut out of Steam (`STEAM_ADD_SELF` turned off).

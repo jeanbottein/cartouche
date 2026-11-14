@@ -169,7 +169,9 @@ impl Library {
         (self.games.len() as f32 * ROW_STEP - ROW_GAP - list.h).max(0.0)
     }
 
-    pub fn update(&mut self, ui: &Ui, area: Rect, jobs: &Jobs) -> Option<Event> {
+    /// `updating`: the autopilot is writing game.json files and Steam
+    /// shortcuts, so editing and Steam changes wait.
+    pub fn update(&mut self, ui: &Ui, area: Rect, jobs: &Jobs, updating: bool) -> Option<Event> {
         if self.games.is_empty() {
             return None;
         }
@@ -214,6 +216,11 @@ impl Library {
         let busy = jobs.for_game(&id).is_some();
         let installed = game.is_installed();
 
+        if updating && !busy && (ui.action(Action::Edit) || ui.action(Action::Alt)) {
+            self.toast
+                .show("Updating the library, one moment...", theme::secondary());
+            return None;
+        }
         if ui.action(Action::Edit) {
             return match (busy, installed) {
                 (true, _) => Some(Event::Cancel(id)),
@@ -263,7 +270,7 @@ impl Library {
             ui.text("No games found.", area.x, area.y + 30.0, theme::text());
             ui.text(
                 &ui.truncate(
-                    "Put each game in its own folder in games/, then run the pipeline in STATUS.",
+                    "Put each game in its own folder in games/: it shows up here by itself.",
                     area.w,
                 ),
                 area.x,

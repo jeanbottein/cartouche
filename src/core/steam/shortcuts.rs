@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use super::{generate_appid, shortcuts_path, signed32};
+use super::{generate_appid, signed32};
 use crate::core::app::APP_NAME;
 use crate::core::config::Config;
 use crate::core::models::Game;
@@ -152,17 +152,6 @@ pub fn make_shortcut(
     Map(entries
         .into_iter()
         .map(|(k, v)| (k.to_string(), v))
-        .collect())
-}
-
-/// Names of the shortcuts this cartridge owns for one Steam user.
-pub fn owned_shortcut_names(config_dir: &Path, owner_tag: &str) -> Result<Vec<String>, String> {
-    let shortcuts = load_shortcuts(&shortcuts_path(config_dir))?;
-    Ok(shortcuts
-        .values()
-        .filter_map(as_shortcut)
-        .filter(|s| has_ownership_tag(s, owner_tag))
-        .map(|s| appname(s).to_string())
         .collect())
 }
 

@@ -22,6 +22,7 @@ Potato-games/          # any name: the cartridge's label
 
 ## Features
 
+- **Autonomous** — no button to press: at launch, and whenever a folder or a `.cartridge.tar` lands in (or leaves) `games/`, the app processes it once the copy is done
 - **Scan** — discovers game folders and loads existing metadata
 - **Detect** — auto-detects executables when metadata is missing
 - **SteamGridDB integration, out of the box** — fetches official names and artwork from [SteamGridDB](https://www.steamgriddb.com/); release builds embed an API key, so there's nothing to set up (your own key in `config.txt` overrides it)
@@ -29,9 +30,9 @@ Potato-games/          # any name: the cartridge's label
 - **Proton support** — plays Windows games on Linux with Steam's own Proton, in the same prefix as their Steam shortcut
 - **Steam ROM Manager integration** — generates `manifests.json` for [Steam ROM Manager](https://github.com/SteamGridDB/steam-rom-manager)
 - **Patch** — applies BPS patches or file replacements via `patch.json`
-- **Save backup** — backs up (or restores) save files, with multiple save paths per game, plus a symlink tree for Syncthing
-- **LAN sharing** — packs games into `.cartridge.tar` and copies them between cartridges on the local network
-- **Retro UI** — browse and launch games, edit every game (targets, save paths, artwork), run the pipeline with live logs, and change every setting — with a gamepad (on-screen keyboard included), keyboard or mouse
+- **Save backup** — being reworked: not run for now
+- **LAN sharing** — packs games into `.cartridge.tar` and copies them between cartridges on the local network; `--serve` runs a headless library machine
+- **Retro UI** — browse and launch games, edit every game (targets, save paths, artwork), and change every setting — with a gamepad (on-screen keyboard included), keyboard or mouse
 
 Metadata and artwork are stored in a `.cartridge/` subfolder inside each game's directory — no central database, no magic, just files.
 
@@ -75,7 +76,7 @@ On Linux, Windows games start from the app with the Proton builds Steam installe
    - **Linux / Steam Deck:** make the AppImage executable (`chmod +x Cartridge.AppImage`), and don't let an AppImage manager (Gear Lever, AppImageLauncher) move it out of the folder.
    - **macOS:** the app isn't notarized. Right-click `Cartridge.app` > Open; if it says it runs from a temporary copy, run `xattr -dr com.apple.quarantine /path/to/Cartridge` once.
    - **Windows:** on the SmartScreen warning, More info > Run anyway.
-4. Drop your games into `games/`, adjust the settings (in the UI, or in `system/config.txt`), then run the pipeline from the **Status** tab.
+4. Drop your games into `games/` (each in its own folder): they show up in the Library by themselves. Adjust the settings in the UI, or in `system/config.txt`.
 
 Prefer the bare binary? Build it (see below) and run it in its own folder: on first launch it creates the same layout next to itself.
 
@@ -84,13 +85,10 @@ Usage: cartridge [OPTIONS] [DIR]
 
   [DIR]                Folder holding the system/ workspace
                        (default: next to the binary, then the current folder)
-  -t, --terminal       Run the pipeline in the terminal, without the UI
-  -g, --group <NAME>   Phases to run in the terminal (implies -t):
-                       all (default), parse, steam, backup, patch
-  -n, --dry-run        Preview the Steam sync without changing Steam
+      --serve          Headless library, without the UI: keep the games up
+                       to date and share them on the LAN, logging what happens
       --pack <GAME>    Pack the game folder GAME into GAME.cartridge.tar
       --unpack <GAME>  Unpack GAME.cartridge.tar into the folder GAME
-      --serve          Share the games folder on the LAN, without the UI
       --peers          List •cartridge servers found on the LAN, with their games
       --download <PEER> <GAME>
                        Copy GAME from PEER as a package (GAME.cartridge.tar)
@@ -101,7 +99,7 @@ Usage: cartridge [OPTIONS] [DIR]
   -V, --version        Print the version
 ```
 
-Without a display (e.g. over SSH) the UI isn't available, so •cartridge runs the full pipeline in the terminal instead. Set `CARTRIDGE_DEBUG=1` for verbose logs.
+Without a display (e.g. over SSH), run `cartridge --serve`. Logs go to the terminal, or to the systemd journal when there is none (Steam Game Mode): `journalctl --user -t cartridge -f`. Set `CARTRIDGE_DEBUG=1` for verbose logs.
 
 ### Controls
 
@@ -113,7 +111,7 @@ Without a display (e.g. over SSH) the UI isn't available, so •cartridge runs t
 | Back (other tabs: to Library; Library: **hold 1 s to quit**) | Esc / Backspace | B | — |
 | Library: add to / remove from Steam; Network, Mods: refresh | H | Y | — |
 | Mute / unmute the background music | M | Select | — |
-| Switch tab | Q / E or 1 to 5 | LB / RB | — |
+| Switch tab | Q / E or 1 to 4 | LB / RB | — |
 | Fullscreen | F | — | — |
 
 In text fields, the physical keyboard types directly; on a gamepad use the on-screen keyboard (A types, B deletes, X space, Y shift, Start accepts).
@@ -127,7 +125,7 @@ In text fields, the physical keyboard types directly; on a gamepad use the on-sc
 ```bash
 ./container.sh                  # cargo build --release -> target/release/cartridge
 ./container.sh test             # any cargo command
-./container.sh run -- -t        # (terminal mode only: the container has no display)
+./container.sh run -- --serve   # (headless only: the container has no display)
 ```
 
 The toolchain and build libraries live in the image (`Containerfile`, Debian 12, so the binary runs on SteamOS and other distros); the cargo cache stays in `target/`. Remove everything with `rm -rf target && podman rmi cartridge-build`.
@@ -136,7 +134,7 @@ The toolchain and build libraries live in the image (`Containerfile`, Debian 12,
 
 ```bash
 cargo run                       # UI
-cargo run -- -t                 # terminal mode
+cargo run -- --serve            # headless library
 cargo test
 ./release.sh                    # dist/cartridge-<os>-<arch>
 ```

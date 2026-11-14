@@ -2,6 +2,7 @@
 //! with a JSON cache in `system/steamgriddb_cache.json` to spare API calls.
 
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use log::{debug, info, warn};
@@ -14,6 +15,10 @@ use super::paths;
 
 const API: &str = "https://www.steamgriddb.com/api/v2";
 const CACHE_FILE: &str = "steamgriddb_cache.json";
+
+/// SteamGridDB didn't answer once: enrichment stops asking until the next
+/// launch, instead of waiting for a timeout per game on every run (offline).
+static UNREACHABLE: AtomicBool = AtomicBool::new(false);
 
 include!(concat!(env!("OUT_DIR"), "/api_key.rs"));
 
@@ -351,7 +356,9 @@ pub fn lookup(
         .get(&cache_key)
         .is_none_or(|entry| contradicts(entry, known_id));
     if stale {
-        let fetched = fetch_entry(name, known_id, key, cfg).ok()?;
+        let fetched = fetch_entry(name, known_id, key, cfg)
+            .map_err(|_| UNREACHABLE.store(true, Ordering::Relaxed))
+            .ok()?;
         cache.insert(cache_key.clone(), fetched);
     }
     let entry = cache.get_mut(&cache_key)?;
@@ -410,12 +417,16 @@ pub fn enrich(games: &mut [Game], cfg: &Config) {
     let snapshot = cache.clone();
 
     let todo: Vec<&mut Game> = games.iter_mut().filter(|g| wants_enrichment(g)).collect();
-    if todo.is_empty() {
+    if todo.is_empty() || UNREACHABLE.load(Ordering::Relaxed) {
         return;
     }
     info!("Enriching {} game(s) from SteamGridDB", todo.len());
 
     for game in todo {
+        if UNREACHABLE.load(Ordering::Relaxed) {
+            warn!("SteamGridDB unreachable: trying again at the next launch");
+            break;
+        }
         let Some(found) = lookup(&game.title, game.steamgriddb_id, &key, &mut cache, cfg) else {
             info!("  Not found: {}", game.title);
             continue;

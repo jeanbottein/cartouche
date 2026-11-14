@@ -2,12 +2,13 @@
 
 ## Project Overview
 
-•cartridge (French for "cartridge") is a Rust app for managing DRM-free games on Linux (primarily Steam Deck). One binary: a themed macroquad UI by default, terminal mode with `-t`. The backend is a pipeline of phases over an in-memory game list.
+•cartridge (French for "cartridge") is a Rust app for managing DRM-free games on Linux (primarily Steam Deck). One binary: a themed macroquad UI by default, a headless library with `--serve`. The backend is a pipeline of phases over an in-memory game list, run by the autopilot at launch and whenever `games/` changes (no manual run).
 
 ## Pipeline
 
 ```
-core::pipeline::Pipeline (groups: all / parse / steam / backup / patch)
+core::autopilot (worker thread: run at launch, then each settled change of games/)
+core::pipeline::Pipeline (one fixed sequence; each phase only does what is missing)
  0. migrations::run_all      # Idempotent data migrations
  1. scanner::scan            # Parse .cartridge/game.json into Vec<Game>
  2. detector::detect         # Fill missing targets (exe detection), restore lost exec bits
@@ -19,7 +20,7 @@ core::pipeline::Pipeline (groups: all / parse / steam / backup / patch)
     steam_self::register     #   + •cartridge itself (STEAM_ADD_SELF)
  7. manifest::write          # manifests.json (MANIFEST_EXPORT)
  8. mods::run                # Keep the mods the user turned on applied (system/mods.json)
- 9. saver::run               # Backup/restore saves, symlink tree
+ (saver.rs: backup/restore saves, symlink tree. Not run until the backup rework)
 ```
 
 Migrations: `launch_manifest.json` → `.cartridge/game.json`, nested → flat `savePaths`, arch `x86_64` → `x64`. Add new ones to `migrations::run_all`; keep them idempotent.
@@ -28,8 +29,8 @@ Migrations: `launch_manifest.json` → `.cartridge/game.json`, nested → flat `
 
 ```
 src/
-  main.rs, cli.rs        # Args: UI (default), -t/--terminal, -g/--group, -n/--dry-run, --pack/--unpack, --serve, --peers, --download/--install
-  terminal.rs            # Terminal mode + Steam dry-run preview
+  main.rs, cli.rs        # Args: UI (default), --serve, --pack/--unpack, --peers, --download/--install
+  headless.rs            # --serve (autopilot + LAN server) and the one-shot commands
   core/                  # Backend, no UI code
     app.rs               # App identity, fixed folder names, cartridge id, system/ lookup
     config.rs            # config.txt parse / relative path resolution / in-place updates
@@ -44,9 +45,10 @@ src/
     proton.rs            # Windows games with Steam's Proton + runtime, in the shortcut's compatdata prefix; winetricks
     patcher.rs mods.rs   # mod file engine (state/apply/restore) + mod model (list, on/off)
     pipeline.rs init.rs logging.rs
+    autopilot.rs         # Worker + Watcher: lists games/ every 2 s (served from the kernel cache), waits for new entries to stop changing
   ui/                    # macroquad UI
-    app.rs               # Shell: tabs, footer hints, game session lock, log sink
-    library.rs editor.rs status.rs settings.rs setup.rs
+    app.rs               # Shell: tabs, footer hints, game session lock, autopilot (paused while a game runs or the editor is open), warning toasts
+    library.rs editor.rs settings.rs setup.rs
     form.rs list.rs keyboard.rs browser.rs dialog.rs   # widgets
     network.rs jobs.rs info.rs   # Network tab, background transfers, shared info panel
     mods.rs              # MODS tab: mods with status, A turns one on/off
@@ -81,7 +83,7 @@ Packages: a plain tar of `Foo/` with `.cartridge/package.json` first and `.cartr
 - **Windows games:** the UI runs them itself with Steam's Proton (`core::proton`), the way Steam runs the shortcut (runtime `_v2-entry-point` → `proton waitforexitandrun`, `STEAM_COMPAT_DATA_PATH=compatdata/<shortcut appid>`), so prefix and saves are shared with the Steam shortcut. Per-game settings: `"proton": {version, winetricks, env}` in game.json. Build: game.json `version` → the shortcut's own `CompatToolMapping` entry → Steam's default (`0`) → newest Proton (`proton::Installed::tool_for`), so Steam and cartridge share the prefix's build. A non-empty `env` (plain names only: Steam runs LaunchOptions in a shell) owns the shortcut's LaunchOptions; otherwise options set in Steam are kept. `version` pins the shortcut's compat tool only when installed. winetricks downloads: `W_CACHE` is `system/winetricks` with `PROTON_KEEP_DOWNLOADS`, else the user cache with links to what `system/winetricks` holds.
 - Flags: `is_true` for opt-in keys (STEAM_ADD_SELF, SHARE_ENABLED, ...), `is_not_false` for opt-out keys (MANIFEST_EXPORT, MUSIC_ENABLED).
 - **Steam, per game:** the user adds/removes each game (Library, Y), remembered in `system/steam.json`; the pipeline keeps exactly those shortcuts current. Ownership tag `cartridge:<id>` (`system/cartridge-id`) plus the folder-name label as a visible tag; the self-shortcut (`STEAM_ADD_SELF`, first SETTINGS option) uses `<owner tag>-self` and is applied as soon as it's toggled. Steam reads shortcuts at startup: the UI says "restart Steam" when it runs.
-- **Logging:** `log` macros; `core::logging` prints to stderr and mirrors to the UI Status log.
+- **Logging:** `log` macros; `core::logging` prints to stderr, or to the systemd journal (`journalctl --user -t cartridge`) when stderr is no terminal; the UI toasts warnings and errors. No log file.
 - **Minimal dependencies:** macroquad, gilrs (feature `gamepad`), rodio (feature `music`, ALSA at build time), serde/serde_json, image, ureq, crc32fast, tar, log.
 
 ## Dev Workflow
@@ -111,8 +113,7 @@ With a native toolchain instead:
 
 ```bash
 cargo run                              # UI
-cargo run -- -t                        # full pipeline in the terminal
-cargo run -- -n                        # Steam dry-run preview
+cargo run -- --serve                   # headless library (autopilot + sharing), logs in the terminal
 cargo test && cargo clippy --all-targets
 cargo build --no-default-features      # without libudev/ALSA (no gamepad, no music)
 ```

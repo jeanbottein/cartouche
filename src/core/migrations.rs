@@ -246,6 +246,7 @@ pub fn run_all(games_dir: &Path) -> Vec<(&'static str, usize)> {
     ];
     results
         .iter()
+        .filter(|(_, count)| *count > 0)
         .for_each(|(name, count)| info!("Migration '{name}': {count} item(s)"));
     results
 }
