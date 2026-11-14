@@ -1,12 +1,22 @@
 # •cartridge
 
-> *Say "dot cartridge". Because nothing beats the nostalgia of blowing into a plastic slot and praying your game boots.*
+> *Say "dot cartridge".*
 
-A no-nonsense tool for managing DRM-free games, patches, and save backups on Linux (and especially Steam Deck). One self-contained binary: a retro, controller-friendly UI by default, or a plain terminal run with `-t`.
+One self-contained, controller-friendly binary to carry DRM-free portable games, patches and save backups around. Steam / SteamOS friendly.
 
 ---
 
-Every game carries a `.cartridge/` folder with its metadata and artwork, and a folder holding the app, its `system/` settings and your games *is* a cartridge: portable, easy to back up, and named however you like. Call the folder `Potato-games` and that's its label, in the app and in Steam. It already survived being called *gamer-sidekick* and *cartouche*.
+Every game carries a `.cartridge/` folder with its metadata and artwork, and a folder holding the app, its `system/` settings and your games *is* a cartridge: portable, easy to back up, and named however you like. Call the folder `Potato-games` and that's its label, in the app and in Steam. The app can be renamed too; only the folders inside the cartridge keep fixed names:
+
+```text
+Potato-games/          # any name: the cartridge's label
+├── cartridge          # the app (any name)
+├── games/
+├── mods/
+├── saves-copies/
+├── saves-links/
+└── system/            # settings (config.txt), caches
+```
 
 ---
 
@@ -14,13 +24,13 @@ Every game carries a `.cartridge/` folder with its metadata and artwork, and a f
 
 - **Scan** — discovers game folders and loads existing metadata
 - **Detect** — auto-detects executables when metadata is missing
-- **Enrich** — fetches official names and artwork from [SteamGridDB](https://www.steamgriddb.com/)
-- **Steam sync** — adds games to Steam as non-Steam shortcuts, complete with artwork, and sets Proton for Windows games
-- **Windows games** — play them from the app with Steam's own Proton, in the same prefix as their Steam shortcut; each game can name its Proton version, winetricks packages and environment in `game.json`
-- **Self shortcut** — `STEAM_ADD_SELF=True` adds the cartridge itself to Steam under its label, with retro artwork (or yours: drop `cover.png`, `hero.png`, ... into `system/`)
+- **SteamGridDB integration, out of the box** — fetches official names and artwork from [SteamGridDB](https://www.steamgriddb.com/); release builds embed an API key, so there's nothing to set up (your own key in `config.txt` overrides it)
+- **Steam shortcuts** — adds games, or the cartridge itself, to Steam as non-Steam shortcuts, complete with artwork, and sets Proton for Windows games
+- **Proton support** — plays Windows games on Linux with Steam's own Proton, in the same prefix as their Steam shortcut
+- **Steam ROM Manager integration** — generates `manifests.json` for [Steam ROM Manager](https://github.com/SteamGridDB/steam-rom-manager)
 - **Patch** — applies BPS patches or file replacements via `patch.json`
 - **Save backup** — backs up (or restores) save files, with multiple save paths per game, plus a symlink tree for Syncthing
-- **Manifest export** — generates `manifests.json` for [Steam ROM Manager](https://github.com/SteamGridDB/steam-rom-manager)
+- **LAN sharing** — packs games into `.cartridge.tar` and copies them between cartridges on the local network
 - **Retro UI** — browse and launch games, edit every game (targets, save paths, artwork), run the pipeline with live logs, and change every setting — with a gamepad (on-screen keyboard included), keyboard or mouse
 
 Metadata and artwork are stored in a `.cartridge/` subfolder inside each game's directory — no central database, no magic, just files.
@@ -59,9 +69,15 @@ On Linux, Windows games start from the app with the Proton builds Steam installe
 
 ## Getting started
 
-1. Download the binary for your platform from the releases (or build it, see below).
-2. Run it. On first launch it creates the cartridge next to the app: `system/` (settings in `config.txt`), `games/`, `mods/`, `saves-copies/` and `saves-links/`. The layout is fixed; to put a folder elsewhere, replace it with a symbolic link. •cartridge is portable: keep it in its own folder, so the whole cartridge moves and backs up as one piece.
-3. Fill in the settings (in the UI, or by editing `system/config.txt`), then run the pipeline from the **Status** tab.
+1. Download the archive for your platform from the [releases](https://github.com/jeanbottein/cartouche/releases): `cartridge-linux-x86_64.tar.gz` (Steam Deck, desktop Linux), `cartridge-linux-aarch64.tar.gz`, `cartridge-macos-arm64.zip` or `cartridge-windows-x86_64.zip`.
+2. Extract it where you want your cartridge. You get a ready-made `Cartridge/` folder (rename it: that's its label) holding the app (`Cartridge.AppImage`, `Cartridge.app` or `cartridge.exe`), an empty `system/`, `games/`, `mods/`, `saves-copies/` and `saves-links/`. Keep the app inside that folder: it looks for `system/` right next to itself. To put a folder elsewhere, replace it with a symbolic link.
+3. Launch the app (first launch creates `system/config.txt`). If it won't start:
+   - **Linux / Steam Deck:** make the AppImage executable (`chmod +x Cartridge.AppImage`), and don't let an AppImage manager (Gear Lever, AppImageLauncher) move it out of the folder.
+   - **macOS:** the app isn't notarized. Right-click `Cartridge.app` > Open; if it says it runs from a temporary copy, run `xattr -dr com.apple.quarantine /path/to/Cartridge` once.
+   - **Windows:** on the SmartScreen warning, More info > Run anyway.
+4. Drop your games into `games/`, adjust the settings (in the UI, or in `system/config.txt`), then run the pipeline from the **Status** tab.
+
+Prefer the bare binary? Build it (see below) and run it in its own folder: on first launch it creates the same layout next to itself.
 
 ```text
 Usage: cartridge [OPTIONS] [DIR]
