@@ -21,7 +21,6 @@ Every game carries a `.cartridge/` folder with its metadata and artwork, and a f
 - **Patch** — applies BPS patches or file replacements via `patch.json`
 - **Save backup** — backs up (or restores) save files, with multiple save paths per game, plus a symlink tree for Syncthing
 - **Manifest export** — generates `manifests.json` for [Steam ROM Manager](https://github.com/SteamGridDB/steam-rom-manager)
-- **Post-run commands** — `RUN_AFTER_<name>=<command>` entries run after everything else
 - **Retro UI** — browse and launch games, edit every game (targets, save paths, artwork), run the pipeline with live logs, and change every setting — with a gamepad (on-screen keyboard included), keyboard or mouse
 
 Metadata and artwork are stored in a `.cartridge/` subfolder inside each game's directory — no central database, no magic, just files.

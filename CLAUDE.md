@@ -20,7 +20,6 @@ core::pipeline::Pipeline (groups: all / parse / steam / backup / patch)
  7. manifest::write          # manifests.json (MANIFEST_EXPORT)
  8. mods::run                # Keep the mods the user turned on applied (system/mods.json)
  9. saver::run               # Backup/restore saves, symlink tree
-10. commands::run            # RUN_AFTER_* shell commands
 ```
 
 Migrations: `launch_manifest.json` → `.cartridge/game.json`, nested → flat `savePaths`, arch `x86_64` → `x64`. Add new ones to `migrations::run_all`; keep them idempotent.
@@ -41,7 +40,7 @@ src/
     share/               # LAN sharing: server.rs (HTTP, GET only), discovery.rs (UDP broadcast), client.rs
     vdf.rs               # Binary (shortcuts.vdf) + text (config.vdf) KeyValues
     steam/               # users, selection (steam.json), host (detect/restart), shortcuts (vdf), clean, export, compat (Proton builds)
-    steam_self.rs manifest.rs bps.rs saver.rs commands.rs
+    steam_self.rs manifest.rs bps.rs saver.rs
     proton.rs            # Windows games with Steam's Proton + runtime, in the shortcut's compatdata prefix; winetricks
     patcher.rs mods.rs   # mod file engine (state/apply/restore) + mod model (list, on/off)
     pipeline.rs init.rs logging.rs
@@ -76,7 +75,7 @@ Packages: a plain tar of `Foo/` with `.cartridge/package.json` first and `.cartr
 ## Key Conventions
 
 - **Compatibility is the contract:** game.json (4-space JSON), shortcuts.vdf, AppIDs (`crc32(exe+title) | 0x80000000`, computed once and kept in game.json `steam_appid` so a rename keeps the shortcut, Proton prefix and saves: always go through `steam::appid_for`/`appid_of`), path normalization and save layout must stay byte-compatible with existing cartridges. Golden tests in `testdata/` guard this.
-- **Fixed layout, no path settings:** `games/`, `mods/`, `saves-copies/`, `saves-links/` sit next to `system/` (`core::app::FOLDERS`, `Config::games_dir()`/`mods_dir()`/...). Users who want a folder elsewhere replace it with a symlink. `RUN_AFTER_*` commands still get `${FREEGAMES_PATH}`, `${PATCHES_PATH}`, `${SAVESCOPY_PATH}`, `${SAVESLINK_PATH}` as read-only folder variables.
+- **Fixed layout, no path settings:** `games/`, `mods/`, `saves-copies/`, `saves-links/` sit next to `system/` (`core::app::FOLDERS`, `Config::games_dir()`/`mods_dir()`/...). Users who want a folder elsewhere replace it with a symlink.
 - **`Config`** keeps raw values (Settings editor) and resolved values (only `BACKUP_*` sources are paths, resolved against the cartridge folder).
 - **UI look:** layout is in design pixels (432 px tall canvas), rendered at the window's native resolution, so 480p and 4K share one layout. Screens draw through `ui::style` and `theme::*()` colors, never raw colors; `THEME` (Settings > DISPLAY) swaps palette, typeface and corners, never positions. Add a theme to `engine::theme::THEMES`. `WINDOW_MODE`: borderless (fullscreen, default) or a resizable window; gamescope is always fullscreen.
 - **Windows games:** the UI runs them itself with Steam's Proton (`core::proton`), the way Steam runs the shortcut (runtime `_v2-entry-point` → `proton waitforexitandrun`, `STEAM_COMPAT_DATA_PATH=compatdata/<shortcut appid>`), so prefix and saves are shared with the Steam shortcut. Per-game settings: `"proton": {version, winetricks, env}` in game.json. Build: game.json `version` → the shortcut's own `CompatToolMapping` entry → Steam's default (`0`) → newest Proton (`proton::Installed::tool_for`), so Steam and cartridge share the prefix's build. A non-empty `env` (plain names only: Steam runs LaunchOptions in a shell) owns the shortcut's LaunchOptions; otherwise options set in Steam are kept. `version` pins the shortcut's compat tool only when installed. winetricks downloads: `W_CACHE` is `system/winetricks` with `PROTON_KEEP_DOWNLOADS`, else the user cache with links to what `system/winetricks` holds.

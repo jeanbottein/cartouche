@@ -3,7 +3,6 @@
 
 pub mod app;
 pub mod bps;
-pub mod commands;
 pub mod config;
 pub mod detector;
 pub mod init;

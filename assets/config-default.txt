@@ -97,24 +97,7 @@
 
 
 # ==========================================
-# 4. CUSTOM TASKS
-# ==========================================
-
-# Post-run commands (optional)
-# Format: RUN_AFTER_<number>=<command>
-# Commands are executed in alphabetical order by name after all modules finish.
-# Variables from this config can be used with ${VARIABLE_NAME}, plus the folders:
-# ${FREEGAMES_PATH} (games/), ${PATCHES_PATH} (mods/), ${SAVESCOPY_PATH}
-# (saves-copies/), ${SAVESLINK_PATH} (saves-links/), ${_CONFIG_PATH}, ${_SCRIPT_DIR}
-# Example: RUN_AFTER_01=echo "Syncing ${SAVESLINK_PATH}"
-#
-# Example: Sync the symlink folder to a Google Drive remote named "gdrive"
-# Note: The -L flag is required for rclone to follow the symlinks and copy the actual save files.
-#RUN_AFTER_02=rclone sync -L "${SAVESLINK_PATH}" gdrive:cartridge-saves
-
-
-# ==========================================
-# 5. SHARING ON THE LAN
+# 4. SHARING ON THE LAN
 # ==========================================
 
 # Let other •cartridge machines on the network see and copy your games (optional).
@@ -131,7 +114,7 @@
 
 
 # ==========================================
-# 6. DEBUG
+# 5. DEBUG
 # ==========================================
 
 # Interface only: hide the Steam buttons and dim the Steam settings, as on a

@@ -11,8 +11,7 @@ use log::info;
 use super::config::Config;
 use super::models::Game;
 use super::{
-    commands, detector, manifest, migrations, mods, persister, saver, scanner, sgdb, sizer, steam,
-    steam_self,
+    detector, manifest, migrations, mods, persister, saver, scanner, sgdb, sizer, steam, steam_self,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -28,11 +27,10 @@ pub enum Phase {
     Manifest,
     Patch,
     Save,
-    PostCommands,
 }
 
 impl Phase {
-    pub const ALL: [Phase; 12] = [
+    pub const ALL: [Phase; 11] = [
         Phase::Migrate,
         Phase::Scan,
         Phase::Detect,
@@ -44,7 +42,6 @@ impl Phase {
         Phase::Manifest,
         Phase::Patch,
         Phase::Save,
-        Phase::PostCommands,
     ];
 
     pub fn label(self) -> &'static str {
@@ -60,7 +57,6 @@ impl Phase {
             Phase::Manifest => "Manifest",
             Phase::Patch => "Patcher",
             Phase::Save => "Saver",
-            Phase::PostCommands => "Post commands",
         }
     }
 }
@@ -162,7 +158,6 @@ impl<'a> Pipeline<'a> {
             }
             (Phase::Patch, _) => mods::run(cfg),
             (Phase::Save, Some(games)) => saver::run(games, cfg),
-            (Phase::PostCommands, _) => commands::run(cfg),
             _ => {}
         }
     }
@@ -194,7 +189,7 @@ mod tests {
     fn groups_parse_by_name() {
         assert_eq!(Group::from_name("Steam"), Some(Group::Steam));
         assert_eq!(Group::from_name("nope"), None);
-        assert_eq!(Group::All.phases().len(), 12);
+        assert_eq!(Group::All.phases().len(), 11);
     }
 
     #[test]
