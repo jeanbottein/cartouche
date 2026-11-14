@@ -12,9 +12,24 @@
 //! shows after Steam restarts (see `is_running`).
 
 use std::path::Path;
+use std::sync::{Mutex, MutexGuard, TryLockError};
 
 use super::models::Game;
 use super::paths;
+
+static FILES: Mutex<()> = Mutex::new(());
+
+/// Held while reading and rewriting Steam's files (shortcuts, config.vdf,
+/// steam.json): the autopilot and the UI (Library, Y; Settings) may both
+/// write them, and each rewrite starts from what the other wrote.
+pub fn files_lock() -> MutexGuard<'static, ()> {
+    FILES.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Someone is writing Steam's files right now (the UI asks before waiting).
+pub fn files_busy() -> bool {
+    matches!(FILES.try_lock(), Err(TryLockError::WouldBlock))
+}
 
 pub const PROTON_PREFIX: &str = "~/.local/share/Steam/steamapps/compatdata/{appid}/pfx/drive_c";
 

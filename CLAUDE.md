@@ -8,7 +8,8 @@
 
 ```
 core::autopilot (worker thread: run at launch, then each settled change of games/)
-core::pipeline::Pipeline (one fixed sequence; each phase only does what is missing)
+core::pipeline::Pipeline (one fixed sequence; each phase only does what is missing;
+                          steps 2-4 run per batch of 10 games, each batch written before the next)
  0. migrations::run_all      # Idempotent data migrations
  1. scanner::scan            # Parse .cartridge/game.json into Vec<Game>
  2. detector::detect         # Fill missing targets (exe detection), restore lost exec bits
@@ -83,6 +84,7 @@ Packages: a plain tar of `Foo/` with `.cartridge/package.json` first and `.cartr
 - **Windows games:** the UI runs them itself with Steam's Proton (`core::proton`), the way Steam runs the shortcut (runtime `_v2-entry-point` → `proton waitforexitandrun`, `STEAM_COMPAT_DATA_PATH=compatdata/<shortcut appid>`), so prefix and saves are shared with the Steam shortcut. Per-game settings: `"proton": {version, winetricks, env}` in game.json. Build: game.json `version` → the shortcut's own `CompatToolMapping` entry → Steam's default (`0`) → newest Proton (`proton::Installed::tool_for`), so Steam and cartridge share the prefix's build. A non-empty `env` (plain names only: Steam runs LaunchOptions in a shell) owns the shortcut's LaunchOptions; otherwise options set in Steam are kept. `version` pins the shortcut's compat tool only when installed. winetricks downloads: `W_CACHE` is `system/winetricks` with `PROTON_KEEP_DOWNLOADS`, else the user cache with links to what `system/winetricks` holds.
 - Flags: `is_true` for opt-in keys (STEAM_ADD_SELF, SHARE_ENABLED, ...), `is_not_false` for opt-out keys (MANIFEST_EXPORT, MUSIC_ENABLED).
 - **Steam, per game:** the user adds/removes each game (Library, Y), remembered in `system/steam.json`; the pipeline keeps exactly those shortcuts current. Ownership tag `cartridge:<id>` (`system/cartridge-id`) plus the folder-name label as a visible tag; the self-shortcut (`STEAM_ADD_SELF`, first SETTINGS option) uses `<owner tag>-self` and is applied as soon as it's toggled. Steam reads shortcuts at startup: the UI says "restart Steam" when it runs.
+- **Shared files:** the autopilot runs while the UI stays usable, so every writer of Steam's files takes `steam::files_lock()` and every mod apply/restore takes the lock in `mods`. Opening the editor pauses the autopilot.
 - **Logging:** `log` macros; `core::logging` prints to stderr, or to the systemd journal (`journalctl --user -t cartridge`) when stderr is no terminal; the UI toasts warnings and errors. No log file.
 - **Minimal dependencies:** macroquad, gilrs (feature `gamepad`), rodio (feature `music`, ALSA at build time), serde/serde_json, image, ureq, crc32fast, tar, log.
 

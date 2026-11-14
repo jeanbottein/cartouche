@@ -20,9 +20,9 @@ START
   soon as a copy is done. Press Y on a game in the LIBRARY to add it to Steam.
 
 STEAM ARTWORK FOR THE CARTRIDGE
-  With "Add •cartridge to Steam" on, the cartridge appears in Steam under its
-  label. Drop cover.png, wide.png, hero.png, logo.png or icon.png into
-  system/ to use your own images; the next launch installs them.
+  With "Add <folder name> to Steam" on (SETTINGS), the cartridge appears in
+  Steam under its label. Drop cover.png, wide.png, hero.png, logo.png or
+  icon.png into system/ to use your own images; the next launch installs them.
 
 KEEP IT TOGETHER
   The app looks for system/ right next to itself. Keep them in the same

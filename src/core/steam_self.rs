@@ -161,6 +161,7 @@ pub fn register(cfg: &Config) -> bool {
     if !cfg.is_true("STEAM_ADD_SELF") {
         return false;
     }
+    let _files = steam::files_lock();
     let config_dirs = steam::select_config_dirs(cfg);
     if config_dirs.is_empty() {
         return false;
@@ -202,6 +203,7 @@ pub fn register(cfg: &Config) -> bool {
 
 /// Take the cartridge's own shortcut out of Steam (`STEAM_ADD_SELF` turned off).
 pub fn unregister(cfg: &Config) {
+    let _files = steam::files_lock();
     let tag = self_tag(&Owner::of(cfg));
     for dir in steam::select_config_dirs(cfg) {
         let path = steam::shortcuts_path(&dir);

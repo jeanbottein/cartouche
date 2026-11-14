@@ -51,7 +51,7 @@ const fn s(key: &'static str, label: &'static str, kind: Kind, help: &'static st
 
 const SCHEMA: [(&str, &[Setting]); 5] = [
     ("GENERAL", &[
-        s(SELF_SHORTCUT, "in Steam", Kind::Flag(false), "Add this cartridge to Steam under its folder name, with retro artwork (or your cover.png, hero.png... in system/). Applied right away."),
+        s(SELF_SHORTCUT, "Add {} to Steam", Kind::Flag(false), "Add this cartridge to Steam under its folder name, with retro artwork (or your cover.png, hero.png... in system/). Applied right away."),
         s("SAVESCOPY_STRATEGY", "Save strategy", Kind::Choice(STRATEGIES), "backup: copy saves into saves-copies/. restore: copy them back over the saves, every run (careful!)."),
         s("MUSIC_ENABLED", "Background music", Kind::Flag(true), "Shuffle the audio files in system/ (mp3, flac, ogg, wav, m4a); fades out while a game runs. SELECT (M) turns it on and off anywhere."),
         s("MUSIC_VOLUME", "Music volume", Kind::Percent(50), "How loud the background music plays. Applied right away."),
@@ -103,7 +103,7 @@ fn fields(cfg: &Config) -> Vec<Field> {
             let fields = settings.iter().map(|s| {
                 let v = value(s.key);
                 let label = if s.key == SELF_SHORTCUT {
-                    format!("{} {}", cfg.label(), s.label)
+                    s.label.replace("{}", &cfg.label())
                 } else {
                     s.label.to_string()
                 };

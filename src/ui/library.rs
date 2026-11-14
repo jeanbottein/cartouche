@@ -4,6 +4,7 @@
 //! background and are drawn over the presented canvas, at the window's resolution.
 
 use std::collections::BTreeSet;
+use std::path::PathBuf;
 use std::sync::mpsc::{channel, Receiver};
 
 use macroquad::prelude::*;
@@ -49,7 +50,10 @@ pub struct Library {
     steam_detected: bool,
     /// Where winetricks downloads go, for Windows games.
     downloads: Downloads,
+    /// Textures of the covers around the cursor (`covers::cover_window`).
     covers: Vec<Option<Texture2D>>,
+    /// Covers asked for (loaded, loading or without image) and still in the window.
+    requested: BTreeSet<usize>,
     loader: Option<ImageLoader>,
     cursor: usize,
     /// When the cursor landed on its game: its long title scrolls from then.
@@ -61,7 +65,7 @@ pub struct Library {
     /// until it arrives (events keep pointing at the games on screen).
     pending: Option<Receiver<Snapshot>>,
     /// Where cover thumbnails are cached.
-    thumbs_dir: std::path::PathBuf,
+    thumbs_dir: PathBuf,
 }
 
 /// What a load reads from disk, built off the UI thread: scanning reads
@@ -125,10 +129,9 @@ impl Library {
         let focused = self.games.get(self.cursor).map(|g| g.folder_name.clone());
         self.cursor = cursor_in(&snapshot.games, focused.as_deref());
         self.covers = vec![None; snapshot.games.len()];
-        self.loader = Some(ImageLoader::spawn(covers::cover_jobs(
-            &snapshot.games,
-            &self.thumbs_dir,
-        )));
+        self.requested.clear();
+        self.loader = None;
+        let _ = std::fs::create_dir_all(&self.thumbs_dir);
         self.games = snapshot.games;
         self.package_sizes = snapshot.package_sizes;
         self.in_steam = snapshot.in_steam;
@@ -141,22 +144,65 @@ impl Library {
         self.pending.is_some() && self.games.is_empty()
     }
 
-    /// Show a finished load, and upload covers decoded since the last frame.
+    /// Show a finished load, upload covers decoded since the last frame, and
+    /// keep only the covers around the cursor.
     pub fn poll(&mut self) {
         if let Some(snapshot) = self.pending.as_ref().and_then(|rx| rx.try_recv().ok()) {
             self.pending = None;
             self.apply(snapshot);
         }
-        let Some(loader) = &mut self.loader else {
-            return;
-        };
-        for (index, tex) in loader.poll() {
-            if let Some(slot) = self.covers.get_mut(index) {
-                *slot = Some(tex);
+        if let Some(loader) = &mut self.loader {
+            for (index, tex) in loader.poll() {
+                // A cover that left the window while decoding is dropped.
+                if let Some(slot) = self
+                    .covers
+                    .get_mut(index)
+                    .filter(|_| self.requested.contains(&index))
+                {
+                    *slot = Some(tex);
+                }
+            }
+            if !loader.loading() {
+                self.loader = None;
             }
         }
-        if !loader.loading() {
+        self.sync_covers();
+    }
+
+    /// Free the covers that left the window; once the loader is idle, load
+    /// the ones that entered it.
+    fn sync_covers(&mut self) {
+        let window = covers::cover_window(self.cursor, self.games.len());
+        let outside: Vec<usize> = self
+            .requested
+            .iter()
+            .copied()
+            .filter(|i| !window.contains(i))
+            .collect();
+        for index in outside {
+            self.requested.remove(&index);
+            self.covers[index] = None;
+        }
+        // Scrolling fast: a batch still decoding covers for the part of the
+        // list the cursor left stops, so the focused cover doesn't wait.
+        if self.loader.is_some() && !self.requested.contains(&self.cursor) {
             self.loader = None;
+            self.requested.retain(|&i| self.covers[i].is_some());
+        }
+        if self.loader.is_some() {
+            return;
+        }
+        let new: Vec<usize> = window
+            .into_iter()
+            .filter(|i| !self.requested.contains(i))
+            .collect();
+        self.requested.extend(&new);
+        let jobs: Vec<covers::Job> = new
+            .into_iter()
+            .filter_map(|i| covers::cover_job(&self.games[i], i, &self.thumbs_dir))
+            .collect();
+        if !jobs.is_empty() {
+            self.loader = Some(ImageLoader::spawn(jobs));
         }
     }
 
@@ -169,9 +215,7 @@ impl Library {
         (self.games.len() as f32 * ROW_STEP - ROW_GAP - list.h).max(0.0)
     }
 
-    /// `updating`: the autopilot is writing game.json files and Steam
-    /// shortcuts, so editing and Steam changes wait.
-    pub fn update(&mut self, ui: &Ui, area: Rect, jobs: &Jobs, updating: bool) -> Option<Event> {
+    pub fn update(&mut self, ui: &Ui, area: Rect, jobs: &Jobs) -> Option<Event> {
         if self.games.is_empty() {
             return None;
         }
@@ -204,8 +248,9 @@ impl Library {
             self.focused_at = get_time();
         }
         if nav {
-            let top = self.cursor as f32 * ROW_STEP;
-            self.scroll_target = self.scroll_target.min(top).max(top + ROW_H - list.h);
+            // The focused game stays in the middle; the clamp below stops
+            // the list at its first and last games.
+            self.scroll_target = self.cursor as f32 * ROW_STEP + ROW_H / 2.0 - list.h / 2.0;
         }
         self.scroll_target = self.scroll_target.clamp(0.0, self.max_scroll(list));
         let t = (get_frame_time() * 14.0).min(1.0);
@@ -216,11 +261,6 @@ impl Library {
         let busy = jobs.for_game(&id).is_some();
         let installed = game.is_installed();
 
-        if updating && !busy && (ui.action(Action::Edit) || ui.action(Action::Alt)) {
-            self.toast
-                .show("Updating the library, one moment...", theme::secondary());
-            return None;
-        }
         if ui.action(Action::Edit) {
             return match (busy, installed) {
                 (true, _) => Some(Event::Cancel(id)),
@@ -255,7 +295,8 @@ impl Library {
         }
     }
 
-    pub fn draw(&self, ui: &Ui, area: Rect, jobs: &Jobs) {
+    /// `update`: the library update running (label, progress 0..1).
+    pub fn draw(&self, ui: &Ui, area: Rect, jobs: &Jobs, update: Option<(&str, f32)>) {
         if self.first_load() {
             draw_spinner(area.x + 6.0, area.y + 24.0, 6.0, theme::accent());
             ui.text(
@@ -302,6 +343,9 @@ impl Library {
             );
         }
         self.draw_loading(ui, list);
+        if let Some((label, fraction)) = update {
+            style::progress_card(ui, list, label, fraction);
+        }
         self.toast.draw(ui, list);
     }
 

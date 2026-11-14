@@ -127,27 +127,33 @@ impl ImageLoader {
     }
 }
 
-/// Cover jobs keyed by game index, cached under `cache_dir`.
-pub fn cover_jobs(games: &[Game], cache_dir: &Path) -> Vec<Job> {
-    let _ = std::fs::create_dir_all(cache_dir);
-    games
-        .iter()
-        .enumerate()
-        .filter_map(|(key, g)| {
-            let source = match g.package().filter(|_| !g.is_installed()) {
-                Some(package) => Source::Package {
-                    package: package.to_path_buf(),
-                    name: g.images.cover.clone()?,
-                },
-                None => Source::File(g.image_path(ImageSlot::Cover)?),
-            };
-            Some(Job {
-                key,
-                source,
-                cache: Some(cache_dir.join(format!("{}.png", g.folder_name))),
-            })
-        })
-        .collect()
+/// The cover job of game `key`, cached under `cache_dir`; `None` without a cover.
+pub fn cover_job(game: &Game, key: usize, cache_dir: &Path) -> Option<Job> {
+    let source = match game.package().filter(|_| !game.is_installed()) {
+        Some(package) => Source::Package {
+            package: package.to_path_buf(),
+            name: game.images.cover.clone()?,
+        },
+        None => Source::File(game.image_path(ImageSlot::Cover)?),
+    };
+    Some(Job {
+        key,
+        source,
+        cache: Some(cache_dir.join(format!("{}.png", game.folder_name))),
+    })
+}
+
+/// Games whose cover stays loaded around the focused one: only the focused
+/// cover is drawn, so a big library doesn't keep every texture in memory.
+const COVER_MARGIN: usize = 8;
+
+/// Indexes of the covers to keep around `cursor` in a list of `count`
+/// games, nearest first (the focused one loads first).
+pub fn cover_window(cursor: usize, count: usize) -> Vec<usize> {
+    let mut window: Vec<usize> =
+        (cursor.saturating_sub(COVER_MARGIN)..(cursor + COVER_MARGIN + 1).min(count)).collect();
+    window.sort_by_key(|&i| i.abs_diff(cursor));
+    window
 }
 
 /// Uncached jobs for every artwork slot of one game, keyed by slot index.
@@ -193,4 +199,22 @@ fn is_fresh(thumb: &Path, src_mtime: SystemTime) -> bool {
     std::fs::metadata(thumb)
         .and_then(|m| m.modified())
         .is_ok_and(|t| t >= src_mtime)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_cover_window_starts_with_the_focused_game() {
+        assert_eq!(cover_window(20, 100)[..3], [20, 19, 21]);
+        assert_eq!(cover_window(20, 100).len(), 2 * COVER_MARGIN + 1);
+    }
+
+    #[test]
+    fn the_cover_window_stops_at_the_ends_of_the_list() {
+        assert_eq!(cover_window(0, 3), [0, 1, 2]);
+        assert_eq!(cover_window(99, 100).iter().max(), Some(&99));
+        assert!(cover_window(0, 0).is_empty());
+    }
 }

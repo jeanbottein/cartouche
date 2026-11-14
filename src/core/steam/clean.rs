@@ -90,6 +90,7 @@ fn remove_stale(config_dir: &Path, kept: &Kept, owner_tag: &str) -> Result<usize
 /// Remove our shortcuts whose executable is no longer in the library;
 /// returns how many were removed.
 pub fn clean(games: &[Game], cfg: &Config) -> usize {
+    let _files = super::files_lock();
     let kept = Kept::of(
         games,
         &games_in_steam(cfg, games),

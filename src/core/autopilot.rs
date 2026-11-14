@@ -11,12 +11,12 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
 use super::app::GAMES_DIR;
 use super::config::Config;
-use super::pipeline::{Pipeline, Summary};
+use super::pipeline::{Pipeline, Step, Summary};
 use super::{package, paths};
 
 pub const TICK: Duration = Duration::from_secs(2);
@@ -146,7 +146,8 @@ pub struct Autopilot {
     commands: Sender<Command>,
     reports: Receiver<Summary>,
     paused: Arc<AtomicBool>,
-    running: Arc<AtomicBool>,
+    /// The step of the run in progress; `None` when idle.
+    step: Arc<Mutex<Option<Step>>>,
 }
 
 impl Autopilot {
@@ -155,21 +156,21 @@ impl Autopilot {
         let (commands, inbox) = channel();
         let (outbox, reports) = channel();
         let paused = Arc::new(AtomicBool::new(false));
-        let running = Arc::new(AtomicBool::new(false));
+        let step = Arc::new(Mutex::new(None));
         let worker = Worker {
             watcher: Watcher::new(&cfg.cartridge_dir().join(GAMES_DIR)),
             cfg,
             inbox,
             outbox,
             paused: Arc::clone(&paused),
-            running: Arc::clone(&running),
+            step: Arc::clone(&step),
         };
         std::thread::spawn(move || worker.work());
         Autopilot {
             commands,
             reports,
             paused,
-            running,
+            step,
         }
     }
 
@@ -191,7 +192,12 @@ impl Autopilot {
     }
 
     pub fn is_running(&self) -> bool {
-        self.running.load(Ordering::Relaxed)
+        self.progress().is_some()
+    }
+
+    /// The step of the run in progress.
+    pub fn progress(&self) -> Option<Step> {
+        *self.step.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     /// Runs that ended since the last call.
@@ -211,7 +217,7 @@ struct Worker {
     inbox: Receiver<Command>,
     outbox: Sender<Summary>,
     paused: Arc<AtomicBool>,
-    running: Arc<AtomicBool>,
+    step: Arc<Mutex<Option<Step>>>,
 }
 
 impl Worker {
@@ -245,9 +251,9 @@ impl Worker {
     }
 
     fn run(&self) -> Summary {
-        self.running.store(true, Ordering::Relaxed);
-        let summary = Pipeline::new(&self.cfg).run(|| !self.paused());
-        self.running.store(false, Ordering::Relaxed);
+        let show = |step| *self.step.lock().unwrap_or_else(|e| e.into_inner()) = step;
+        let summary = Pipeline::new(&self.cfg).run(|| !self.paused(), |step| show(Some(step)));
+        show(None);
         summary
     }
 }

@@ -130,8 +130,7 @@ impl ModsScreen {
         }
     }
 
-    /// `updating`: the autopilot may be applying mods, so toggles wait.
-    pub fn update(&mut self, ui: &Ui, area: Rect, cfg: &Config, updating: bool) {
+    pub fn update(&mut self, ui: &Ui, area: Rect, cfg: &Config) {
         if !self.listed {
             self.refresh(cfg);
         }
@@ -144,9 +143,6 @@ impl ModsScreen {
         }
         if ui.action(Action::Alt) {
             self.refresh(cfg);
-        } else if activated && updating {
-            self.toast
-                .show("Updating the library, one moment...", theme::secondary());
         } else if activated {
             self.toggle(cfg);
         }

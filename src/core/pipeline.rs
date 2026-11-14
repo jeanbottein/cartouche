@@ -2,7 +2,13 @@
 //! phase only does what is missing (no targets, unknown size, no artwork, a
 //! stale shortcut), so a run over an unchanged library writes nothing. The
 //! autopilot runs it at launch and whenever the games folder changes.
+//!
+//! The game phases (detect, measure, enrich, persist) go through the games in
+//! batches, each batch written before the next: a long first run over a big
+//! new library can stop early (a game starts, the editor opens) and pick up
+//! where it was, and new games appear in the library as they are done.
 
+use std::ops::Range;
 use std::path::PathBuf;
 
 use log::info;
@@ -28,13 +34,12 @@ pub enum Phase {
 }
 
 impl Phase {
-    pub const ALL: [Phase; 10] = [
-        Phase::Migrate,
-        Phase::Scan,
-        Phase::Detect,
-        Phase::Measure,
-        Phase::Enrich,
-        Phase::Persist,
+    /// Over the whole library, before the games.
+    const LEAD: [Phase; 2] = [Phase::Migrate, Phase::Scan];
+    /// Per batch of games.
+    const GAMES: [Phase; 4] = [Phase::Detect, Phase::Measure, Phase::Enrich, Phase::Persist];
+    /// Over the whole library, after the games.
+    const TAIL: [Phase; 4] = [
         Phase::SteamClean,
         Phase::SteamExport,
         Phase::Manifest,
@@ -57,6 +62,52 @@ impl Phase {
     }
 }
 
+/// Games per batch of the game phases.
+const BATCH: usize = 10;
+
+/// The batches of a library of `total` games.
+fn batches(total: usize) -> Vec<Range<usize>> {
+    (0..total)
+        .step_by(BATCH)
+        .map(|start| start..(start + BATCH).min(total))
+        .collect()
+}
+
+/// Where a run is, for a progress display.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Step {
+    pub phase: Phase,
+    /// Game phases: games done before this batch, out of the library's.
+    pub games: Option<(usize, usize)>,
+    /// game.json files written so far in this run: the library on screen can
+    /// show them before the run ends.
+    pub written: usize,
+}
+
+impl Step {
+    /// How far along the run is (0..1). The game phases count as one stage,
+    /// filled batch by batch.
+    pub fn fraction(self) -> f32 {
+        let stages = (Phase::LEAD.len() + 1 + Phase::TAIL.len()) as f32;
+        let position = |phases: &[Phase]| phases.iter().position(|p| *p == self.phase);
+        let stage = match self.games {
+            Some((done, total)) => Phase::LEAD.len() as f32 + done as f32 / total.max(1) as f32,
+            None => position(&Phase::LEAD)
+                .or_else(|| position(&Phase::TAIL).map(|i| Phase::LEAD.len() + 1 + i))
+                .unwrap_or(0) as f32,
+        };
+        stage / stages
+    }
+
+    /// `Detection 10/200` for a game phase, else the phase's name.
+    pub fn label(self) -> String {
+        match self.games {
+            Some((done, total)) => format!("{} {done}/{total}", self.phase.label()),
+            None => self.phase.label().to_string(),
+        }
+    }
+}
+
 /// How a run went.
 #[derive(Debug, Default, PartialEq)]
 pub struct Summary {
@@ -66,6 +117,8 @@ pub struct Summary {
     pub steam_changed: bool,
     /// game.json files were written: the library on screen is out of date.
     pub games_changed: bool,
+    /// How many game.json files the game phases wrote.
+    pub games_written: usize,
 }
 
 pub struct Pipeline<'a> {
@@ -84,7 +137,7 @@ impl<'a> Pipeline<'a> {
         }
     }
 
-    /// Run one phase, noting in `summary` what it changed.
+    /// Run a whole-library phase, noting in `summary` what it changed.
     fn run_phase(&mut self, phase: Phase, summary: &mut Summary) {
         info!("\n--- {} ---", phase.label().to_uppercase());
         let cfg = self.cfg;
@@ -99,13 +152,6 @@ impl<'a> Pipeline<'a> {
             (Phase::Migrate, _) => {
                 let migrated = migrations::run_all(&self.games_dir);
                 summary.games_changed |= migrated.iter().any(|(_, count)| *count > 0);
-            }
-            (Phase::Detect, Some(games)) => detector::detect(games),
-            (Phase::Measure, Some(games)) => sizer::measure(games),
-            (Phase::Enrich, Some(games)) => sgdb::enrich(games, cfg),
-            (Phase::Persist, Some(games)) => {
-                summary.games_changed |= games.iter().any(|g| g.needs_persist && g.is_installed());
-                persister::persist(games);
             }
             (Phase::SteamClean, Some(games)) => {
                 summary.steam_changed |= steam::clean(games, cfg) > 0
@@ -122,11 +168,62 @@ impl<'a> Pipeline<'a> {
         }
     }
 
-    /// Run every phase, stopping before the next one once `keep_going` says no.
-    pub fn run(&mut self, keep_going: impl Fn() -> bool) -> Summary {
+    /// Run a game phase over the games of `batch`. No header: the phases
+    /// log only what they do, and batches repeat them.
+    fn run_game_phase(&mut self, phase: Phase, batch: Range<usize>, summary: &mut Summary) {
+        let Some(games) = self.games.as_mut().map(|games| &mut games[batch]) else {
+            return;
+        };
+        match phase {
+            Phase::Detect => detector::detect(games),
+            Phase::Measure => sizer::measure(games),
+            Phase::Enrich => sgdb::enrich(games, self.cfg),
+            Phase::Persist => {
+                let dirty = games
+                    .iter()
+                    .filter(|g| g.needs_persist && g.is_installed())
+                    .count();
+                summary.games_written += dirty;
+                summary.games_changed |= dirty > 0;
+                persister::persist(games);
+            }
+            _ => {}
+        }
+    }
+
+    /// Run every phase, stopping before the next one once `keep_going` says
+    /// no; `on_step` hears of each step as it starts.
+    pub fn run(&mut self, keep_going: impl Fn() -> bool, mut on_step: impl FnMut(Step)) -> Summary {
         let mut summary = Summary::default();
-        for phase in Phase::ALL {
-            if !keep_going() {
+        let mut start = |phase, games, written| {
+            let going = keep_going();
+            if going {
+                on_step(Step {
+                    phase,
+                    games,
+                    written,
+                });
+            }
+            going
+        };
+        for phase in Phase::LEAD {
+            if !start(phase, None, 0) {
+                return summary;
+            }
+            self.run_phase(phase, &mut summary);
+        }
+        info!("\n--- GAMES ---");
+        let total = self.games.as_ref().map_or(0, Vec::len);
+        for batch in batches(total) {
+            for phase in Phase::GAMES {
+                if !start(phase, Some((batch.start, total)), summary.games_written) {
+                    return summary;
+                }
+                self.run_game_phase(phase, batch.clone(), &mut summary);
+            }
+        }
+        for phase in Phase::TAIL {
+            if !start(phase, None, summary.games_written) {
                 return summary;
             }
             self.run_phase(phase, &mut summary);
@@ -143,6 +240,44 @@ mod tests {
     #[test]
     fn a_stopped_run_starts_no_phase() {
         let cfg = Config::from_raw("/nowhere/system/config.txt".into(), Default::default());
-        assert_eq!(Pipeline::new(&cfg).run(|| false), Summary::default());
+        let mut started = 0;
+        assert_eq!(
+            Pipeline::new(&cfg).run(|| false, |_| started += 1),
+            Summary::default()
+        );
+        assert_eq!(started, 0);
+    }
+
+    #[test]
+    fn games_go_in_batches_of_ten() {
+        assert_eq!(batches(23), [0..10, 10..20, 20..23]);
+        assert!(batches(0).is_empty());
+    }
+
+    #[test]
+    fn progress_fills_through_the_game_batches() {
+        let at = |phase, games| {
+            Step {
+                phase,
+                games,
+                written: 0,
+            }
+            .fraction()
+        };
+        assert_eq!(at(Phase::Migrate, None), 0.0);
+        let half_the_games = at(Phase::Persist, Some((100, 200)));
+        assert!(at(Phase::Scan, None) < half_the_games);
+        assert!(half_the_games < at(Phase::SteamClean, None));
+        assert!(at(Phase::Patch, None) < 1.0);
+    }
+
+    #[test]
+    fn a_game_step_names_its_count() {
+        let step = Step {
+            phase: Phase::Detect,
+            games: Some((10, 200)),
+            written: 0,
+        };
+        assert_eq!(step.label(), "Detection 10/200");
     }
 }

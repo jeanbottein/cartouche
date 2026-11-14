@@ -106,6 +106,30 @@ pub fn bar(r: Rect, fraction: f32, color: Color) {
     }
 }
 
+/// A small card floating over the bottom left of a list: what runs in the
+/// background, with its progress.
+pub fn progress_card(ui: &Ui, list: Rect, label: &str, fraction: f32) {
+    let t = theme::current();
+    let w = (list.w * 0.5).min(180.0);
+    let r = Rect::new(list.x + 8.0, list.bottom() - 38.0, w, 30.0);
+    if t.shadow.a > 0.0 {
+        glow(r.offset(vec2(0.0, 2.0)), t.radius, 10.0, t.shadow);
+    }
+    fill_rounded(r, t.radius, t.surface_hi);
+    stroke_rounded(r, t.radius, 1.0, t.border);
+    ui.small_text(
+        &ui.truncate_small(label, r.w - 16.0),
+        r.x + 8.0,
+        r.y + 14.0,
+        theme::muted(),
+    );
+    bar(
+        Rect::new(r.x + 8.0, r.y + 20.0, r.w - 16.0, 4.0),
+        fraction,
+        theme::accent(),
+    );
+}
+
 /// How long a toast stays on screen, in seconds.
 const TOAST_SECS: f64 = 4.0;
 

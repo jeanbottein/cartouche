@@ -107,6 +107,8 @@ pub struct App {
     server: Option<Server>,
     /// Background music, once `MUSIC_ENABLED` was on and there are tracks.
     music: Option<Music>,
+    /// game.json files the autopilot's run in progress wrote, as last shown.
+    written_seen: usize,
     /// Steam shortcuts were added or removed: offer to restart Steam on quit.
     steam_changed: bool,
     /// "Restart Steam?" before quitting.
@@ -139,6 +141,7 @@ impl App {
             input_resume_at: 0.0,
             server: None,
             music: None,
+            written_seen: 0,
             steam_changed: false,
             quit_dialog: None,
             back_held_over: false,
@@ -362,20 +365,21 @@ impl App {
         }
     }
 
-    /// Show what the autopilot's runs changed (reloading the library, covers
-    /// included, only when games changed); pause it while a game plays or the
-    /// editor is open (it must not write the game being edited).
+    /// Show what the autopilot changed: the library is reloaded when a batch
+    /// of games was written and when a run that changed games ends. Pause it
+    /// while a game plays or the editor is open (it must not write the game
+    /// being edited).
     fn collect_runs(&mut self) {
         let Some(autopilot) = &self.autopilot else {
             return;
         };
         autopilot.set_paused(self.session.is_some() || self.editor.is_some());
+        let written = autopilot.progress().map_or(0, |step| step.written);
         let runs = autopilot.finished();
-        if runs.is_empty() {
-            return;
-        }
+        let batch_written = written > self.written_seen;
+        self.written_seen = written; // back to 0 once idle
         self.steam_changed |= runs.iter().any(|run| run.steam_changed);
-        if runs.iter().any(|run| run.games_changed) {
+        if batch_written || runs.iter().any(|run| run.games_changed) {
             self.reload_library();
         }
     }
@@ -509,8 +513,7 @@ impl App {
             Tab::Network => self.update_network(area),
             Tab::Mods => {
                 if let Some(cfg) = &self.config {
-                    let updating = self.updating();
-                    self.mods.update(&self.ui, area, cfg, updating);
+                    self.mods.update(&self.ui, area, cfg);
                 }
             }
             Tab::Settings => {
@@ -564,8 +567,7 @@ impl App {
         if self.quit_progress() >= 1.0 && self.quit_dialog.is_none() {
             self.request_quit();
         }
-        let updating = self.updating();
-        let Some(event) = self.library.update(&self.ui, area, &self.jobs, updating) else {
+        let Some(event) = self.library.update(&self.ui, area, &self.jobs) else {
             return;
         };
         let games_dir = self.config.as_ref().and_then(Config::games_dir);
@@ -607,7 +609,7 @@ impl App {
         });
     }
 
-    /// "<folder name> in Steam" changed: add or remove the self-shortcut now.
+    /// "Add <folder name> to Steam" changed: add or remove the self-shortcut now.
     fn apply_self_shortcut(&mut self) {
         let Some(cfg) = &self.config else { return };
         let adding = cfg.is_true("STEAM_ADD_SELF");
@@ -626,6 +628,13 @@ impl App {
 
     /// Add the game to Steam or take it out, now.
     fn toggle_steam(&mut self, index: usize) {
+        if steam::files_busy() {
+            // The autopilot is writing them: don't freeze the UI waiting.
+            self.library
+                .toast
+                .show("Steam is being updated, one moment...", theme::secondary());
+            return;
+        }
         let (Some(cfg), Some(game)) = (&self.config, self.library.games.get(index)) else {
             return;
         };
@@ -699,7 +708,12 @@ impl App {
         match (&self.setup, self.tab, &self.editor) {
             (Some(setup), _, _) => setup.draw(&self.ui, area),
             (None, Tab::Library, Some(editor)) => editor.draw(&self.ui, area),
-            (None, Tab::Library, None) => self.library.draw(&self.ui, area, &self.jobs),
+            (None, Tab::Library, None) => {
+                let step = self.autopilot.as_ref().and_then(Autopilot::progress);
+                let label = step.map(|s| format!("Updating · {}", s.label()));
+                let update = label.as_deref().zip(step.map(|s| s.fraction()));
+                self.library.draw(&self.ui, area, &self.jobs, update);
+            }
             (None, Tab::Network, _) => {
                 self.network
                     .draw(&self.ui, area, self.config.as_ref(), &self.jobs)

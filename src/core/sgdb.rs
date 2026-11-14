@@ -412,14 +412,14 @@ fn wants_enrichment(game: &Game) -> bool {
 /// Add SteamGridDB names, IDs, release years and artwork to games that lack them.
 pub fn enrich(games: &mut [Game], cfg: &Config) {
     let Some(key) = api_key(cfg) else { return };
-    let system_dir = cfg.system_dir();
-    let mut cache = load_cache(&system_dir);
-    let snapshot = cache.clone();
-
     let todo: Vec<&mut Game> = games.iter_mut().filter(|g| wants_enrichment(g)).collect();
     if todo.is_empty() || UNREACHABLE.load(Ordering::Relaxed) {
         return;
     }
+    // Read once there is work: enrichment runs per batch of games.
+    let system_dir = cfg.system_dir();
+    let mut cache = load_cache(&system_dir);
+    let snapshot = cache.clone();
     info!("Enriching {} game(s) from SteamGridDB", todo.len());
 
     for game in todo {

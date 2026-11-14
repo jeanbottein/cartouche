@@ -8,6 +8,7 @@
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, MutexGuard};
 
 use log::{info, warn};
 use serde::{Deserialize, Serialize};
@@ -207,14 +208,24 @@ fn remember(cfg: &Config, id: &str, on: bool) -> Result<(), String> {
     save_state(cfg, &State { enabled })
 }
 
+static FILES: Mutex<()> = Mutex::new(());
+
+/// Held while applying or restoring mod files: the MODS screen and the
+/// autopilot may both do it.
+fn files_lock() -> MutexGuard<'static, ()> {
+    FILES.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 /// Turn a mod on: apply it, and keep it applied in later pipeline runs.
 pub fn enable(cfg: &Config, id: &str) -> Result<(), String> {
+    let _files = files_lock();
     apply_all(cfg, &find(cfg, id)?)?;
     remember(cfg, id, true)
 }
 
 /// Turn a mod off: restore the originals of the files it applied.
 pub fn disable(cfg: &Config, id: &str) -> Result<(), String> {
+    let _files = files_lock();
     let folder = find(cfg, id)?;
     let patches = patcher::read_patches(&folder)?;
     for (_, target, state) in files(&patches, &folder, &patcher::game_dirs(cfg)) {
@@ -227,6 +238,7 @@ pub fn disable(cfg: &Config, id: &str) -> Result<(), String> {
 
 /// Pipeline step 8: keep the mods the user turned on applied.
 pub fn run(cfg: &Config) {
+    let _files = files_lock();
     let wanted: Vec<Mod> = list(cfg).into_iter().filter(|m| m.enabled).collect();
     if load_state(cfg).is_none() && !wanted.is_empty() {
         let enabled = wanted.iter().map(|m| m.id.clone()).collect();
